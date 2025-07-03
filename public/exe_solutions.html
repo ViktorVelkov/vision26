@@ -1,0 +1,229 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>File Upload Panel</title>
+    <link rel="stylesheet" href="styles.css" />
+<style>
+    body {
+        background-color: #F5FFFA;
+    }
+    body {
+        font-family: sans-serif;
+        margin: 0;
+        padding: 0;
+    }
+
+    .switch-container {
+        display: flex;
+        width: 100%;
+        margin: 10px auto;
+        justify-content: center;
+    }
+
+    .switch-btn {
+        flex: 1;
+        padding: 14px;
+        font-size: 18px;
+        border: 1px solid #ccc;
+        cursor: pointer;
+        background-color: white;
+        font-weight: bold;
+    }
+
+        .switch-btn.active {
+            background-color: #cce7ff;
+            border-bottom: 3px solid #007bff;
+        }
+
+        .upload-layout{
+        display: flex;
+        gap: 40px;
+        margin-top: 30px;
+    }
+
+    .upload-wrapper {
+        display: flex;
+        justify-content: space-between;
+        gap: 40px;
+        padding: 20px;
+    }
+
+    .upload-left {
+        flex: 1;
+    }
+
+    .upload-right {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start;
+    }
+
+        .upload-right input {
+            width: 100%;
+            padding: 8px 12px;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            background-color: #f0f0f0;
+            color: #555;
+        }
+
+            .upload-right input[readonly] {
+                cursor: not-allowed;
+            }
+
+    .upload-box {
+        margin-bottom: 30px;
+        padding: 15px;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        background-color: white;
+    }
+
+    .upload-btn {
+        margin-top: 10px;
+        padding: 8px 16px;
+        background-color: #007bff;
+        color: white;
+        border: none;
+        cursor: pointer;
+        border-radius: 4px;
+    }
+
+        .upload-btn:hover {
+            background-color: #0056b3;
+        }
+    .input-row {
+        display: flex;
+        flex-direction: row;
+        gap: 10px; /* space between inputs */
+        margin-top: 10px;
+    }
+
+        .input-row input {
+            flex: 1; /* both take equal space */
+            padding: 6px 10px;
+            font-size: 14px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            box-sizing: border-box;
+        }
+    .form-group {
+        margin-bottom: 12px;
+        display: flex;
+        flex-direction: column;
+    }
+
+        .form-group input,
+        .form-group select {
+            padding: 6px;
+            font-size: 14px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        }
+</style>
+
+</head>
+<body>
+    <script>
+        document.querySelectorAll('.switch-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            document.querySelectorAll('.switch-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            const mode = btn.getAttribute('data-mode');
+
+            document.getElementById('uploadSection').style.display = mode === 'upload' ? 'block' : 'none';
+            document.getElementById('manageSection').style.display = mode === 'manage' ? 'block' : 'none';
+  });
+});
+
+    </script>
+    <!-- View Switch -->
+    <div id="viewSwitch" class="switch-container">
+        <button class="switch-btn active" data-mode="upload">Upload File</button>
+        <button class="switch-btn" data-mode="manage">Manage Files</button>
+    </div>
+
+    <!-- Upload Form Section -->
+    <div id="uploadSection">
+        <!-- Upload form will go here -->
+        <div class="upload-layout">
+            <!-- Left side: two upload sections -->
+            <div class="upload-left">
+                <div class="upload-box">
+                    <label for="file1">Качване на условие:</label>
+                    <input type="file" id="file1" name="fileA" /><br>
+                </div>
+
+                <div class="upload-box">
+                    <label for="file2">Качване на решение:</label>
+                    <input type="file" id="file2" name="fileB" /><br>
+                </div>
+                <br><br>
+                <button id="uploadBtnB" class="uploadBtnB" style="width:500px">Напред</button>
+
+            </div>
+
+            <!-- Right side:  -->
+            <div class="upload-right">
+                <textarea id="name" rows="1" readonly placeholder="Име(съставно):"></textarea>
+                <div>
+                    <input type="text" id="Number" placeholder="Задача Номер" />
+                    <input type="text" id="Page" placeholder="Страница" />
+                    <select id="keywordDropdown">
+                        <option disabled selected>-- Избери ресурс --</option>
+                    </select>
+                    <div class="form-group">
+                        <label for="classField">Клас:</label>
+                        <input type="text" id="classField" placeholder="Enter class" />
+                        <!-- <button id="uploadBtnA" class="uploadBtnA">Генерирай име</button> -->
+                    </div>
+
+                    <div class="form-group">
+                        <label for="altText">URL за снимка на условието(алтернативен):</label>
+                        <input type="text" id="altText" placeholder="URL for text" />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="altSolution">URL за снимка на решението(алтернативен):</label>
+                        <input type="text" id="altSolution" placeholder="URL for solution" />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="difficulty">Трудност:</label>
+                        <select id="difficulty">
+                            <option value="1">1 - Лесно</option>
+                            <option value="2">2 - Средно</option>
+                            <option value="3">3 - Трудно</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="dateLastSolved">Последно решаван на:</label>
+                        <input type="date" id="dateLastSolved" />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="dateForRevision">Дата за преговор:</label>
+                        <input type="date" id="dateForRevision" />
+                    </div>
+                    <div class="form-group">
+                        <label for="comments">Коментари:</label>
+                        <textarea id="comments" placeholder="Добави коментар" rows="3"></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Manage Files Section -->
+    <div id="manageSection" style="display: none;">
+        <!-- File list or controls will go here -->
+    </div>
+
+    <script src="exe_solutions.js"></script>
+</body>
+</html>
