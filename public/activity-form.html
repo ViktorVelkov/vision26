@@ -1,0 +1,259 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <title></title>
+    <script defer src="activity-form.js"></script>
+    
+    <style>
+        /* Reset and layout for the ordered list */
+        #studentList ol {
+            counter-reset: student-counter;
+            list-style: none;
+            padding-left: 0;
+            margin: 0;
+        }
+
+        /* Each student row as a flex container */
+        #studentList li {
+            counter-increment: student-counter;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-family: monospace;
+            margin-bottom: 4px;
+        }
+
+            /* Inject the number + "--" before each line */
+            #studentList li::before {
+                content: counter(student-counter) ". ";
+                margin-right: 0;
+            }
+
+        /* Optional: style the dropdowns */
+        #studentList select {
+            min-width: 50px;
+            font-size: 16px;
+            padding: 4px;
+        }
+
+
+        .switch-container {
+            display: flex;
+            flex-wrap: wrap;
+            width: 100%;
+            margin-bottom: 1rem;
+        }
+
+        .switch-btn {
+            flex: 1 1 50%;
+            padding: 6px 8px; /* ✅ Narrow height */
+            font-size: 0.95rem;
+            text-align: center;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            background-color: white;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+            .switch-btn:hover {
+                background-color: #f0f0f0;
+            }
+
+            .switch-btn.active {
+                background-color: #d0eaff;
+                font-weight: bold;
+            }
+
+        /* ✅ Stack vertically on small screens */
+        @media (max-width: 500px) {
+            .switch-btn {
+                flex: 1 1 100%;
+            }
+        }
+        .searchWrapper {
+            display: flex;
+            justify-content: center;
+            width: 100%;
+            margin-top: 20px;
+        }
+
+        #searchContainer {
+            display: flex;
+            flex-direction: column; /* ✅ Stack vertically */
+            align-items: center; /* ✅ Center horizontally */
+            gap: 8px;
+        }
+
+        #searchInput {
+            padding: 6px 10px;
+            font-size: 1rem;
+            width: 280px;
+        }
+
+        #studentSearchButton {
+            padding: 6px 12px;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+        .activity-wrapper {
+            display: flex;
+            gap: 20px;
+            align-items: flex-start;
+            justify-content: space-between;
+            margin-top: 20px;
+        }
+
+        .left-panel {
+            flex: 1;
+            min-width: 50%;
+        }
+
+        .right-panel {
+            flex: 1;
+            max-width: 50%;
+        }
+
+        .table-wrapper {
+            max-height: 7.8em;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            background-color: white;
+        }
+
+        .log-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.6em;
+        }
+
+            .log-table th {
+                background-color: #cce5ff; /* Match your tab button */
+                color: #000;
+                padding: 6px 8px;
+                text-align: left;
+                position: sticky;
+                top: 0;
+                z-index: 1;
+            }
+
+            .log-table td {
+                padding: 5px 8px;
+                border-bottom: 1px solid #ddd;
+                background-color: #fdfdfd;
+                /* height: 32px; /* Fixed row height 
+                line-height: 1.2;
+                */
+            }
+            
+    </style>
+
+</head>
+
+<body>
+        <div id="viewSwitch" class="switch-container">
+            <br >
+            <button class="switch-btn active" data-mode="form">Activity Form</button>
+            <button class="switch-btn" data-mode="summary">Individual Search(Activity)</button>
+        </div>
+        <br>
+        <div id="formSection">
+            <label>Date: <input type="date" name="date" required></label><br><br>
+            <label>
+                Class:
+                <select name="className" required>
+                    <option value="">-- Select Class --</option>
+                </select>
+            </label>
+            <button type="button" id="fetchStudentsBtn">Fetch Students</button>
+            <div id="studentList"></div>
+            <br><br>
+            <button id="submitActivityBtn">Submit </button>
+            <br><br>
+            <div class="activity-layout">
+                <div class="activity-form-panel">
+                    <!-- your existing form content here -->
+                </div>
+            </div>
+            <br><br>
+            <br><br>
+            <br><br>
+            <div class="activity-wrapper">
+                <div class="left-panel">
+                    <!-- Your activity form elements -->
+                </div>
+
+                <div class="right-panel">
+                    <h5>Recent Submissions</h5>
+                    <div class="table-wrapper">
+                        <table class="log-table">
+                            <thead>
+                                <tr>
+                                    <th>Class</th>
+                                    <th>Assigned Date</th>
+                                    <th>Inserted At</th>
+                                </tr>
+                            </thead>
+                            <tbody id="logTableBody">
+                                <!-- JS fills this in -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    <div id="summarySection" style="display: none;">
+        <div class="searchWrapper">
+            <div id="searchContainer">
+                <input type="text" id="searchInput" placeholder="Search by name..." />
+                <button id="clearSearchBtn">Clear</button>
+            </div>
+        </div>
+        <ul id="searchResults"></ul>
+        <ol id="summaryList"></ol>
+    </div>    <form id="activityForm">
+    </form>
+
+    <script>
+            const searchInput = document.getElementById("searchInput");
+            const resultsList = document.getElementById("searchResults");
+            let selectedStudent = null;
+
+            searchInput.addEventListener("input", async () => {
+            const query = searchInput.value.trim();
+            resultsList.innerHTML = "";
+
+                        if (query === "") return;
+
+                        try {
+                            const res = await fetch(`/students/search?name=${encodeURIComponent(query)}`);
+                            const students = await res.json();
+
+                            students.forEach(student => {
+                                const li = document.createElement("li");
+                                li.dataset.id = student.id;
+                                li.textContent = `${student.ID} -- ${student.First_Name} ${student.Sirname}`;
+                                li.style.cursor = "pointer";
+
+                                li.addEventListener("click", () => {
+                                    selectedStudent = student;
+                                    alert(`Selected: ${student.First_Name} ${student.Sirname} (ID: ${student.ID})`);
+                                    resultsList.innerHTML = "";
+                                    searchInput.value = `${student.First_Name} ${student.Sirname}`;
+                                });
+
+                                resultsList.appendChild(li);
+                            });
+
+                        } catch (err) {
+                            console.error("Search failed:", err);
+                            resultsList.innerHTML = "<li>No students found.</li>";
+
+                        }
+            });
+    </script>
+
+</body>
+</html>
