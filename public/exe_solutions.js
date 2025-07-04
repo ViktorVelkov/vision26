@@ -101,14 +101,15 @@ document.addEventListener("DOMContentLoaded", async () => {
         data.forEach(resource => {
             const option = document.createElement("option");
             option.value = resource.ID; // or another identifier if needed
-            option.textContent = `${resource.KeyWords} (${resource.SourceType})`;
+            option.textContent = `${resource.ID} -- ${resource.KeyWords} (${resource.SourceType})`;
             dropdown.appendChild(option);
 
         });
     } catch (err) {
         console.error("Error fetching resources:", err);
     }
-
+    // second dropdown inside the management section
+    populateManageResourcesDropdown()
 });
 
 
@@ -166,13 +167,119 @@ async function handleUploadAndInsert() {
         const result = await res.json();
         alert("✅ Exercise saved successfully: ID " + result.id);
     } catch (err) {
-        console.error("❌ Error during upload or insert:", err);
-        console.log(err)
-        alert("An error occurred while saving your data.");
+        alert("⚠️ Exercise already exists in the database.");
     }
 }
 
 
+
+async function populateManageResourcesDropdown() {
+    try {
+        const dropdown = document.getElementById("keywordDropdown_MR");
+        if (!dropdown) {
+            console.error("⛔ 'keywordDropdown_MR' not found.");
+            return;
+        }
+
+        const res = await fetch("/resources/keywords");
+        const data = await res.json();
+
+        data.forEach(resource => {
+            const option = document.createElement("option");
+            option.value = resource.ID;
+            option.textContent = `${resource.ID} -- ${resource.KeyWords} (${resource.SourceType})`;
+            dropdown.appendChild(option);
+        });
+    } catch (err) {
+        console.error("❌ Error populating manage section dropdown:", err);
+    }
+}
+
+document.getElementById("searchBtnA").addEventListener("click", async () => {
+    const resourceID = document.getElementById("keywordDropdown_MR").value;
+    const page = document.getElementById("Page_MR").value;
+    const number = document.getElementById("Number_MR").value;
+
+    try {
+        const res = await fetch(`/exercise-details?resourceID=${resourceID}&page=${page}&number=${number}`);;
+        const data = await res.json();
+        console.log(resourceID,page);
+        const tbody = document.querySelector("#manageTable tbody");
+        tbody.innerHTML = ""; // Clear existing rows
+        
+        [data].forEach((exercise) => {
+            const row = document.createElement("tr");
+
+            row.innerHTML = `
+                <td>${exercise.ID}</td>
+                <td>${exercise.Page}</td>
+                <td>${exercise.Number}</td>
+                <td>${exercise.ResourceID}</td>
+                <td data-field="date_last_solved" data-id="${exercise.ID}" contenteditable="true">${(exercise.date_last_solved || []).join(", ")}</td>
+                <td data-field="for_revision" data-id="${exercise.ID}" contenteditable="true">${(exercise.for_revision || []).join(", ")}</td>
+                <td data-field="comments" data-id="${exercise.ID}" contenteditable="true">${(exercise.comments || []).join(", ")}</td>
+                <td data-field="multiple_solutions" data-id="${exercise.ID}" contenteditable="true">${exercise.multiple_solutions}</td>
+            `;
+
+            tbody.appendChild(row);
+        });
+
+    } catch (err) {
+        console.error("❌ Error fetching exercises:", err);
+        alert("❌ Could not fetch matching exercises.");
+    }
+});
+
+document.getElementById("saveAllBtn").addEventListener("click", async () => {
+  const editableCells = document.querySelectorAll("td[contenteditable='true']");
+  for (const cell of editableCells) {
+    const id = cell.dataset.id;
+    const field = cell.dataset.field;
+    const original = (cell.dataset.original || "").trim();
+    const current = (cell.textContent || "").trim();
+
+    // Only proceed if value has changed
+    if (original === current || current === "") continue;
+
+    try {
+      const res = await fetch("/update-exercise", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, field, value: current })
+      });
+
+      if (!res.ok) throw new Error("Update failed for " + field);
+      const updated = await res.json();
+      console.log("✅ Updated:", field, updated);
+
+      // Update original to prevent duplicate updates
+      cell.dataset.original = current;
+    } catch (err) {
+      console.error("❌ Update error:", err);
+      alert(`Error: Update failed for ${field}`);
+    }
+  }
+});
+
+document.querySelectorAll(".datePicker").forEach(input => {
+  input.addEventListener("change", () => {
+    const targetField = input.dataset.target;
+    const id = input.dataset.id;
+    const cell = document.querySelector(
+      `[data-field="${targetField}"][data-id="${id}"]`
+    );
+
+    const pickedDate = input.value;
+    if (pickedDate && cell) {
+      let existing = cell.textContent.trim();
+      const updated = existing ? `${existing}, ${pickedDate}` : pickedDate;
+      cell.textContent = updated;
+    }
+
+    // Optional: Clear picker value after adding
+    input.value = "";
+  });
+});
 
 
 //Filepath is: /Users/viktorvelkov/Documents/Solutions+AssignementConditions-E.

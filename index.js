@@ -209,6 +209,7 @@ app.post("/custom-upload", upload.fields([
 ]), async (req, res) => {
   const name = req.body.name; // Should be like '001_005_002'
   const baseDir = "/Users/viktorvelkov/Documents/AssignementConditions+Solutions";
+  let renamed = false;
 
   if (!name) {
     return res.status(400).json({ error: "Missing file name." });
@@ -231,12 +232,13 @@ app.post("/custom-upload", upload.fields([
       while (fs.existsSync(fullPath)) {
         fullPath = path.join(baseDir, `${baseName}_${counter}${ext}`);
         counter++;
+        renamed = true;
       }
 
       fs.writeFileSync(fullPath, file.buffer);
       savedFiles.push(path.basename(fullPath));
     };
-
+ 
     if (req.files.file1?.[0]) {
       saveFile(req.files.file1[0], 't'); // _t = assignment condition
     }
@@ -247,6 +249,25 @@ app.post("/custom-upload", upload.fields([
 
     if (savedFiles.length === 0) {
       return res.status(400).json({ error: "No files were uploaded." });
+    }
+
+// 🔁 Increment multiple_solutions if file was renamed (count > 1)
+    if (renamed) {
+        try {
+            const updateQuery = `
+                UPDATE "Exercises"
+                SET "multiple_solutions" = COALESCE("multiple_solutions", 1) + 1
+                WHERE "ResourceID" = $1 AND "Page" = $2 AND "Number" = $3
+            `;
+            await pool.query(updateQuery, [
+                req.body.resourceID,
+                req.body.page,
+                req.body.number
+                ]);
+            console.log("🔁 multiple_solutions incremented.");
+        } catch (err) {
+            console.error("❌ Failed to increment multiple_solutions:", err);
+        }
     }
 
     return res.status(200).json({ message: "Upload complete.", savedFiles });
@@ -297,4 +318,74 @@ app.post("/exercises", async (req, res) => {
         console.error("DB insert error:", err);
         res.status(500).send("❌ Failed to insert into Exercises");
     }
+});
+app.patch("/update-exercise", async (req, res) => {
+  const { id, field, value } = req.body;
+
+  const appendFields = ["comments", "date_last_solved", "for_revision"];
+  const allowedFields = [
+    "Difficulty",
+    "multiple_solutions",
+    "has_solution",
+    "has_assignmentCondition",
+    ...appendFields
+  ];
+
+  if (!allowedFields.includes(field)) {
+    return res.status(400).json({ error: "Invalid field" });
+  }
+
+  try {
+    let query, params;
+
+    if (appendFields.includes(field)) {
+      // Detect type and cast accordingly
+      let castType = "text";
+      if (field === "date_last_solved" || field === "for_revision") {
+        castType = "date";
+      }
+
+      query = `
+        UPDATE "Exercises"
+        SET "${field}" = array_append(COALESCE("${field}", '{}'), $1::${castType})
+        WHERE "ID" = $2 RETURNING *`;
+      params = [value, id];
+    } else {
+      query = `
+        UPDATE "Exercises"
+        SET "${field}" = $1
+        WHERE "ID" = $2 RETURNING *`;
+      params = [value, id];
+    }
+
+    const result = await pool.query(query, params);
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("❌ DB update error:", err);
+    res.status(500).json({ error: "Update failed" });
+  }
+});
+
+app.get("/exercise-details", async (req, res) => {
+  const { resourceID, page, number } = req.query;
+
+  if (!resourceID || !page || !number) {
+    return res.status(400).json({ error: "Missing query parameters" });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT * FROM "Exercises" WHERE "ResourceID" = $1 AND "Page" = $2 AND "Number" = $3`,
+      [resourceID, page, number]
+    );
+
+    if (result.rows.length > 0) {
+      res.json(result.rows[0]);
+    } else {
+      res.status(404).json({ message: "Exercise not found" });
+    }
+  } catch (err) {
+    console.error("DB error:", err);
+    res.status(500).json({ error: "Failed to retrieve exercise." });
+  }
 });
