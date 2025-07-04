@@ -144,7 +144,7 @@
     <!-- View Switch -->
     <div id="viewSwitch" class="switch-container">
         <button class="switch-btn active" data-mode="upload">Upload File</button>
-        <button class="switch-btn" data-mode="manage">Manage Files</button>
+        <button class="switch-btn" data-mode="manage">Manage Records</button>
     </div>
 
     <!-- Upload Form Section -->
@@ -221,9 +221,83 @@
 
     <!-- Manage Files Section -->
     <div id="manageSection" style="display: none;">
-        <!-- File list or controls will go here -->
-    </div>
+            
+         
+        <div class="upload-layout">
+            <!-- Left side: two manage sections -->
+            <div class="manage-left">
+                <div>
+                   
+                    <input type="text" id="Number_MR" placeholder="Задача Номер" /><br>
+                    <input type="text" id="Page_MR" placeholder="Страница" />
+                    <select id="keywordDropdown_MR">
+                        <option disabled selected>-- Избери ресурс --</option>
+                    </select>
+                    <button id="searchBtnA" class="uploadBtnB" style="width:300px">Search</button>
+                    <!-- 
+                    <h5>Полета за промяна:</h5>
+                    <div class="upload-box">
+                         <label for="file1">Качване на условие:</label>
+                        <input type="file" id="file1" name="fileA" /><br>
+                    </div>
+                    <input type="text" id="difficulty_MR" placeholder="Сложност" />
+                    <div class="form-group">
+                        <label for="dateLastSolved">Последно решаван на:</label>
+                        <input type="date" id="dateLastSolved" />
+                    </div>
 
+                    <div class="form-group">
+                        <label for="dateForRevision">Дата за преговор:</label>
+                        <input type="date" id="dateForRevision" />
+                    </div>
+                    <div class="form-group">
+                        <label for="comments">Коментари:</label>
+                        <textarea id="comments" placeholder="Добави коментар" rows="3"></textarea>
+                    </div>
+-->
+
+                    <table id="manageTable" border="1" style="margin-top: 1rem; border-collapse: collapse; width: 100%;">
+                        <thead style="background-color: #cce5ff;">
+                            <tr>
+                            <th>ID</th>
+                            <th>Page</th>
+                            <th>Number</th>
+                            <th>SourceID</th>
+                            <th>Date Last Solved</th>
+                            <th>Date for Revision</th>
+                            <th>Comments</th>
+                            <th>Multiple Solutions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                            <td data-id="1">1</td>
+                            <td data-field="Page" data-id="1" data-original = "empty"></td>
+                            <td data-field="Number" data-id="1" data-original = "empty">empty</td>
+                            <td data-field="ResourceID" data-id="1" data-original = "empty">empty</td>
+                            <td data-field="date_last_solved" data-id="1" contenteditable="true" data-original = "empty">empty</td>
+                            <td data-field="for_revision" data-id="1" contenteditable="true" data-original = "empty">empty</td>
+                            <td data-field="comments" data-id="1" contenteditable="true">empty</td>
+<!-- <td><div data-field="date_last_solved" data-id="1" contenteditable="true" data-original="${(exercise.date_last_solved || []).join(', ')}">
+                                    ${(exercise.date_last_solved || []).join(', ')} </div>
+                            <input type="date" class="datePicker" data-id="${exercise.ID}" data-target="date_last_solved" />
+                            </td>-->
+
+
+                            <td data-field="multiple_solutions" data-id="1" contenteditable="true">1</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <button id="saveAllBtn">Save Changes</button>
+                </div>
+            </div>
+
+
+            
+        </div>
+    </div>
+   
     <script src="exe_solutions.js"></script>
 </body>
+
 </html>
