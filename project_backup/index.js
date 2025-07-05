@@ -319,6 +319,7 @@ app.post("/exercises", async (req, res) => {
         res.status(500).send("❌ Failed to insert into Exercises");
     }
 });
+
 app.patch("/update-exercise", async (req, res) => {
   const { id, field, value } = req.body;
 
@@ -339,27 +340,23 @@ app.patch("/update-exercise", async (req, res) => {
     let query, params;
 
     if (appendFields.includes(field)) {
-      // Detect type and cast accordingly
-      //let castType = "text";
-      console.log(field);
-      if (field === "date_last_solved" || field === "for_revision") {
-        castType = "date";
-      
+      let castType = field === "comments" ? "text" : "date";
 
-            query = `
+      query = `
         UPDATE "Exercises"
-        SET "${field}" = array_append(COALESCE("${field}", '{}'::date[]), $1::text::date)
+        SET "${field}" = array_append(COALESCE("${field}", '{}'::${castType}[]), $1::${castType})
         WHERE "ID" = $2 RETURNING *`;
-        params = [(Array.isArray(value) ? value[0] : value).toString(), id];     
-    
-      }else {
-      
-            query = `
+
+      // Always take the first value if it's an array
+      params = [Array.isArray(value) ? value[0] : value, id];
+    } else {
+      query = `
         UPDATE "Exercises"
         SET "${field}" = $1
         WHERE "ID" = $2 RETURNING *`;
-        params = [(Array.isArray(value) ? value[0] : value).toString(), id];    }
-    } 
+
+      params = [value, id];
+    }
 
     const result = await pool.query(query, params);
     res.json(result.rows[0]);

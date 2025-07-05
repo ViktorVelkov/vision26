@@ -203,10 +203,11 @@ document.getElementById("searchBtnA").addEventListener("click", async () => {
     try {
         const res = await fetch(`/exercise-details?resourceID=${resourceID}&page=${page}&number=${number}`);;
         const data = await res.json();
+        console.log(resourceID,page);
         const tbody = document.querySelector("#manageTable tbody");
         tbody.innerHTML = ""; // Clear existing rows
         
-         [data].forEach((exercise) => {
+        [data].forEach((exercise) => {
             const row = document.createElement("tr");
 
             const solvedDates = (exercise.date_last_solved || [])
@@ -254,6 +255,7 @@ document.getElementById("searchBtnA").addEventListener("click", async () => {
     }
 });
 
+
 document.getElementById("saveAllBtn").addEventListener("click", async () => {
   const editableCells = document.querySelectorAll("td[contenteditable='true'], input.datePicker");
 
@@ -266,38 +268,33 @@ document.getElementById("saveAllBtn").addEventListener("click", async () => {
       ? cell.value.trim()                  // for <input type="date">
       : cell.textContent.trim();           // for contenteditable cells
     
-    console.log("🚀 Sending value:", { field, current, raw: cell.value });
+    
     if (
     (field === "date_last_solved" || field === "for_revision") &&
     current.includes("T")
     ) {
       current = current.split("T")[0];
     }
-
-    // Force extraction of just date
-    if (field === "date_last_solved" || field === "for_revision") {
-    current = current.substring(0, 10); // Always keep just YYYY-MM-DD
-    }
-    
     console.log(field);
     if (original === current || current === "") continue;
     // If no field or value present, skip
     if (!field || current === "") continue;
+
+    // Skip if no change for standard fields
+    if (field !== "comments" && field !== "date_last_solved" && field !== "for_revision" && original === current) continue;
+
        
     let value;
     console.log("Updating:", { id, field, value });
-
-    if ((field === "date_last_solved" || field === "for_revision") && current.includes("T")) {
-    current = current.split("T")[0];  // Keep only the date part
+    // Format value based on field type
+    if (field === "date_last_solved" || field === "for_revision" ) {
+      value = [current]; // wrap in array for PostgreSQL date[]
     }
     else {
-      value = current; 
-            console.log("Updating 3", value);
-
+      value = current; // string or number for other fields
     }
    if (field === "comments") {
         let existingComments = [];
-              console.log("Updating 4", value);
 
         try {
             existingComments = JSON.parse(cell.dataset.original || "[]");
@@ -331,7 +328,7 @@ document.getElementById("saveAllBtn").addEventListener("click", async () => {
             // ✅ Just append one new comment — no duplication
             existingComments.push(currentComment);
             cell.dataset.original = JSON.stringify(existingComments);
-            //cell.textContent = existingComments.join(", ");
+            cell.textContent = existingComments.join(", ");
         } catch (err) {
             console.error("❌ Update error:", err);
             alert(`Error: Update failed for ${field}`);
@@ -363,26 +360,5 @@ document.getElementById("saveAllBtn").addEventListener("click", async () => {
     }
   }
 });
-
-document.querySelectorAll(".datePicker").forEach(input => {
-  input.addEventListener("change", () => {
-    const targetField = input.dataset.target;
-    const id = input.dataset.id;
-    const cell = document.querySelector(
-      `[data-field="${targetField}"][data-id="${id}"]`
-    );
-
-    const pickedDate = input.value;
-    if (pickedDate && cell) {
-      let existing = cell.textContent.trim();
-      const updated = existing ? `${existing}, ${pickedDate}` : pickedDate;
-      cell.textContent = updated;
-    }
-
-    // Optional: Clear picker value after adding
-    input.value = "";
-  });
-});
-
 
 //Filepath is: /Users/viktorvelkov/Documents/Solutions+AssignementConditions-E.

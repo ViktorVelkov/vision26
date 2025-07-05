@@ -312,12 +312,13 @@
                             <td data-field="comments"
                                 data-id="${exercise.ID}"
                                 contenteditable="true"
-                                data-original='empty'>
-                                empty
+                                data-original='${JSON.stringify(exercise.comments || [])}'>
+                                ${(exercise.comments || []).join(", ")}
                             </td>
+
+
                             <td data-field="multiple_solutions" data-id="1" contenteditable="true">1</td>
                             </tr>
-
                         </tbody>
                     </table>
                     <button id="saveAllBtn">Save Changes</button>
