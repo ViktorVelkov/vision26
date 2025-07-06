@@ -294,11 +294,8 @@ document.getElementById("saveAllBtn").addEventListener("click", async () => {
         console.log("Current is " + current );
         console.log("Field is " + field);
         
-    if(current.contains('/')){
+    if(field === "has_assignmentCondition" && current == "false"){
         //
-        function pad(value) {
-            return value.toString().padStart(3, '0');
-        }
         console.log("inside the if");
         const resourceID = row?.querySelector("td[data-field='resourceID']")?.textContent?.trim();
         const page = row?.querySelector("td[data-field='Page_MR']")?.textContent?.trim();
