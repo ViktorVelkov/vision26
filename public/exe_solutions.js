@@ -10,8 +10,19 @@
     });
 });
 
+document.getElementById("fileClear1").addEventListener("click", async() => {
+    document.getElementById("file1").value = "";
+})
 
+document.getElementById("fileClear2").addEventListener("click", async() => {
+    document.getElementById("file2").value = "";
+})
 
+//
+document.getElementById("clear_MR").addEventListener("click", async() => {
+    resetManageForm();
+    document.getElementById("searchBtnA").click();
+});
 
 // For uploadBtnB - 
 document.getElementById("uploadBtnB").addEventListener("click", async () => {
@@ -57,7 +68,11 @@ document.getElementById("uploadBtnB").addEventListener("click", async () => {
     } catch (err) {
         alert("❌ Upload failed: " + err.message);
     }
+    // 
+    resetUploadForm();
 });
+
+
 document.addEventListener("DOMContentLoaded", () => {
     function pad(value) {
         return value.toString().padStart(3, '0');
@@ -208,7 +223,6 @@ document.getElementById("searchBtnA").addEventListener("click", async () => {
         
          [data].forEach((exercise) => {
             const row = document.createElement("tr");
-
             const solvedDates = (exercise.date_last_solved || [])
             .map(date => date.split("T")[0])
             .join(" -- ");
@@ -239,10 +253,21 @@ document.getElementById("searchBtnA").addEventListener("click", async () => {
                 data-original='${JSON.stringify(exercise.comments || [])}'>
                 ${(exercise.comments || []).join(", ")}
             </td>
-            <td data-field="multiple_solutions"
+            
+            <td data-field="has_solution"
                 data-id="${exercise.ID}"
-                contenteditable="true">
-                ${exercise.multiple_solutions}
+                contenteditable="true"
+                data-original="${exercise.has_solution}">
+                ${exercise.has_solution}
+            </td>
+
+            <td data-field="has_assignmentCondition"
+                data-id="${exercise.ID}"
+                data-original="${exercise.has_assignmentCondition}">
+                ${exercise.has_assignmentCondition}
+                <input type="file"
+                    class="uploadInput_MR"
+                    data-id="${exercise.ID}" />
             </td>
             `;
             tbody.appendChild(row);
@@ -255,18 +280,41 @@ document.getElementById("searchBtnA").addEventListener("click", async () => {
 });
 
 document.getElementById("saveAllBtn").addEventListener("click", async () => {
-  const editableCells = document.querySelectorAll("td[contenteditable='true'], input.datePicker");
-
-  for (const cell of editableCells) {
+  const editableCells = document.querySelectorAll("td[contenteditable='true'], input.datePicker,input.uploadInput_MR");
+    for (const cell of editableCells) {
+    const row = cell.closest("tr");
     const id = cell.dataset.id;
     const field = cell.dataset.field || cell.dataset.target;
     const original = (cell.dataset.original || "").trim();
-
+    const fileInput = document.querySelector(`.uploadInput_MR[data-id="${id}"]`);    
     let current = cell.tagName === "INPUT"
       ? cell.value.trim()                  // for <input type="date">
       : cell.textContent.trim();           // for contenteditable cells
     
-    console.log("🚀 Sending value:", { field, current, raw: cell.value });
+        console.log("Current is " + current );
+        console.log("Field is " + field);
+        
+    if(current.contains('/')){
+        //
+        function pad(value) {
+            return value.toString().padStart(3, '0');
+        }
+        console.log("inside the if");
+        const resourceID = row?.querySelector("td[data-field='resourceID']")?.textContent?.trim();
+        const page = row?.querySelector("td[data-field='Page_MR']")?.textContent?.trim();
+        const number = row?.querySelector("td[data-field='Number_MR']")?.textContent?.trim();  
+
+        const formData = new FormData();
+        const name = `${pad(resourceID)}_${pad(page)}_${pad(number)}`
+        formData.append("name", name);
+        formData.append("file2", fileInput.files[0]);
+        await fetch("/custom-upload", {
+            method: "POST",
+            body: formData,
+        });
+          current = 'true';
+          console.log(current);
+    }
     if (
     (field === "date_last_solved" || field === "for_revision") &&
     current.includes("T")
@@ -278,8 +326,7 @@ document.getElementById("saveAllBtn").addEventListener("click", async () => {
     if (field === "date_last_solved" || field === "for_revision") {
     current = current.substring(0, 10); // Always keep just YYYY-MM-DD
     }
-    
-    console.log(field);
+
     if (original === current || current === "") continue;
     // If no field or value present, skip
     if (!field || current === "") continue;
@@ -292,12 +339,10 @@ document.getElementById("saveAllBtn").addEventListener("click", async () => {
     }
     else {
       value = current; 
-            console.log("Updating 3", value);
 
     }
    if (field === "comments") {
         let existingComments = [];
-              console.log("Updating 4", value);
 
         try {
             existingComments = JSON.parse(cell.dataset.original || "[]");
@@ -306,17 +351,18 @@ document.getElementById("saveAllBtn").addEventListener("click", async () => {
             continue;
         }
 
-        const currentComment = current.trim();
+        // Turn raw comment text into array of clean strings
+        const commentArray = current
+        .split(",")
+        .map(s => s.trim())
+        .filter(s => s.length > 0);
 
-        // Avoid appending if empty or already in list
-        if (!currentComment || existingComments.includes(currentComment)) {
-            continue;
-        }
+        if (commentArray.length === 0) continue;
 
-        // Prepare value to send (only new comment)
-        value = [currentComment];
+        // Replace entire comments array in DB
+        value = commentArray;
 
-        // Send to backend and wait
+        
         try {
             const res = await fetch("/update-exercise", {
             method: "PATCH",
@@ -328,8 +374,6 @@ document.getElementById("saveAllBtn").addEventListener("click", async () => {
             const updated = await res.json();
             console.log("✅ Updated:", field, updated);
 
-            // ✅ Just append one new comment — no duplication
-            existingComments.push(currentComment);
             cell.dataset.original = JSON.stringify(existingComments);
             //cell.textContent = existingComments.join(", ");
         } catch (err) {
@@ -362,6 +406,10 @@ document.getElementById("saveAllBtn").addEventListener("click", async () => {
       alert(`Error: Update failed for ${field}`);
     }
   }
+  //cleanUp
+    resetManageForm();
+    document.getElementById("searchBtnA").click();
+
 });
 
 document.querySelectorAll(".datePicker").forEach(input => {
@@ -384,5 +432,31 @@ document.querySelectorAll(".datePicker").forEach(input => {
   });
 });
 
+function resetUploadForm() {
+  document.getElementById("file1").value = "";
+  document.getElementById("file2").value = "";
+  document.getElementById("name").value = "";
+  document.getElementById("Number").value = "";
+  document.getElementById("Page").value = "";
+  document.getElementById("classField").value = "";
+  document.getElementById("keywordDropdown").selectedIndex = 0;
+  document.getElementById("altText").value = "";
+  document.getElementById("altSolution").value = "";
+  document.getElementById("difficulty").selectedIndex = 0;
+  document.getElementById("dateLastSolved").value = "";
+  document.getElementById("dateForRevision").value = "";
+  document.getElementById("comments").value = "";
+}
 
+function resetManageForm() {
+  document.getElementById("Number_MR").value = "";
+  document.getElementById("Page_MR").value = "";
+  document.getElementById("keywordDropdown_MR").selectedIndex = 0; // Resets dropdown to placeholder
+  
+//   document.getElementById("inputDateSolved").value = ""
+//   document.getElementById("inputRevision").value = ""
+//   document.getElementById("commentsID").value = ""
+//   const tbody = document.getElementById("manageTable").querySelector("tbody") = ""
+//     if(tbody) tbody.innerHTML = "";
+}
 //Filepath is: /Users/viktorvelkov/Documents/Solutions+AssignementConditions-E.

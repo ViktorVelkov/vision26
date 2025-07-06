@@ -155,12 +155,15 @@
             <div class="upload-left">
                 <div class="upload-box">
                     <label for="file1">Качване на условие:</label>
-                    <input type="file" id="file1" name="fileA" /><br>
+                    <input type="file" id="file1" name="fileA" />
+                    <button windth="50px" height="50px" id="fileClear1">Clear</button><br>
                 </div>
 
                 <div class="upload-box">
                     <label for="file2">Качване на решение:</label>
-                    <input type="file" id="file2" name="fileB" /><br>
+                    <input type="file" id="file2" name="fileB" />
+                    <button windth="50px" height="50px" id="fileClear2">Clear</button><br>
+
                 </div>
                 <br><br>
                 <button id="uploadBtnB" class="uploadBtnB" style="width:500px">Напред</button>
@@ -229,11 +232,12 @@
                 <div>
                    
                     <input type="text" id="Number_MR" placeholder="Задача Номер" /><br>
-                    <input type="text" id="Page_MR" placeholder="Страница" />
+                    <input type="text" id="Page_MR" placeholder="Страница" /><br>
                     <select id="keywordDropdown_MR">
                         <option disabled selected>-- Избери ресурс --</option>
-                    </select>
-                    <button id="searchBtnA" class="uploadBtnB" style="width:300px">Search</button>
+                    </select><br>
+                    <div><button id="searchBtnA" style="width:300px">Search</button><button id="clear_MR" style="width:300px">Clear</button></div><br>
+                    
                     <!-- 
                     <h5>Полета за промяна:</h5>
                     <div class="upload-box">
@@ -266,7 +270,9 @@
                             <th>Date Last Solved</th>
                             <th>Date for Revision</th>
                             <th>Comments</th>
-                            <th>Multiple Solutions</th>
+                            <th>Solution</th>
+                            <th>Text</th>
+                            <!-- <th>Multiple Solutions</th>. -->
                             </tr>
                         </thead>
                         <tbody>
@@ -286,6 +292,7 @@
                                 >${solvedDates}</div>
                                 <input 
                                 type="date"
+                                id="inputDateSolved"
                                 class="datePicker"
                                 data-id="${exercise.ID}"
                                 data-target="date_last_solved"
@@ -303,6 +310,7 @@
                                 >${}</div>
                                 <input 
                                 type="date"
+                                id = "inputRevision"
                                 class="datePicker"
                                 data-id="${exercise.ID}"
                                 data-target="for_revision"
@@ -310,12 +318,32 @@
                                 />
                             </td>
                             <td data-field="comments"
+                                id="commentsID"
                                 data-id="${exercise.ID}"
                                 contenteditable="true"
                                 data-original='empty'>
                                 empty
                             </td>
-                            <td data-field="multiple_solutions" data-id="1" contenteditable="true">1</td>
+                            <td data-field="solutions_MR"
+                                id="has_solution"
+                                data-id="${exercise.ID}"
+                                contenteditable="true"
+                                data-original='empty'>
+                                empty
+                            </td>
+                            <td data-field="hasText"
+                                id="hasTextID"
+                                data-id="${exercise.ID}"
+                                contenteditable="true"
+                                data-original='empty'>
+                                empty<br><input type="file"
+                                            class="uploadInput_MR"
+                                            data-id="${exercise.ID}"
+                                            data-type="assignmentCondition"
+                                            style="margin-top: 4px;" 
+                                            placeholder=""/>
+                            </td>
+                            <!-- <td data-field="multiple_solutions" data-id="1" contenteditable="true">1</td> -->
                             </tr>
 
                         </tbody>

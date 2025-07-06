@@ -334,31 +334,37 @@ app.patch("/update-exercise", async (req, res) => {
   if (!allowedFields.includes(field)) {
     return res.status(400).json({ error: "Invalid field" });
   }
-
+  
   try {
     let query, params;
 
     if (appendFields.includes(field)) {
       // Detect type and cast accordingly
-      //let castType = "text";
-      console.log(field);
+      let castType = "text";
       if (field === "date_last_solved" || field === "for_revision") {
-        castType = "date";
-      
-
-            query = `
+          console.log(params);
+    if (field === "date_last_solved" || field === "for_revision") {
+    query = `
         UPDATE "Exercises"
-        SET "${field}" = array_append(COALESCE("${field}", '{}'::date[]), $1::text::date)
+        SET "${field}" = array_append(COALESCE("${field}", '{}'::date[]), $1::date)
         WHERE "ID" = $2 RETURNING *`;
-        params = [(Array.isArray(value) ? value[0] : value).toString(), id];     
-    
-      }else {
+    params = [value, id];
+    }
+      }
+    else if (field === "comments") {
+        query = `
+            UPDATE "Exercises"
+            SET "comments" = $1::text[]
+            WHERE "ID" = $2 RETURNING *`;
+        params = [value, id];
+        }
+      else {
       
             query = `
         UPDATE "Exercises"
         SET "${field}" = $1
         WHERE "ID" = $2 RETURNING *`;
-        params = [(Array.isArray(value) ? value[0] : value).toString(), id];    }
+        params = [value, id];    }
     } 
 
     const result = await pool.query(query, params);
@@ -378,7 +384,19 @@ app.get("/exercise-details", async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT * FROM "Exercises" WHERE "ResourceID" = $1 AND "Page" = $2 AND "Number" = $3`,
+      `SELECT 
+            "ID", "Number", "Page", "ResourceID", "difficulty",
+            ARRAY(
+                SELECT TO_CHAR(d, 'YYYY-MM-DD')
+                FROM UNNEST("date_last_solved") AS d
+            ) AS "date_last_solved",
+            ARRAY(
+                SELECT TO_CHAR(r, 'YYYY-MM-DD')
+                FROM UNNEST("for_revision") AS r
+            ) AS "for_revision",
+            "has_assignmentCondition", "has_solution", "comments", "multiple_solutions"
+            FROM "Exercises"
+            WHERE "ResourceID" = $1 AND "Page" = $2 AND "Number" = $3`,
       [resourceID, page, number]
     );
 
