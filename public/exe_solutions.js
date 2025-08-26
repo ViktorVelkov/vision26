@@ -60,7 +60,10 @@ document.getElementById("uploadBtnB").addEventListener("click", async () => {
         if (response.ok) {
             alert("✅ Files uploaded successfully.");
             // Now that upload is successful, insert into DB
-            await handleUploadAndInsert();
+            await handleUploadAndInsert({
+                textPath: result.text_filepath || null,
+                solPath: result.solution_filepath || null
+            });
         } else {
             alert("❌ Upload failed: " + (result.error || result.message));
         }
@@ -147,13 +150,19 @@ function submitFormWithFile(file) {
         .catch((err) => console.error("Upload failed:", err));
 }
 
-async function handleUploadAndInsert() {
+async function handleUploadAndInsert(paths = {}) {
+    const { textPath = null, solPath = null } = paths;
     try {
         const file1 = document.getElementById("file1").files[0];
         const file2 = document.getElementById("file2").files[0];
         const commentsHereFromHTML = document.getElementById("comments").value.trim() || null;
         const dateLastSolvedInput = document.getElementById("dateLastSolved").value;
         const forRevisionInput = document.getElementById("dateForRevision").value;
+
+        const textInput = document.getElementById("altText").value.trim();
+        const solutionInput = document.getElementById("altSolution").value.trim();
+        const textFilePath = textInput || textPath || null;
+        const solutionFilePath = solutionInput || solPath || null;
 
         const date_last_solved_array = dateLastSolvedInput ? [dateLastSolvedInput] : [];
         const for_revision_array = forRevisionInput ? [forRevisionInput] : [];
@@ -168,7 +177,9 @@ async function handleUploadAndInsert() {
             for_revision: for_revision_array || null,
             has_assignmentCondition: !!file1,
             has_solution: !!file2,
-            commentsArray: commentsHere 
+            commentsArray: commentsHere,
+            text_filepath: textFilePath,
+            solution_filepath: solutionFilePath
         };
         const res = await fetch("/exercises", {
             method: "POST",
@@ -231,12 +242,11 @@ document.getElementById("searchBtnA").addEventListener("click", async () => {
             .join(" -- ");
             row.innerHTML = `
             <td>${exercise.ID}</td>
-            <td>${exercise.Page || "empty"}</td>
-            <td>${exercise.Number || "empty"}</td>
-            <td>${exercise.ResourceID || "empty"}</td>
-            <td>
+            <td data-field="Page_MR">${exercise.Page || "empty"}</td>
+            <td data-field="Number_MR">${exercise.Number || "empty"}</td>
+            <td data-field="resourceID">${exercise.ResourceID || "empty"}</td>            <td>
                 <div class="existingDates">${solvedDates}</div>
-                <input type="date"
+                <input type="date"  
                     class="datePicker"
                     data-id="${exercise.ID}"
                     data-target="date_last_solved" />
@@ -280,36 +290,75 @@ document.getElementById("searchBtnA").addEventListener("click", async () => {
 });
 
 document.getElementById("saveAllBtn").addEventListener("click", async () => {
-  const editableCells = document.querySelectorAll("td[contenteditable='true'], input.datePicker,input.uploadInput_MR");
-    for (const cell of editableCells) {
-    const row = cell.closest("tr");
-    const id = cell.dataset.id;
-    const field = cell.dataset.field || cell.dataset.target;
-    const original = (cell.dataset.original || "").trim();
-    const fileInput = document.querySelector(`.uploadInput_MR[data-id="${id}"]`);    
-    let current = cell.tagName === "INPUT"
-      ? cell.value.trim()                  // for <input type="date">
-      : cell.textContent.trim();           // for contenteditable cells
     
+    const editableCells = document.querySelectorAll("td[contenteditable='true'], input.datePicker,input.uploadInput_MR");
+    for (const cell of editableCells) {
+    // const id = cell.dataset.id;
+    // const field = cell.dataset.field || cell.dataset.target;
+    // const original = (cell.dataset.original || "").trim();
+    //const fileInput = document.querySelector(`.uploadInput_MR[data-id="${id}"]`);    
+    // let current = cell.tagName === "INPUT"
+    //   ? cell.value.trim()                  // for <input type="date">
+    //   : cell.textContent.trim();           // for contenteditable cells
+    
+    //new code snippet: 
+
+    const td = cell.closest("td");
+    const id = td?.dataset.id || cell.dataset.id;
+    const field = td?.dataset.field || td?.dataset.target;
+    const original = (td?.dataset.original || "").trim();
+
+let current;
+if (cell.tagName === "INPUT") {
+  if (cell.type === "file") {
+    current = cell.files.length > 0 ? "true" : "false";
+  } else {
+    current = cell.value.trim();
+  }
+} else {
+  current = cell.textContent.trim();
+}
+    //
+
+
         console.log("Current is " + current );
         console.log("Field is " + field);
-        
-    if(field === "has_assignmentCondition" && current == "false"){
+        //console.log("File input is " + fileInput);
+    if(field === "has_assignmentCondition" && current == "true"){
         //
+        function pad(value) {
+        return value.toString().padStart(3, '0');
+        }
         console.log("inside the if");
+        const row = cell.closest("tr");
         const resourceID = row?.querySelector("td[data-field='resourceID']")?.textContent?.trim();
         const page = row?.querySelector("td[data-field='Page_MR']")?.textContent?.trim();
         const number = row?.querySelector("td[data-field='Number_MR']")?.textContent?.trim();  
+        const fileInput = row.querySelector("input[type='file'].uploadInput_MR");
+
+        console.log("ResourceID " + resourceID);
+        console.log("Page " + page);
+        console.log("Number " + number);
+        console.log("File input is " + fileInput)
 
         const formData = new FormData();
         const name = `${pad(resourceID)}_${pad(page)}_${pad(number)}`
+        console.log("Name is: " + name)
+        
         formData.append("name", name);
-        formData.append("file2", fileInput.files[0]);
-        await fetch("/custom-upload", {
+        formData.append("resourceID", resourceID);
+        formData.append("page", page);
+        formData.append("number", number);
+
+        if (fileInput?.files?.length > 0) {
+        formData.append("file1", fileInput.files[0]);
+        console.log("inside file check");       
+        }       
+         await fetch("/custom-upload", {
             method: "POST",
             body: formData,
         });
-          current = 'true';
+          current = current === "true";
           console.log(current);
     }
     if (
@@ -329,10 +378,12 @@ document.getElementById("saveAllBtn").addEventListener("click", async () => {
     if (!field || current === "") continue;
        
     let value;
-    console.log("Updating:", { id, field, value });
 
     if ((field === "date_last_solved" || field === "for_revision") && current.includes("T")) {
     current = current.split("T")[0];  // Keep only the date part
+    }
+    else if(field === "has_solution" || field === "has_assignmentCondition"){
+        field === "has_solution" || field === "has_assignmentCondition"
     }
     else {
       value = current; 
@@ -384,6 +435,11 @@ document.getElementById("saveAllBtn").addEventListener("click", async () => {
             value = current; // string or number for other fields
          }
     
+         console.log("it gets all the way here")
+    
+    console.log("Field is (again) " + field);
+    console.log("Value is (again) " + value);
+    console.log("Updating:", { id, field, value });
 
     try {
       const res = await fetch("/update-exercise", {

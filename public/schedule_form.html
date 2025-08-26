@@ -1,0 +1,682 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title></title>
+    <style>
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+      100% { transform: scale(1); }
+    }
+    button.pulsing {
+      animation: pulse 0.5s ease;
+    }
+    /* Styling for the current schedule table */
+    #currentScheduleTable {
+      margin-bottom: 20px;
+      border: 1px solid #ccc;
+    }
+
+    #currentScheduleTable th {
+      background-color: transparent;
+      color: inherit;
+      padding: 8px;
+      text-align: center;
+    }
+
+    #currentScheduleTable td {
+      padding: 8px;
+      text-align: center;
+      border-top: 1px solid #ddd;
+    }
+
+    #currentScheduleTable tr:nth-child(even) {
+      background-color: #f9f9f9;
+    }
+
+    /* Align headers of the "За добавяне" table to the left */
+    #addScheduleTable th {
+      text-align: left;
+      padding: 8px;
+    }
+      body {
+        font-family: "Segoe UI", sans-serif;
+        background: #f2f2f2;
+        padding: 20px;
+        margin: 0;
+      }
+
+      h2 {
+        text-align: center;
+        margin-bottom: 20px;
+      }
+
+      .day-block {
+        background: #fff;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 20px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      }
+
+      .day-block h3 {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 1.1rem;
+        margin: 0 0 10px;
+      }
+
+      .add-class-btn {
+        background-color: #007bff;
+        color: white;
+        border: none;
+        padding: 6px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.9rem;
+      }
+
+      .add-class-btn:hover {
+        background-color: #0056b3;
+      }
+
+      .class-list div {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-bottom: 15px;
+      }
+
+      input[type="time"],
+      select {
+        padding: 8px;
+        font-size: 1rem;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+      }
+
+      button[type="submit"] {
+        display: block;
+        margin: 30px auto 0;
+        padding: 12px 24px;
+        font-size: 1rem;
+        background-color: #28a745;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+
+      button[type="submit"]:hover {
+        background-color: #218838;
+      }
+
+      @media (min-width: 600px) {
+        .class-list div {
+          flex-direction: row;
+          align-items: center;
+        }
+
+        input[type="time"],
+        select {
+          flex: 1;
+        }
+      }
+      #tab-switcher {
+        text-align: center;
+        margin-bottom: 20px;
+      }
+      .tab-btn {
+        display: inline-block;
+        text-decoration: none;
+        margin: 0 5px;
+        padding: 8px 16px;
+        border: none;
+        background: #ddd;
+        cursor: pointer;
+      }
+      .tab-btn.active {
+        background: #007bff;
+        color: white;
+      }
+
+      #clearBtn,
+      #toggleRaw {
+        padding: 8px 16px;
+        font-size: 0.9rem;
+        margin: 10px 5px 15px 0;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        background-color: #6c757d; /* red for Clear All */
+        color: white;
+        transition: background-color 0.2s ease;
+      }
+
+      #clearBtn:hover {
+        background-color: #c82333;
+      }
+
+      #toggleRaw {
+        background-color: #6c757d; /* gray for toggle */
+      }
+
+      #toggleRaw:hover {
+        background-color: #5a6268;
+      }
+      #rangeToggle {
+        transform: scale(1.1);
+        margin-right: 6px;
+      }
+      /* Term selector styles */
+      #term-switcher {
+        text-align: center;
+        margin-bottom: 20px;
+      }
+      .term-btn {
+        margin: 0 5px;
+        padding: 8px 16px;
+        border: none;
+        background: #ccc;
+        cursor: pointer;
+        border-radius: 4px;
+        font-size: 0.9rem;
+      }
+      .term-btn.active {
+        background: #888;
+        color: white;
+      }
+      .term-btn:hover {
+        background: #bbb;
+      }
+      #holidayForm input[type="date"] {
+        padding: 6px;
+        font-size: 1rem;
+        margin: 5px;
+      }
+      #endDateContainer {
+        margin-top: 10px;
+      }
+        
+    </style>
+</head>
+<body>
+<div id="tab-switcher">
+  <button class="tab-btn active" data-target="tab-schedule">Разпределения</button>
+  <button class="tab-btn" data-target="tab-generator">Седмично разписание</button>
+  <button class="tab-btn" data-target="tab-holidays">Ваканции</button>
+</div>
+<div id="tab-schedule">
+  <div id="scheduleDisplayWrapper" style="margin-bottom: 30px;">
+    <h3>📘 График</h3>
+    <table id="currentScheduleTable" border="1" style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+      <thead>
+        <tr>
+          <th>Class</th>
+          <th>Division</th>
+          <th>Term</th>
+          <th>Разпределение</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Populated via JS -->
+      </tbody>
+    </table>
+</div>
+
+  <div id="addScheduleWrapper">
+    <h3>📗 За добавяне</h3>
+    <label for="yearSelector"><strong>Избери учебна година:</strong></label>
+    <select id="yearSelector">
+      <option value="">-- Select Year --</option>
+    </select>
+    <table id="addScheduleTable" border="1" style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+      <thead>
+        <tr>
+          <th>Start Time</th>
+          <th>End Time</th>
+          <th>Weekday</th>
+          <th>Subject</th>
+          <th>Term</th>
+          <th>Resource</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Populated via JS -->
+      </tbody>
+    </table>
+  </div>
+  <div id="saveButtonWrapper" style="margin-top: 20px; text-align: left;">
+    <button id="saveChangesBtn"
+      style="
+        padding: 6px 12px;
+        font-size: 0.9rem;
+        background-color: gray;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      ">
+      Save Changes
+    </button>
+  </div>
+</div>
+<div id="tab-generator" style="display: none;">
+<h2>Weekly Schedule</h2>
+<form id="scheduleForm">
+  <div style="text-align:center; margin-bottom: 20px;">
+    <label for="startYear">Start Year:
+      <input type="number" id="startYear" name="startYear" min="2000" max="2100" required>
+    </label>
+    &nbsp;&nbsp;
+    <label for="endYear">End Year:
+      <input type="number" id="endYear" name="endYear" min="2000" max="2100" required>
+    </label>
+  </div>
+  <div id="daysContainer">
+    <!-- Repeat for each weekday -->
+    <div class="day-block" data-day="Monday">
+      <h3>Monday <button type="button" class="add-class-btn" data-day="Monday">+</button></h3>
+      <div class="class-list" id="Monday-classes"></div>
+    </div>
+    <div class="day-block" data-day="Tuesday">
+      <h3>Tuesday <button type="button" class="add-class-btn" data-day="Tuesday">+</button></h3>
+      <div class="class-list" id="Tuesday-classes"></div>
+    </div>
+    <div class="day-block" data-day="Wednesday">
+      <h3>Wednesday <button type="button" class="add-class-btn" data-day="Wednesday">+</button></h3>
+      <div class="class-list" id="Wednesday-classes"></div>
+    </div>
+    <div class="day-block" data-day="Thursday">
+      <h3>Thursday <button type="button" class="add-class-btn" data-day="Thursday">+</button></h3>
+      <div class="class-list" id="Thursday-classes"></div>
+    </div>
+    <div class="day-block" data-day="Friday">
+      <h3>Friday <button type="button" class="add-class-btn" data-day="Friday">+</button></h3>
+      <div class="class-list" id="Friday-classes"></div>
+    </div>
+  </div>
+    <div id="term-switcher">
+      <button type="button" class="term-btn active" data-term="1">Term 1</button>
+      <button type="button" class="term-btn" data-term="2">Term 2</button>
+      <input type="hidden" name="term" id="termInput" value="1">
+    </div>
+  <button type="submit">Submit Schedule</button>
+</form>
+</div>
+<div id="tab-holidays" style="display:none;">
+    <form id="holidayForm">
+      <label>
+        <input type="checkbox" id="rangeToggle">
+        Add a holiday range
+      </label><br><br>
+
+      <label>Start date:
+        <input type="date" id="holidayStart" required>
+      </label>
+
+      <span id="endDateContainer" style="display:none;">
+        <label>End date:
+          <input type="date" id="holidayEnd">
+        </label>
+      </span>
+
+      <br><br>
+      <button type="submit">Add Holiday</button>
+      <button type="button" id="clearBtn">Clear All</button>
+    </form>
+  <p id="holidayMsg"></p>
+  <ul id="holidayList"></ul>
+</div>
+<hr style="margin-top: 30px; margin-bottom: 20px;">
+
+<h4>📄  ВАКАНЦИИ</h4>
+<pre id="rawContent" style="white-space: pre-wrap; background: #f9f9f9; border: 1px solid #ccc; padding: 12px; border-radius: 6px; max-height: 200px; overflow-y: auto;"></pre>
+
+<p id="summaryInfo" style="margin-top: 10px; font-weight: bold;"></p>
+
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  // --- Generator tab logic (keep) ---
+  let availableClasses = [];
+  fetch("/classes")
+    .then(res => res.json())
+    .then(classes => {
+      availableClasses = classes;
+    })
+    .catch(err => console.error("Failed to load class list:", err));
+
+  document.querySelectorAll(".add-class-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const day = btn.dataset.day;
+      const container = document.getElementById(day + "-classes");
+      const index = container.children.length;
+      const entry = document.createElement("div");
+      const selectHTML = `
+        <select name="${day}[${index}][subject]" required>
+          <option value="">-- Select Class --</option>
+          ${availableClasses.map(cls => `<option value="${cls}">${cls}</option>`).join("")}
+        </select>
+      `;
+      entry.innerHTML = `
+        <input type="time" name="${day}[${index}][start_time]" required>
+        <input type="time" name="${day}[${index}][end_time]" required>
+        ${selectHTML}
+        <label style="margin-left:10px;display:flex;align-items:center;gap:6px;font-size:0.9rem;">
+          <input type="checkbox" name="${day}[${index}][every_two_weeks]" value="1">
+          every 2 weeks
+        </label>
+        <select name="${day}[${index}][parity]" title="Week group" style="margin-left:6px;">
+          <option value="1" selected>starts on Week A</option>
+          <option value="2">starts on Week B</option>
+        </select>
+        <button type="button" class="delete-class-btn" style="color: red; margin-left: 10px;">❌</button>
+      `;
+      entry.querySelector(".delete-class-btn").addEventListener("click", () => {
+        entry.remove();
+      });
+      container.appendChild(entry);
+    });
+  });
+
+  document.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      document.getElementById("tab-schedule").style.display = btn.dataset.target === "tab-schedule" ? "block" : "none";
+      document.getElementById("tab-generator").style.display = btn.dataset.target === "tab-generator" ? "block" : "none";
+      document.getElementById("tab-holidays").style.display = btn.dataset.target === "tab-holidays" ? "block" : "none";
+    });
+  });
+
+  // Term selector (keep)
+  document.querySelectorAll(".term-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".term-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      document.getElementById("termInput").value = btn.dataset.term;
+    });
+  });
+
+  // --- Holidays tab logic (keep) ---
+  const holidayList = document.getElementById("holidayList");
+  const msg = document.getElementById("holidayMsg");
+  function loadHolidays() {
+    fetch("/holidays")
+      .then(res => res.json())
+      .then(dates => {
+        holidayList.innerHTML = "";
+        dates.forEach(date => {
+          const li = document.createElement("li");
+          li.textContent = date;
+          const delBtn = document.createElement("button");
+          delBtn.textContent = "❌";
+          delBtn.style.marginLeft = "10px";
+          delBtn.onclick = () => {
+            fetch("/holidays/delete", {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ date })
+            }).then(() => loadHolidays());
+          };
+          li.appendChild(delBtn);
+          holidayList.appendChild(li);
+        });
+        document.getElementById("rawContent").textContent = dates.join("\n");
+        const summary = document.getElementById("summaryInfo");
+        if (dates.length) {
+          const sorted = [...dates].sort();
+          summary.textContent = `📌 ${dates.length} holidays — from ${sorted[0]} to ${sorted[sorted.length - 1]}`;
+        } else {
+          summary.textContent = "📭 No holidays recorded.";
+        }
+      });
+  }
+  loadHolidays();
+  const toggle = document.getElementById("rangeToggle");
+  const endDateContainer = document.getElementById("endDateContainer");
+  toggle.addEventListener("change", () => {
+    endDateContainer.style.display = toggle.checked ? "block" : "none";
+  });
+  document.getElementById("holidayForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const start = document.getElementById("holidayStart").value;
+    const end = document.getElementById("holidayEnd").value;
+    const isRange = toggle.checked;
+    if (!start) return alert("Start date required.");
+    let dates = [];
+    if (isRange && end) {
+      const from = new Date(start);
+      const to = new Date(end);
+      if (from > to) return alert("Start date must be before end date.");
+      for (let d = new Date(from); d <= to; d.setDate(d.getDate() + 1)) {
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const dd = String(d.getDate()).padStart(2, "0");
+        dates.push(`${yyyy}-${mm}-${dd}`);
+      }
+    } else {
+      dates.push(start);
+    }
+    for (const date of dates) {
+      await fetch("/holidays/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date })
+      });
+    }
+    loadHolidays();
+  });
+  document.getElementById("clearBtn").addEventListener("click", async () => {
+    await fetch("/holidays/clear", { method: "POST" });
+    loadHolidays();
+  });
+  // --- Generator tab: Schedule submission logic (keep) ---
+  document.getElementById("scheduleForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const startYear = parseInt(document.getElementById("startYear").value);
+    const endYear = parseInt(document.getElementById("endYear").value);
+    const term = parseInt(document.getElementById("termInput").value);
+    if (!startYear || !endYear || startYear >= endYear) {
+      return alert("Please provide a valid academic year range.");
+    }
+    const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+    const entries = [];
+    for (const day of days) {
+      const blocks = document.querySelectorAll(`#${day}-classes > div`);
+      blocks.forEach(block => {
+        const start = block.querySelector(`input[name^="${day}"][name$="[start_time]"]`)?.value;
+        const end = block.querySelector(`input[name^="${day}"][name$="[end_time]"]`)?.value;
+        const subject = block.querySelector(`select[name^="${day}"][name$="[subject]"]`)?.value;
+        if (start && end && subject) {
+          entries.push({
+            start_year: startYear,
+            end_year: endYear,
+            term,
+            weekday: day,
+            start_time: start,
+            end_time: end,
+            subject,
+            // NEW: biweekly support
+            recurrence: (block.querySelector(`input[name^="${day}"][name$="[every_two_weeks]"]`)?.checked ? "BIWEEKLY" : "WEEKLY"),
+            week_parity: parseInt(block.querySelector(`select[name^="${day}"][name$="[parity]"]`)?.value || "1", 10)
+          });
+        }
+      });
+    }
+    if (entries.length === 0) {
+      return alert("No valid schedule entries to submit.");
+    }
+    const res = await fetch("/schedule/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entries })
+    });
+    const result = await res.json();
+    alert(result.message || "Schedule saved.");
+  });
+
+  // Load and display currentSchedule table
+  async function loadCurrentSchedule() {
+    try {
+      const res = await fetch("/schedule/current");
+      const data = await res.json();
+      const tbody = document.querySelector("#currentScheduleTable tbody");
+      tbody.innerHTML = "";
+      if (!data.hasCurrent || !Array.isArray(data.currentRows)) {
+        return;
+      }
+      data.currentRows.forEach(row => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${row.class}</td>
+          <td>${row.division}</td>
+          <td>${row.term}</td>
+          <td>${row.razpredelenie}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    } catch (err) {
+      console.error("Failed to load currentSchedule:", err);
+    }
+  }
+
+  // Initial load
+  loadCurrentSchedule();
+
+  // Load available academic years into the dropdown
+  async function loadAvailableYears() {
+    try {
+      const resYears = await fetch("/schedule/available-years");
+      const years = await resYears.json();
+      const selector = document.getElementById("yearSelector");
+      selector.innerHTML = '<option value="">-- Select Year --</option>';
+      years.forEach(({ start_year, end_year }) => {
+        const opt = document.createElement("option");
+        opt.value = `${start_year}-${end_year}`;
+        opt.textContent = `${start_year}-${end_year}`;
+        selector.appendChild(opt);
+      });
+    } catch (err) {
+      console.error("Failed to load available years:", err);
+    }
+  }
+
+  // Load available resource files for dropdowns
+  let availableResources = [];
+  async function loadResources() {
+    try {
+      const res = await fetch("/schedule/resources");
+      availableResources = await res.json();
+    } catch (err) {
+      console.error("Failed to load resources:", err);
+    }
+  }
+  loadResources();
+
+  // Populate the second table when a year is selected
+  document.getElementById("yearSelector").addEventListener("change", async (e) => {
+    const val = e.target.value;
+    const tbody = document.querySelector("#addScheduleTable tbody");
+    tbody.innerHTML = "";
+    if (!val) return;
+    const [start, end] = val.split("-");
+    try {
+      const res = await fetch(`/schedule/by-year?start=${start}&end=${end}`);
+      const entries = await res.json();
+      entries.forEach(entry => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${entry.start_time}</td>
+          <td>${entry.end_time}</td>
+          <td>${entry.weekday}</td>
+          <td>${entry.subject}</td>
+          <td>${entry.term}</td>
+          <td>
+            <select class="resource-select" data-entry-id="${entry.id}">
+              <option value="">-- Select --</option>
+              ${availableResources.map(file => `<option value="${file}">${file}</option>`).join("")}
+            </select>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    } catch (err) {
+      console.error("Failed to load entries for selected year:", err);
+    }
+  });
+
+
+  // Open selected resource in a new tab
+  document.getElementById("addScheduleTable").addEventListener("change", (e) => {
+    if (e.target.classList.contains("resource-select")) {
+      const filename = e.target.value;
+      if (filename) {
+        window.open(`/schedule/resource-file?name=${encodeURIComponent(filename)}`, '_blank');
+      }
+    }
+  });
+
+  // Initial populate of year dropdown
+  loadAvailableYears();
+
+  // Save selected resources to currentSchedule and refresh table
+  document.getElementById("saveChangesBtn").addEventListener("click", async () => {
+    const yearVal = document.getElementById("yearSelector").value;
+    if (!yearVal) {
+      alert("⚠️ Please select an academic year first.");
+      return;
+    }
+    const [start_year, end_year] = yearVal.split("-").map(y => parseInt(y));
+    const selects = document.querySelectorAll("#addScheduleTable .resource-select");
+    const payload = [];
+
+    selects.forEach(sel => {
+      const file = sel.value;
+      if (!file) return;
+      const tr = sel.closest("tr");
+      const term = tr.children[4].textContent.trim();
+      const subjectText = tr.children[3].textContent.trim();
+      const [cls, division] = subjectText.split(" ");
+      payload.push({
+        start_year,
+        end_year,
+        class: parseInt(cls),
+        division,
+        term: parseInt(term),
+        razpredelenie: file
+      });
+    });
+
+    if (payload.length === 0) {
+      alert("⚠️ Please select at least one resource to save.");
+      return;
+    }
+
+    try {
+      const res = await fetch("/schedule/save-distribution", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: payload })
+      });
+      const result = await res.json();
+      alert(result.message || "✅ Changes saved.");
+      // Reload the currentSchedule table
+      loadCurrentSchedule();
+    } catch (err) {
+      console.error("Save failed:", err);
+      alert("❌ Failed to save changes.");
+    }
+  });
+});
+</script>
+
+
+
+</div>
+
+</body>
+</html>

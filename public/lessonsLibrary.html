@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Lessons Library</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    .toolbar { margin-bottom: 10px; display: flex; gap: 8px; }
+    .toolbar input { flex: 1; padding: 6px 8px; font-size: 14px; }
+    .toolbar button { padding: 6px 10px; font-size: 14px; }
+    table { width: 100%; border-collapse: collapse; }
+    .main-results {
+      margin-bottom: 16px;
+      padding: 12px;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+      font-size: 13px;
+      overflow-x: auto;
+    }
+    th, td { padding: 8px 12px; border: 1px solid #ccc; vertical-align: top; }
+    th { background-color: #f4f4f4; position: sticky; top: 0; }
+    .pre { white-space: pre-wrap; }
+    td[contenteditable="true"] { outline: none; }
+    td[data-saving="1"] { opacity: 0.6; }
+    td[data-saved="1"] { box-shadow: inset 0 0 0 2px rgba(0,128,0,0.35); }
+    td[data-error="1"] { box-shadow: inset 0 0 0 2px rgba(200,0,0,0.45); background: rgba(200,0,0,0.05); }
+    .table-container {
+      overflow-x: auto;
+      max-width: 100%;
+    }
+    .resources-mini {
+      width: 40%;
+      max-width: 500px;
+      min-width: 250px;
+      background: #fff;
+      border: 1px solid #ddd;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+      border-radius: 6px;
+      overflow-x: auto;
+      overflow-y: auto;
+      font-size: 13px;
+      position: sticky;
+      top: 80px;
+      height: fit-content;
+      max-height: 80vh;
+      z-index: 10;
+    }
+    .resources-mini header { padding: 6px 10px; background:#f8f8f8; border-bottom:1px solid #e5e5e5; font-weight:600; }
+    .resources-mini table { width: 100%; border-collapse: collapse; }
+    .resources-mini th, .resources-mini td { border: 1px solid #eee; padding: 6px 8px; vertical-align: top; }
+    .resources-mini th { position: sticky; top: 0; background: #fafafa; }
+
+    .content-row {
+      display: flex;
+      flex-direction: row;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+    }
+    .main-col {
+      /* flex removed */
+      min-width: 0;
+    }
+    /* Removed position sticky and fixed width from .resources-mini */
+    @media (max-width: 900px) {
+      .content-row { /* no flex direction change needed */ }
+      .resources-mini { width: 100%; position: static; }
+    }
+
+    .photos-panel {
+      width: 55%;
+      max-width: 700px;
+      background: #fff;
+      border: 1px solid #ddd;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+      border-radius: 6px;
+      overflow-y: auto;
+      font-size: 13px;
+      display: none;
+    }
+    @media (max-width: 768px) {
+      .content-row {
+        flex-direction: column;
+      }
+
+      .photos-panel,
+      .resources-mini {
+        width: 100%;
+        max-width: 100%;
+      }
+    }
+    @media (max-width: 768px) {
+      .resources-mini {
+        display: none;
+        position: fixed;
+        right: 10px;
+        bottom: 80px;
+        width: 90%;
+        max-width: 360px;
+        max-height: 70vh;
+        overflow: auto;
+        background: #fff;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        z-index: 1001;
+        padding: 10px;
+      }
+
+      .resources-mini.show {
+        display: block;
+      }
+
+      .resources-toggle {
+        display: block;
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: #007bff;
+        color: white;
+        padding: 12px 16px;
+        border-radius: 50%;
+        font-size: 20px;
+        z-index: 1002;
+        cursor: pointer;
+      }
+    }
+    .photos-panel header { padding: 6px 10px; background:#f8f8f8; border-bottom:1px solid #e5e5e5; font-weight:600; display:flex; align-items:center; justify-content:space-between; }
+    .photos-panel .photos-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
+      gap: 12px;
+      padding: 12px;
+    }
+    .photos-panel figure { margin: 0; }
+    .photos-panel img {
+      width: 100%;
+      height: auto;
+      object-fit: contain;
+      display: block;
+      border: 1px solid #eee;
+      border-radius: 4px;
+    }
+    .photos-panel figcaption { font-size: 12px; opacity: 0.8; margin-top: 4px; text-align: center; }
+
+    #lessonsTable tbody tr.selected { outline: 2px solid rgba(0,120,255,0.35); }
+  </style>
+</head>
+<body>
+  <h1>Lessons Library</h1>
+  <form id="searchForm" class="toolbar">
+    <input id="q" type="text" placeholder="Search Lessons..." />
+    <button type="submit">Search</button>
+  </form>
+  <div class="main-results">
+    <div class="table-container" style="overflow:auto; max-height: 70vh;">
+      <table id="lessonsTable">
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+  <!-- Search results for pattern-matching search -->
+  <div id="searchResults" class="search-results"></div>
+  <div class="content-row">
+    <div class="main-col">
+      <!-- Lessons table moved above, nothing needed here -->
+    </div>
+    <section class="photos-panel" id="photosPanel">
+      <header>
+        <span>СНИМКИ НА ЗАДАЧИ</span>
+        <button type="button" id="togglePhotosBtn">Покажи / Скрий</button>
+        <button id="exportExercisesBtn">Задачите в отделен таб</button>
+      </header>
+      <div id="exercisePhotosContainer">
+        <div id="photosBody" class="photos-grid"></div>
+      </div>
+    </section>
+    <section class="resources-mini" id="resourcesMini">
+      <header>УЧЕБНИЦИ</header>
+      <table>
+        <thead>
+          <tr><th>ID</th><th>KeyWords</th><th>SourceType</th><th>Press</th><th>Publisher</th></tr>
+        </thead>
+        <tbody id="resourcesMiniBody"></tbody>
+      </table>
+    </section>
+  </div>
+
+  <script>
+    let currentIdKey = null; // detected primary key field name (e.g., 'id')
+
+    function detectIdKey(sampleRow) {
+      if (!sampleRow) return null;
+      const candidates = ['id', 'ID', 'lesson_id', 'lessonID', 'lessonId'];
+      for (const k of candidates) {
+        if (Object.prototype.hasOwnProperty.call(sampleRow, k)) return k;
+      }
+      return null;
+    }
+
+    async function saveCell(td) {
+      const tr = td.closest('tr');
+      const rowId = tr?.dataset.rowId;
+      const column = td.dataset.col;
+      if (!rowId || !column) return; // nothing to do
+      const newValue = td.textContent;
+
+      // Visual feedback: saving
+      td.dataset.saving = '1';
+
+      try {
+        const res = await fetch('/lessons-library/update', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: rowId, idKey: currentIdKey, column, value: newValue })
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        // success flash
+        td.dataset.saving = '';
+        td.dataset.saved = '1';
+        setTimeout(() => { td.dataset.saved = ''; }, 600);
+        // After successful update, update resources_used for this lesson
+        if (typeof updateResourcesUsed === "function" && rowId) {
+          updateResourcesUsed(rowId);
+        }
+      } catch (err) {
+        console.error('Inline save failed:', err);
+        td.dataset.saving = '';
+        td.dataset.error = '1';
+        setTimeout(() => { td.dataset.error = ''; }, 1000);
+      }
+    }
+
+    function renderLessons(lessons) {
+      // Render lessons into the #lessonsTable as a dynamic table with headers
+      const table = document.getElementById('lessonsTable');
+      if (!table) return;
+      const thead = table.querySelector('thead');
+      const tbody = table.querySelector('tbody');
+      if (!thead || !tbody) return;
+      // Clear previous content
+      thead.innerHTML = '';
+      tbody.innerHTML = '';
+
+      if (!Array.isArray(lessons) || lessons.length === 0) {
+        return; // Don't show anything if no results
+      }
+
+      // Dynamically get headers from the first lesson object
+      const first = lessons[0];
+      const headers = Object.keys(first);
+
+      // Render header row
+      const trHead = document.createElement('tr');
+      for (const key of headers) {
+        const th = document.createElement('th');
+        th.textContent = key;
+        trHead.appendChild(th);
+      }
+      thead.appendChild(trHead);
+
+      // Render body rows
+      for (const lesson of lessons) {
+        const tr = document.createElement('tr');
+        // Optionally, set a data-row-id for editing
+        if (lesson.id !== undefined) tr.dataset.rowId = lesson.id;
+        else if (lesson.ID !== undefined) tr.dataset.rowId = lesson.ID;
+        else if (lesson.lesson_id !== undefined) tr.dataset.rowId = lesson.lesson_id;
+
+        // Add lessonBytextId for photo lookup (for compatibility)
+        if (lesson.lesson_bytext_id !== undefined) {
+          tr.dataset.lessonBytextId = lesson.lesson_bytext_id;
+        } else if (lesson.lesson_id !== undefined) {
+          tr.dataset.lessonBytextId = lesson.lesson_id;
+        } else if (lesson.id !== undefined) {
+          tr.dataset.lessonBytextId = lesson.id;
+        }
+
+        for (const key of headers) {
+          const td = document.createElement('td');
+          let val = lesson[key];
+          // Handle arrays, booleans, and nulls
+          if (Array.isArray(val)) {
+            td.textContent = val.join(', ');
+            td.classList.add('pre');
+          } else if (typeof val === 'boolean') {
+            td.textContent = val ? '✅' : '❌';
+          } else if (val === null || typeof val === 'undefined') {
+            td.textContent = '';
+          } else {
+            td.textContent = val;
+          }
+          // Optionally: allow inline editing
+          td.setAttribute('contenteditable', 'true');
+          td.dataset.col = key;
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
+
+      // --- Add event listener to table rows for photo panel ---
+      // Attach only once to tbody (delegated)
+      const lessonsTbody = table.querySelector('tbody');
+      if (!lessonsTbody._photoListenerAttached) {
+        lessonsTbody.addEventListener('click', async (e) => {
+          const row = e.target.closest('tr');
+          if (!row) return;
+
+          const lessonByTextId = row.dataset.lessonBytextId;
+          if (!lessonByTextId) return;
+
+          const photosBody = document.getElementById('photosBody');
+          photosBody.innerHTML = 'Зареждане...';
+          const panel = document.getElementById('photosPanel');
+          if (panel) panel.style.display = 'block';
+
+          try {
+            const res = await fetch(`/lessons-library/lesson-exercise-photos?id=${encodeURIComponent(lessonByTextId)}&idKey=lesson_bytext_id`);
+            const data = await res.json();
+
+            photosBody.innerHTML = '';
+            if (!Array.isArray(data) || data.length === 0) {
+              photosBody.textContent = 'Няма снимки.';
+              return;
+            }
+
+            data.forEach(({ text_filepath, solution_filepath }) => {
+              if (text_filepath) {
+                const img = document.createElement('img');
+                img.src = text_filepath;
+                img.alt = 'Условие';
+                img.className = 'lesson-photo';
+                photosBody.appendChild(img);
+              }
+              if (solution_filepath) {
+                const img = document.createElement('img');
+                img.src = solution_filepath;
+                img.alt = 'Решение';
+                img.className = 'lesson-photo';
+                photosBody.appendChild(img);
+              }
+            });
+          } catch (err) {
+            console.error('Грешка при зареждане на снимките:', err);
+            photosBody.textContent = 'Грешка при зареждане.';
+          }
+        });
+        lessonsTbody._photoListenerAttached = true;
+      }
+    }
+
+
+    async function loadResourcesMini() {
+      try {
+        const res = await fetch('/lessons-library/resources-min');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const rows = await res.json();
+        const tb = document.getElementById('resourcesMiniBody');
+        tb.innerHTML = '';
+        for (const r of rows) {
+          const tr = document.createElement('tr');
+          const td1 = document.createElement('td');
+          const td2 = document.createElement('td');
+          const td3 = document.createElement('td');
+          const td4 = document.createElement('td');
+          const td5 = document.createElement('td');
+          td1.textContent = r.ID ?? '';
+          td2.textContent = r.KeyWords ?? '';
+          td3.textContent = r.SourceType ?? '';
+          td4.textContent = r.Press ?? '';
+          td5.textContent = r.Publisher ?? '';
+          tr.append(td1, td2, td3, td4, td5);
+          tb.appendChild(tr);
+        }
+      } catch (e) {
+        console.error('Load resources mini failed:', e);
+      }
+    }
+    async function loadExercisePhotos(rowId) {
+      try {
+        const panel = document.getElementById('photosPanel');
+        const body = document.getElementById('photosBody');
+        body.innerHTML = '';
+        // panel auto-show
+        panel.style.display = 'block'; // auto-show when a row is chosen
+        const url = `/lessons-library/lesson-exercise-photos?id=${encodeURIComponent(rowId)}${currentIdKey ? `&idKey=${encodeURIComponent(currentIdKey)}` : ''}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const items = await res.json();
+        if (!Array.isArray(items) || items.length === 0) {
+          body.innerHTML = '<div style="padding:8px; opacity:.7;">Няма снимки за този урок.</div>';
+          return;
+        }
+        // Restore logic: always show both images if present, in order (text first, then solution)
+        for (const it of items) {
+          // Show text photo if present
+          if (it.text_filepath && it.text_filepath.trim() !== '') {
+            const fig = document.createElement('figure');
+            const img = document.createElement('img');
+            img.loading = 'lazy';
+            img.referrerPolicy = 'no-referrer';
+            img.src = it.text_filepath;
+            img.alt = `Exercise ${it.id} (Text)`;
+            const cap = document.createElement('figcaption');
+            cap.textContent = `Exercise #${it.id} (Text)`;
+            fig.appendChild(img);
+            fig.appendChild(cap);
+            body.appendChild(fig);
+          }
+          // Show solution photo if present
+          if (it.solution_filepath && it.solution_filepath.trim() !== '') {
+            const fig = document.createElement('figure');
+            const img = document.createElement('img');
+            img.loading = 'lazy';
+            img.referrerPolicy = 'no-referrer';
+            img.src = it.solution_filepath;
+            img.alt = `Exercise ${it.id} (Solution)`;
+            const cap = document.createElement('figcaption');
+            cap.textContent = `Exercise #${it.id} (Solution)`;
+            fig.appendChild(img);
+            fig.appendChild(cap);
+            body.appendChild(fig);
+          }
+        }
+      } catch (e) {
+        console.error('Load exercise photos failed:', e);
+        const body = document.getElementById('photosBody');
+        body.innerHTML = '<div style="padding:8px; color:#a00;">Грешка при зареждане на снимките.</div>';
+      }
+    }
+
+    (function setupPhotosToggle(){
+      const btn = document.getElementById('togglePhotosBtn');
+      const panel = document.getElementById('photosPanel');
+      if (!btn || !panel) return;
+      btn.addEventListener('click', () => {
+        panel.style.display = (panel.style.display === 'none' || panel.style.display === '') ? 'block' : 'none';
+      });
+    })();
+
+    // load on page open
+    loadResourcesMini();
+
+    // Optionally: render all lessons initially (or comment out to show nothing by default)
+    // (function fetchAllLessonsAndLog() {
+    //   try {
+    //     const res = await fetch('/lessons-library/all');
+    //     if (!res.ok) throw new Error('HTTP ' + res.status);
+    //     const data = await res.json();
+    //     renderLessons(Array.isArray(data) ? data : data?.rows || []);
+    //   } catch (e) {
+    //     console.error('Failed to load all lessons:', e);
+    //   }
+    // })();
+  </script>
+
+  <script>
+    (function wireSearch(){
+      const form = document.getElementById('searchForm');
+      const input = document.getElementById('q');
+      const table = document.getElementById('lessonsTable');
+      if (!form || !input || !table) return;
+
+      async function runSearch() {
+        const term = (input.value || '').trim();
+        if (!term) {
+          // clear table if empty search
+          const thead = table.querySelector('thead');
+          const tbody = table.querySelector('tbody');
+          if (thead) thead.innerHTML = '';
+          if (tbody) tbody.innerHTML = '';
+          return;
+        }
+        try {
+          const resp = await fetch(`/lessons-library/search?q=${encodeURIComponent(term)}`);
+          if (!resp.ok) throw new Error('HTTP ' + resp.status);
+          const data = await resp.json();
+          const rows = Array.isArray(data?.rows) ? data.rows : [];
+          if (rows.length && typeof detectIdKey === 'function') {
+            window.currentIdKey = detectIdKey(rows[0]) || window.currentIdKey;
+          }
+          if (typeof renderLessons === 'function') {
+            renderLessons(rows);
+          }
+          // If nothing found, show an empty state row for clarity
+          if ((!rows || rows.length === 0)) {
+            const thead = table.querySelector('thead');
+            const tbody = table.querySelector('tbody');
+            if (thead && tbody) {
+              thead.innerHTML = '';
+              tbody.innerHTML = '<tr><td style="padding:10px; opacity:.7;" colspan="1">Няма резултати</td></tr>';
+            }
+          }
+        } catch (err) {
+          console.error('[Search] failed:', err);
+        }
+      }
+
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        runSearch();
+      });
+
+      // Also trigger search on Enter key while focused in the input (covers Safari)
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          runSearch();
+        }
+      });
+    })();
+  </script>
+  <!-- Обработка на PDF бутон -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script>
+    window.jsPDF = window.jspdf.jsPDF;
+
+    function exportToPDF() {
+      const container = document.querySelector('#exercisePhotosContainer');
+      if (!container) {
+        return;
+      }
+
+      const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+
+      if (!isSafari) {
+        html2canvas(container, { scale: 2, useCORS: true }).then(canvas => {
+          const imgData = canvas.toDataURL('image/png');
+          const pdf = new jsPDF();
+          const pdfWidth = pdf.internal.pageSize.getWidth();
+          const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+          pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T').join('_').slice(0, 19);
+          const filename = `exercises_${timestamp}.pdf`;
+          pdf.save(filename);
+        }).catch(err => {
+          console.error(err);
+        });
+        return;
+      }
+
+      // Safari fallback
+      const newTab = window.open('', '_blank');
+      if (!newTab) {
+        return;
+      }
+
+      const images = container.querySelectorAll('img');
+      let htmlContent = '<html><head><title>Exercises</title></head><body>';
+      images.forEach(img => {
+        htmlContent += `<div style="margin-bottom:20px;"><img src="${img.src}" style="max-width:100%;"><hr></div>`;
+      });
+      htmlContent += '</body></html>';
+
+      newTab.document.write(htmlContent);
+      newTab.document.close();
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      const btn = document.querySelector('#exportExercisesBtn');
+      if (btn) {
+        btn.addEventListener('click', exportToPDF);
+      }
+    });
+  </script>
+</body>
+  <div class="resources-toggle" onclick="toggleResources()">ℹ️</div>
+
+  <script>
+  function toggleResources() {
+    const panel = document.querySelector('.resources-mini');
+    panel.classList.toggle('show');
+  }
+
+   // Clear searchResults on DOMContentLoaded
+    window.addEventListener('DOMContentLoaded', () => {
+      const resultsContainer = document.getElementById('searchResults');
+      if (resultsContainer) resultsContainer.innerHTML = '';
+    });
+  </script>
+</html>

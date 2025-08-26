@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title></title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; }
+    h1 { margin: 0 0 16px; font-size: 22px; }
+    .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+    .toolbar input, .toolbar select, .toolbar button { padding: 6px 10px; font-size: 14px; }
+    .table-container {
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      overflow: auto;
+      max-height: 600px;
+      max-width: 100%;
+    }
+    table { border-collapse: collapse; width: 100%; font-size: 14px; }
+    thead th { position: sticky; top: 0; background: #f4f6f8; border-bottom: 1px solid #e1e5ea; text-align: left; padding: 8px; }
+    tbody td { border-bottom: 1px solid #f0f2f5; padding: 8px; }
+    tbody tr:hover { background: #fafbfc; }
+    .status { margin-top: 8px; font-size: 12px; color: #555; }
+    .hidden { display: none; }
+
+    /* Make the notes column wider in the main table */
+    #resultsTable th.notes-col,
+    #resultsTable td.notes-col {
+      min-width: 300px;
+      max-width: 500px;
+    }
+  </style>
+</head>
+<body>
+  <div class="table-container">
+    <table id="resultsTable">
+      <thead id="thead"></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+  <div class="toolbar" id="weekToolbar" style="margin: 8px 0;">
+    <button id="prevWeekBtn" title="Previous week">◀</button>
+    <label for="weekNumberInput">Week</label>
+    <input id="weekNumberInput" type="number" min="1" step="1" style="width: 72px;" />
+    <button id="nextWeekBtn" title="Next week">▶</button>
+  </div>
+
+  <h2 style="margin-top:16px; font-size:18px;">Lessons search</h2>
+    <div class="status" id="status">Loading…</div>
+    <div class="toolbar" style="margin-bottom: 8px; margin-top: 8px;">
+      <input id="lessonsQuery" type="text" placeholder="Search lessons…" style="min-width:260px" />
+      <button id="lessonsSearchBtn" title="Search lessons">Search</button>
+    </div>
+    <div class="table-container" style="max-height: 400px;">
+      <table id="lessonsTable">
+        <thead id="lessonsThead"></thead>
+        <tbody id="lessonsTbody"></tbody>
+      </table>
+    </div>
+ 
+
+  <script>
+    const thead = document.getElementById('thead');
+    const tbody = document.getElementById('tbody');
+    const statusEl = document.getElementById('status');
+
+    const weekToolbar = document.getElementById('weekToolbar');
+    const prevWeekBtn = document.getElementById('prevWeekBtn');
+    const nextWeekBtn = document.getElementById('nextWeekBtn');
+    const weekNumberInput = document.getElementById('weekNumberInput');
+    let currentWeek = 1;
+
+    const lessonsQuery = document.getElementById('lessonsQuery');
+    const lessonsSearchBtn = document.getElementById('lessonsSearchBtn');
+    const lessonsThead = document.getElementById('lessonsThead');
+    const lessonsTbody = document.getElementById('lessonsTbody');
+
+    // Helper to send PATCH for cell update
+    async function updateCell(id, column, value){
+      try{
+        const res = await fetch(`/lessons-calendar/generatedyearplan/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ column, value })
+        });
+        if(!res.ok){
+          const t = await res.text();
+          throw new Error(`HTTP ${res.status} ${t}`);
+        }
+        return await res.json();
+      }catch(err){
+        console.error('Update failed:', err);
+        statusEl.textContent = 'Update failed. See console.';
+        throw err;
+      }
+    }
+
+    function renderTable(rows){
+      tbody.innerHTML = '';
+      thead.innerHTML = '';
+      if(!rows || rows.length === 0){
+        statusEl.textContent = 'No rows found.';
+        return;
+      }
+      const cols = Object.keys(rows[0]);
+      const hiddenCols = ['id', 'term'];
+      const displayCols = cols.filter(c => !hiddenCols.includes(c));
+
+      // Reorder 'duration' to appear immediately after 'end_time'
+      // and move 'notes' to be the last column
+      const displayColsOrdered = (() => {
+        const arr = [...displayCols];
+        const di = arr.indexOf('duration');
+        const ei = arr.indexOf('end_time');
+        if (di !== -1 && ei !== -1 && di !== ei + 1) {
+          arr.splice(di, 1);
+          arr.splice(ei + 1, 0, 'duration');
+        }
+        const ni = arr.indexOf('notes');
+        if (ni !== -1 && ni !== arr.length - 1) {
+          arr.splice(ni, 1);
+          arr.push('notes');
+        }
+        return arr;
+      })();
+
+      // Build header using ordered columns
+      const trh = document.createElement('tr');
+      displayColsOrdered.forEach(c => {
+        const th = document.createElement('th');
+        th.textContent = c;
+        if (c === 'notes') {
+          th.classList.add('notes-col');
+          th.style.minWidth = '300px';
+        }
+        trh.appendChild(th);
+      });
+      thead.appendChild(trh);
+
+      // Editable columns: last two visible (ordered), always include lessonCreated and notes if present
+      const editableCols = (() => {
+        const lastTwo = displayColsOrdered.slice(-2);
+        const extra = [];
+        if (displayColsOrdered.includes('lessonCreated')) extra.push('lessonCreated');
+        if (displayColsOrdered.includes('notes')) extra.push('notes');
+        return Array.from(new Set([...lastTwo, ...extra]));
+      })();
+
+      // Build body using ordered columns
+      for(const r of rows){
+        const tr = document.createElement('tr');
+        displayColsOrdered.forEach(c => {
+          const td = document.createElement('td');
+          let v = r[c];
+          if(c === 'date' && v){
+            try { v = new Date(v).toISOString().slice(0,10); } catch {}
+          }
+          if (c === 'lessonCreated') {
+            const setDisplay = (val) => {
+              if (val === true) {
+                td.textContent = '✔️';
+                td.style.color = 'green';
+                td.style.backgroundColor = '#e6f4ea';
+                td.style.fontWeight = 'bold';
+              } else if (val === false) {
+                td.textContent = '✖️';
+                td.style.color = 'red';
+                td.style.backgroundColor = '#fdecea';
+                td.style.fontWeight = 'bold';
+              } else {
+                td.textContent = '';
+                td.style.color = '';
+                td.style.backgroundColor = '';
+                td.style.fontWeight = '';
+              }
+            };
+            setDisplay(v);
+            td.style.cursor = 'pointer';
+            td.dataset.col = c;
+            td.dataset.id = r.id;
+            td.title = 'Click to toggle: empty → ✔️ → ✖️';
+            td.addEventListener('click', async ()=>{
+              const current = (td.textContent === '✔️') ? true : (td.textContent === '✖️') ? false : null;
+              const next = (current === null) ? true : (current === true) ? false : null;
+              statusEl.textContent = 'Saving...';
+              try{
+                await updateCell(td.dataset.id, 'lessonCreated', next);
+                setDisplay(next);
+                statusEl.textContent = 'Saved';
+              }catch(e){ }
+            });
+          } else {
+            td.textContent = v == null ? '' : v;
+            if (c === 'notes') {
+              td.style.whiteSpace = 'pre-wrap';
+            }
+          }
+
+          if (c === 'notes') {
+            td.classList.add('notes-col');
+            td.style.minWidth = '300px';
+          }
+
+          if (editableCols.includes(c) && c !== 'lessonCreated'){
+            td.contentEditable = 'true';
+            td.dataset.col = c;
+            td.dataset.id = r.id;
+            td.addEventListener('keydown', (e)=>{
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                td.blur();
+              }
+            });
+            td.addEventListener('blur', async ()=>{
+              const wants = td.textContent; // keep exact user text including newlines
+              if(!td.dataset.id){
+                console.warn('No id for row, cannot update');
+                return;
+              }
+              statusEl.textContent = 'Saving...';
+              try{
+                const resp = await updateCell(td.dataset.id, td.dataset.col, wants);
+                const saved = (resp && typeof resp.value !== 'undefined') ? resp.value : wants;
+                td.textContent = saved == null ? '' : saved;
+                if (td.dataset.col === 'notes') {
+                  td.style.whiteSpace = 'pre-wrap';
+                }
+                statusEl.textContent = 'Saved';
+              }catch{}
+            });
+          }
+
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      }
+      statusEl.textContent = `Loaded ${rows.length} row(s).`;
+    }
+
+    function renderLessons(rows){
+      lessonsThead.innerHTML = '';
+      lessonsTbody.innerHTML = '';
+      const cols = ['url','filepath','theory_snippets','exercises_ids'];
+      // header
+      const trh = document.createElement('tr');
+      cols.forEach(c => { const th = document.createElement('th'); th.textContent = c; trh.appendChild(th); });
+      lessonsThead.appendChild(trh);
+      if (!rows || rows.length === 0){
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = cols.length;
+        td.textContent = 'No lessons found.';
+        tr.appendChild(td);
+        lessonsTbody.appendChild(tr);
+        return;
+      }
+      // body
+      rows.forEach(r => {
+        const tr = document.createElement('tr');
+        cols.forEach(c => {
+          const td = document.createElement('td');
+          let v = r[c];
+          if (c === 'theory_snippets') {
+            td.style.whiteSpace = 'pre-wrap';
+          }
+          if (Array.isArray(v)) {
+            td.textContent = v.join(', ');
+          } else if (v && typeof v === 'object') {
+            try { td.textContent = JSON.stringify(v); } catch { td.textContent = String(v); }
+          } else {
+            td.textContent = v == null ? '' : String(v);
+          }
+          tr.appendChild(td);
+        });
+        lessonsTbody.appendChild(tr);
+      });
+    }
+
+    async function searchLessons(){
+      try {
+        const q = lessonsQuery ? lessonsQuery.value : '';
+        const url = '/lessons-calendar/lessons' + (q ? (`?q=${encodeURIComponent(q)}`) : '');
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        renderLessons(data);
+      } catch(err){
+        console.error(err);
+        statusEl.textContent = 'Error searching lessons. See console.';
+      }
+    }
+
+    async function loadData(weekArg){
+      try{
+        const w = (typeof weekArg === 'number' && !Number.isNaN(weekArg)) ? weekArg : currentWeek;
+        const res = await fetch('/lessons-calendar/generatedyearplan' + (w ? ('?week=' + encodeURIComponent(w)) : ''));
+        if(!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        renderTable(data);
+        currentWeek = w;
+        if (weekNumberInput) weekNumberInput.value = String(currentWeek);
+      }catch(err){
+        console.error(err);
+        statusEl.textContent = 'Error loading data. See console.';
+      }
+    }
+    if (lessonsSearchBtn) lessonsSearchBtn.addEventListener('click', searchLessons);
+    if (lessonsQuery) lessonsQuery.addEventListener('keydown', (e)=>{
+      if (e.key === 'Enter') searchLessons();
+    });
+    if (prevWeekBtn) prevWeekBtn.addEventListener('click', ()=>{
+      const nextW = Math.max(1, (parseInt(weekNumberInput.value || currentWeek, 10) || 1) - 1);
+      loadData(nextW);
+    });
+    if (nextWeekBtn) nextWeekBtn.addEventListener('click', ()=>{
+      const nextW = (parseInt(weekNumberInput.value || currentWeek, 10) || 1) + 1;
+      loadData(nextW);
+    });
+    if (weekNumberInput) weekNumberInput.addEventListener('keydown', (e)=>{
+      if (e.key === 'Enter') {
+        const val = parseInt(weekNumberInput.value, 10);
+        if (!Number.isNaN(val) && val > 0) loadData(val);
+      }
+    });
+    if (weekNumberInput) weekNumberInput.addEventListener('blur', ()=>{
+      const val = parseInt(weekNumberInput.value, 10);
+      if (!Number.isNaN(val) && val > 0) loadData(val);
+    });
+    // Initial loads
+    if (weekNumberInput) weekNumberInput.value = String(currentWeek);
+    searchLessons();
+    loadData(currentWeek);
+  </script>
+</body>
+</html>

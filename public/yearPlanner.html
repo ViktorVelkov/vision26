@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Year Planner</title>
+  <style>
+    body {
+      font-family: "Segoe UI", sans-serif;
+      background: #f9f9f9;
+      padding: 20px;
+    }
+    h2 {
+      text-align: center;
+    }
+    form {
+      max-width: 600px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+    label {
+      display: block;
+      margin: 15px 0 5px;
+      font-weight: bold;
+    }
+    input[type="date"] {
+      width: 100%;
+      padding: 8px;
+      font-size: 1rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    button {
+      margin-top: 20px;
+      padding: 10px 20px;
+      font-size: 1rem;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+  </style>
+</head>
+<body>
+  <h2>📆 Year Planner Setup</h2>
+  <form id="yearPlannerForm">
+    <label for="startYearDate">Start of Academic Year:</label>
+    <input type="date" id="startYearDate" name="startYearDate" required>
+
+    <label for="endYearDate">End of Academic Year:</label>
+    <input type="date" id="endYearDate" name="endYearDate" required>
+
+    <label for="endSemester1">End of Semester 1:</label>
+    <input type="date" id="endSemester1" name="endSemester1" required>
+
+    <label for="startSemester2">Start of Semester 2:</label>
+    <input type="date" id="startSemester2" name="startSemester2" required>
+
+    <button id="generatePlanBtn">Generate Plan</button>
+
+  </form>
+
+  <hr style="margin: 30px 0;">
+  <h3>📋 Current Schedule Info</h3>
+  <pre id="currentScheduleInfo" style="white-space: pre-wrap; background: #f1f1f1; padding: 12px; border-radius: 6px;"></pre>
+
+  <h3>🕒 Weekly Schedule (Time & Days)</h3>
+  <pre id="weeklyScheduleInfo" style="white-space: pre-wrap; background: #eef; padding: 12px; border-radius: 6px;"></pre>
+  <script>
+  // Helper to offset dates
+  function addDays(d, n) {
+    const dt = new Date(d);
+    dt.setDate(dt.getDate() + n);
+    return dt;
+  }
+
+  // On load, assign random close-together defaults
+  document.addEventListener("DOMContentLoaded", () => {
+    const today = new Date();
+    const start = addDays(today, Math.floor(Math.random() * 30));            // 0–29 days from today
+    const end = addDays(start, Math.floor(Math.random() * 60) + 15);         // 15–74 days after start
+    const duration = Math.round((end - start) / (1000 * 60 * 60 * 24));
+    const midOffset = Math.floor(duration / 2 + (Math.random() * 10 - 5));   // half ±5 days
+    const sem1End = addDays(start, midOffset);
+    const sem2Start = addDays(sem1End, Math.floor(Math.random() * 7) + 1);    // 1–7 day break
+
+    const formatDate = d => d.toISOString().slice(0, 10);
+    document.getElementById("startYearDate").value = formatDate(start);
+    document.getElementById("endYearDate").value = formatDate(end);
+    document.getElementById("endSemester1").value = formatDate(sem1End);
+    document.getElementById("startSemester2").value = formatDate(sem2Start);
+  });
+
+    document.getElementById("yearPlannerForm").addEventListener("submit", async function(e) {
+      e.preventDefault();
+
+      const data = {
+        startYearDate: document.getElementById("startYearDate").value,
+        endYearDate: document.getElementById("endYearDate").value,
+        endSemester1: document.getElementById("endSemester1").value,
+        startSemester2: document.getElementById("startSemester2").value
+      };
+
+      // You may POST this data to your backend when ready.
+    });
+
+    // --- Display current schedule info ---
+    async function loadCurrentScheduleInfo() {
+      try {
+        const res = await fetch("/schedule/current");
+        const data = await res.json();
+
+        const infoBox = document.getElementById("currentScheduleInfo");
+        if (!data.hasCurrent) {
+          infoBox.textContent = "⚠️ No current schedule set.";
+          return;
+        }
+
+        const { current, currentRows } = data;
+        let output = `📅 Year: ${current.start_year}–${current.end_year}\n\n`;
+
+        if (Array.isArray(currentRows)) {
+          currentRows.forEach(row => {
+            output += `📘 Class ${row.class} ${row.division}, Term ${row.term}:\n`;
+            output += `    Разпределение: ${row.razpredelenie}\n\n`;
+          });
+        }
+
+        infoBox.textContent = output;
+      } catch (err) {
+        console.error("Failed to load current schedule:", err);
+        document.getElementById("currentScheduleInfo").textContent = "❌ Failed to load current schedule.";
+      }
+    }
+
+    // --- Display weekly schedule info ---
+    async function loadWeeklyScheduleInfo() {
+      try {
+        const res = await fetch("/schedule/weekly-current");
+        const data = await res.json();
+        const box = document.getElementById("weeklyScheduleInfo");
+
+        if (!data.hasCurrent) {
+          box.textContent = "⚠️ No weekly schedule available.";
+          return;
+        }
+
+        let output = `📅 Year: ${data.current.start_year}–${data.current.end_year}\n\n`;
+        data.weeklyRows.forEach(row => {
+          output += `🗓️ ${row.weekday}, ${row.start_time}–${row.end_time} — ${row.subject} (Term ${row.term})\n`;
+        });
+
+        box.textContent = output;
+      } catch (err) {
+        console.error("Error loading weekly schedule:", err);
+        document.getElementById("weeklyScheduleInfo").textContent = "❌ Failed to load weekly schedule.";
+      }
+    }
+
+    // Load on page ready
+    loadCurrentScheduleInfo();
+    loadWeeklyScheduleInfo();
+    
+    // Generate a week-by-week planner from dates, skipping holidays
+    async function generateWeeklyPlanDebug({ startDate, endDate, semester1End, semester2Start }) {
+      const holidays = await (await fetch("/holidays")).json();
+      const weekly = await (await fetch("/schedule/weekly-current")).json();
+      if (!weekly.hasCurrent) return [];
+      const holidaySet = new Set(holidays);
+      const start = new Date(startDate);
+      const endLimit = new Date(endDate);
+      const plan = [];
+      const addDays = (d,n) => { const dt=new Date(d); dt.setDate(dt.getDate()+n); return dt; };
+      const getTerm = dStr => { const d=new Date(dStr);
+        if (d <= new Date(semester1End)) return 1;
+        if (d >= new Date(semester2Start)) return 2;
+        return null;
+      };
+      const getWeekday = dStr =>
+        new Date(dStr).toLocaleDateString("en-US",{weekday:"long"});
+      const yearStart = new Date(startDate);
+      yearStart.setHours(0,0,0,0);
+      let cursor = new Date(startDate), end = new Date(endDate);
+      while (cursor <= end) {
+        const weekEntries = [];
+        for (let i = 0; i < 7; i++) {
+          const date = addDays(cursor, i);
+          if (date < start || date > endLimit) continue;
+          const dateStr = date.toISOString().slice(0, 10);
+          if (holidaySet.has(dateStr)) continue;
+          const term = getTerm(dateStr);
+          if (!term) continue;
+          const wd = getWeekday(dateStr);
+          weekly.weeklyRows
+            .filter(r => r.weekday === wd && r.term === term)
+            .forEach(r => {
+              if (r.recurrence === "BIWEEKLY") {
+                const startOfWeek = new Date(cursor);
+                const academicWeekIndex = Math.floor((startOfWeek - yearStart) / (1000 * 60 * 60 * 24 * 7)) + 1;
+                const currentParity = (academicWeekIndex % 2) === 0 ? 2 : 1;
+                if (currentParity !== (parseInt(r.week_parity, 10) || 1)) {
+                  return; // skip this entry
+                }
+              }
+              const startTimeParts = r.start_time.split(":").map(Number);
+              const endTimeParts = r.end_time.split(":").map(Number);
+              const startMinutes = startTimeParts[0] * 60 + startTimeParts[1];
+              const endMinutes = endTimeParts[0] * 60 + endTimeParts[1];
+              const duration = endMinutes - startMinutes;
+
+              let segments = Math.ceil(duration / 40);
+              let segmentStart = startMinutes;
+
+              for (let s = 0; s < segments; s++) {
+                let segmentEnd = Math.min(segmentStart + 40, endMinutes);
+                const formatTime = mins => {
+                  const h = Math.floor(mins / 60).toString().padStart(2, "0");
+                  const m = (mins % 60).toString().padStart(2, "0");
+                  return `${h}:${m}`;
+                };
+
+                weekEntries.push({
+                  date: dateStr,
+                  start_time: formatTime(segmentStart),
+                  end_time: formatTime(segmentEnd),
+                  subject: r.subject
+                });
+
+                segmentStart = segmentEnd;
+              }
+            });
+        }
+        if (weekEntries.length) plan.push({weekOf:cursor.toISOString().slice(0,10),entries:weekEntries});
+        cursor = addDays(cursor,7);
+      }
+      return plan;
+    }
+
+    async function generateWeeklyPlan({ startDate, endDate, semester1End, semester2Start }) {
+      const holidays = await (await fetch("/holidays")).json();
+      const weekly = await (await fetch("/schedule/weekly-current")).json();
+      if (!weekly.hasCurrent) return [];
+      const holidaySet = new Set(holidays);
+      const start = new Date(startDate);
+      const endLimit = new Date(endDate);
+      const plan = [];
+      const addDays = (d,n) => { const dt=new Date(d); dt.setDate(dt.getDate()+n); return dt; };
+      const getTerm = dStr => { const d=new Date(dStr);
+        if (d <= new Date(semester1End)) return 1;
+        if (d >= new Date(semester2Start)) return 2;
+        return null;
+      };
+      const getWeekday = dStr =>
+        new Date(dStr).toLocaleDateString("en-US",{weekday:"long"});
+      const yearStart = new Date(startDate);
+      yearStart.setHours(0,0,0,0);
+      let cursor = new Date(startDate), end = new Date(endDate);
+      while (cursor <= end) {
+        const weekEntries = [];
+        for (let i = 0; i < 7; i++) {
+          const date = addDays(cursor, i);
+          if (date < start || date > endLimit) continue;
+          const dateStr = date.toISOString().slice(0, 10);
+          if (holidaySet.has(dateStr)) continue;
+          const term = getTerm(dateStr);
+          if (!term) continue;
+          const wd = getWeekday(dateStr);
+          weekly.weeklyRows
+            .filter(r => r.weekday === wd && r.term === term)
+            .forEach(r => {
+              if (r.recurrence === "BIWEEKLY") {
+                const startOfWeek = new Date(cursor);
+                const academicWeekIndex = Math.floor((startOfWeek - yearStart) / (1000 * 60 * 60 * 24 * 7)) + 1;
+                const currentParity = (academicWeekIndex % 2) === 0 ? 2 : 1;
+                if (currentParity !== (parseInt(r.week_parity, 10) || 1)) {
+                  return; // skip this entry
+                }
+              }
+              const startTimeParts = r.start_time.split(":").map(Number);
+              const endTimeParts = r.end_time.split(":").map(Number);
+              const startMinutes = startTimeParts[0] * 60 + startTimeParts[1];
+              const endMinutes = endTimeParts[0] * 60 + endTimeParts[1];
+              const duration = endMinutes - startMinutes;
+
+              let segments = Math.ceil(duration / 40);
+              let segmentStart = startMinutes;
+
+              for (let s = 0; s < segments; s++) {
+                let segmentEnd = Math.min(segmentStart + 40, endMinutes);
+                const formatTime = mins => {
+                  const h = Math.floor(mins / 60).toString().padStart(2, "0");
+                  const m = (mins % 60).toString().padStart(2, "0");
+                  return `${h}:${m}`;
+                };
+
+                weekEntries.push({
+                  date: dateStr,
+                  start_time: formatTime(segmentStart),
+                  end_time: formatTime(segmentEnd),
+                  subject: r.subject
+                });
+
+                segmentStart = segmentEnd;
+              }
+            });
+        }
+        if (weekEntries.length) plan.push({weekOf:cursor.toISOString().slice(0,10),entries:weekEntries});
+        cursor = addDays(cursor,7);
+      }
+      return plan;
+    }
+
+    document.getElementById("generatePlanBtn").addEventListener("click", () => {
+      const outputWindow = window.open("", "_blank"); // Open tab immediately to avoid popup blockers
+
+      (async () => {
+        const startDate = document.getElementById("startYearDate").value;
+        const endDate = document.getElementById("endYearDate").value;
+        const semester1End = document.getElementById("endSemester1").value;
+        const semester2Start = document.getElementById("startSemester2").value;
+
+        if (!startDate || !endDate || !semester1End || !semester2Start) {
+          alert("❗ Please fill in all dates.");
+          return;
+        }
+
+        const planner = await generateWeeklyPlanDebug({ startDate, endDate, semester1End, semester2Start });
+
+        // POST the planner to backend for saving
+        try {
+          const res = await fetch("/schedule/generate-year-plan", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ planner })
+          });
+          const result = await res.json();
+          if (!res.ok) throw new Error(result.error || "Failed to save planner");
+
+          outputWindow.document.write("<pre style='font-family: monospace;'>");
+          outputWindow.document.write(`✅ ${result.message}\n\n`);
+          planner.forEach((week, index) => {
+            outputWindow.document.write(`📅 Week ${index + 1}\n`);
+            week.entries.forEach(entry => {
+              const dayName = new Date(entry.date).toLocaleDateString('en-US', { weekday: 'long' });
+              outputWindow.document.write(`  ${entry.date} (${dayName}): ${entry.start_time}–${entry.end_time} — ${entry.subject}\n`);
+            });
+            outputWindow.document.write("\n");
+          });
+          outputWindow.document.write("</pre>");
+        } catch (err) {
+          alert("❌ Error saving planner: " + err.message);
+          outputWindow.close();
+        }
+      })();
+    });
+  </script>
+</body>
+</html>

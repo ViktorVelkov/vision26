@@ -1,0 +1,73 @@
+﻿<!DOCTYPE html>
+<html lang="bg">
+<head>
+    <meta charset="UTF-8">
+    <title>Избор на форма</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            text-align: center;
+            padding: 50px;
+        }
+
+        h1 {
+            margin-bottom: 30px;
+        }
+
+        .link-container {
+            display: block;
+            justify-content: center;
+            gap: 40px;
+        }
+
+            a {
+            padding: 12px 20px;
+            min-width: 160px;
+            text-align: center;
+            background-color: #d0eaff;
+            border-radius: 8px;
+            text-decoration: none;
+            color: #000;
+            font-weight: bold;
+            border: 1px solid #888;
+            transition: background-color 0.2s;
+        }
+
+            a:hover {
+                background-color: #a8d7ff;
+            }
+            .link-container .row {
+                display: flex;
+                justify-content: center;
+                gap: 20px;
+                margin: 20px 0; /* разстояние над и под всеки ред */
+            }
+    </style>
+</head>
+    <body>
+        <h1>Избери форма</h1>
+
+        <div class="link-container">
+            <!-- Първи ред (2 бутона) -->
+            <div class="row">
+                <a href="activity-form.html">Активност</a>
+                <a href="exe_solutions.html">Управление на упражненията</a>
+            </div>
+
+            <!-- Втори ред (3 бутона) -->
+            <div class="row">
+                <a href="-form.html">Д.Р</a>
+                <a href="друга-форма.html">Д.Р. отсъствия</a>
+                <a href="друга-форма.html">Знания</a>
+            </div>
+            <div class="row">
+                <a href="-form.html">Програма</a>
+                <a href="schedule_form.html">Генератор Програма</a>
+            </div>
+            <!-- Трети ред (1 бутон) -->
+            <div class="row">
+                <a href="-form.html">Репорти</a>
+            </div>
+        </div>
+    </body>
+</html>

@@ -1,26 +1,28 @@
 // index.js
 const express = require('express');
-const { Pool } = require('pg');
 const cors = require('cors');
 const path = require('path');
 const app = express();
 const multer = require("multer");
 const fs = require("fs");
-
+const scheduleRouter = require("./public/schedule");
+const holidayRouter = require("./routes/holidays");
 const upload = multer({ storage: multer.memoryStorage() });
+const scheduleSelectionRouter = require("./routes/scheduleSelection");
+const pool = require('./db');
 
-
+app.use("/api", scheduleRouter);
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+app.use('/files', express.static('/Users/viktorvelkov/Documents'));
+app.use("/holidays", holidayRouter);
+app.use("/", scheduleSelectionRouter);
+app.use('/lessons-calendar', require('./routes/lessonsCalendar'));
+app.use('/lessons-library', require('./public/lessonsLibrary'));
+
 // Настройка на връзката към PostgreSQL
-const pool = new Pool({
-  user: 'viktorvelkov',               // замени с твоето потребителско име
-  host: 'localhost',
-  database: 'viktorvelkov',        // замени с името на твоята база
-  password: 'Errpass1',      // замени с паролата ти
-  port: 5432
-});
+
 const PORT = 3001;
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
@@ -221,6 +223,10 @@ app.post("/custom-upload", upload.fields([
     }
 
     const savedFiles = [];
+    let flag = true;
+
+    let textFileFullPath = null;
+    let solutionFileFullPath = null;
 
     const saveFile = (file, suffix) => {
       const ext = path.extname(file.originalname);
@@ -236,15 +242,18 @@ app.post("/custom-upload", upload.fields([
       }
 
       fs.writeFileSync(fullPath, file.buffer);
+      if (suffix === 't') textFileFullPath = fullPath;
+      if (suffix === 's') solutionFileFullPath = fullPath;
       savedFiles.push(path.basename(fullPath));
     };
  
     if (req.files.file1?.[0]) {
-      saveFile(req.files.file1[0], 't'); // _t = assignment condition
+        saveFile(req.files.file1[0], 't'); // _t = assignment condition
+        flag = false;
     }
 
     if (req.files.file2?.[0]) {
-      saveFile(req.files.file2[0], 's'); // _s = solution
+      saveFile(req.files.file2[0], 's'); // _s = solution 
     }
 
     if (savedFiles.length === 0) {
@@ -252,7 +261,7 @@ app.post("/custom-upload", upload.fields([
     }
 
 // 🔁 Increment multiple_solutions if file was renamed (count > 1)
-    if (renamed) {
+    if (renamed && flag) {
         try {
             const updateQuery = `
                 UPDATE "Exercises"
@@ -270,7 +279,12 @@ app.post("/custom-upload", upload.fields([
         }
     }
 
-    return res.status(200).json({ message: "Upload complete.", savedFiles });
+    return res.status(200).json({
+      message: "Upload complete.",
+      savedFiles,
+      text_filepath: textFileFullPath,
+      solution_filepath: solutionFileFullPath
+    });
   } catch (err) {
     console.error("Upload error:", err);
     return res.status(500).json({ error: "File saving failed." });
@@ -287,18 +301,21 @@ app.post("/exercises", async (req, res) => {
         for_revision,
         has_assignmentCondition,
         has_solution,
-        commentsArray
+        commentsArray,
+        text_filepath,
+        solution_filepath
     } = req.body;
     
-    console.log("inside exercises uploads");
-
+    console.log(solution_filepath);
+    console.log(text_filepath);
+    
     try {
     
         const result = await pool.query(
             `INSERT INTO "Exercises"
            ("Number", "Page", "ResourceID", "difficulty", "date_last_solved", "for_revision",
-            "has_assignmentCondition", "has_solution","comments")
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            "has_assignmentCondition", "has_solution", "comments", "text_filepath", "solution_filepath")
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
            RETURNING "ID"`,
             [
                 number,
@@ -309,7 +326,9 @@ app.post("/exercises", async (req, res) => {
                 for_revision,
                 has_assignmentCondition,
                 has_solution,
-                commentsArray
+                commentsArray,
+                text_filepath,
+                solution_filepath
             ]
         );
 
@@ -336,44 +355,67 @@ app.patch("/update-exercise", async (req, res) => {
   }
   
   try {
-    let query, params;
+    // let query, params;
 
-    if (appendFields.includes(field)) {
-      // Detect type and cast accordingly
-      let castType = "text";
-      if (field === "date_last_solved" || field === "for_revision") {
-          console.log(params);
-    if (field === "date_last_solved" || field === "for_revision") {
-    query = `
-        UPDATE "Exercises"
-        SET "${field}" = array_append(COALESCE("${field}", '{}'::date[]), $1::date)
-        WHERE "ID" = $2 RETURNING *`;
-    params = [value, id];
-    }
-      }
-    else if (field === "comments") {
-        query = `
+    // if (appendFields.includes(field)) {
+    //   // Detect type and cast accordingly
+    //   let castType = "text";
+    //   if (field === "date_last_solved" || field === "for_revision") {
+    //       console.log(params);
+    // if (field === "date_last_solved" || field === "for_revision") {
+    // query = `
+    //     UPDATE "Exercises"
+    //     SET "${field}" = array_append(COALESCE("${field}", '{}'::date[]), $1::date)
+    //     WHERE "ID" = $2 RETURNING *`;
+    // params = [value, id];
+    // }
+    //   }
+    // else if (field === "comments") {
+    //     query = `
+    //         UPDATE "Exercises"
+    //         SET "comments" = $1::text[]
+    //         WHERE "ID" = $2 RETURNING *`;
+    //     params = [value, id];
+    //     }
+    //   else {
+    //   console.log("can i get a heyo")
+    //         query = `
+    //     UPDATE "Exercises"
+    //     SET "${field}" = $1
+    //     WHERE "ID" = $2 RETURNING *`;
+    //     params = [value, id];    }
+    // } 
+        let query, params;
+
+        if (appendFields.includes(field)) {
+        if (field === "date_last_solved" || field === "for_revision") {
+            query = `
+            UPDATE "Exercises"
+            SET "${field}" = array_append(COALESCE("${field}", '{}'::date[]), $1::date)
+            WHERE "ID" = $2 RETURNING *`;
+            params = [value, id];
+        } else if (field === "comments") {
+            query = `
             UPDATE "Exercises"
             SET "comments" = $1::text[]
             WHERE "ID" = $2 RETURNING *`;
+            params = [value, id];
+        }
+        } else {
+        // All other fields, including has_assignmentCondition
+        query = `
+            UPDATE "Exercises"
+            SET "${field}" = $1
+            WHERE "ID" = $2 RETURNING *`;
         params = [value, id];
         }
-      else {
-      
-            query = `
-        UPDATE "Exercises"
-        SET "${field}" = $1
-        WHERE "ID" = $2 RETURNING *`;
-        params = [value, id];    }
-    } 
-
-    const result = await pool.query(query, params);
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error("❌ DB update error:", err);
-    res.status(500).json({ error: "Update failed" });
-  }
-});
+            const result = await pool.query(query, params);
+            res.json(result.rows[0]);
+        } catch (err) {
+            console.error("❌ DB update error:", err);
+            res.status(500).json({ error: "Update failed" });
+        }
+        });
 
 app.get("/exercise-details", async (req, res) => {
   const { resourceID, page, number } = req.query;
@@ -410,3 +452,60 @@ app.get("/exercise-details", async (req, res) => {
     res.status(500).json({ error: "Failed to retrieve exercise." });
   }
 });
+
+app.post("/schedule/save", async (req, res) => {
+  const { entries } = req.body;
+  if (!Array.isArray(entries)) return res.status(400).json({ error: "Invalid data format." });
+
+  const query = `
+    INSERT INTO "scheduleentries" (
+      start_year, end_year, term, weekday, start_time, end_time, subject, recurrence, week_parity
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+  `;
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    for (const entry of entries) {
+      const {
+        start_year,
+        end_year,
+        term,
+        weekday,
+        start_time,
+        end_time,
+        subject,
+        recurrence,
+        week_parity
+      } = entry;
+
+      if (
+        !start_year || !end_year || !term || !weekday ||
+        !start_time || !end_time || !subject
+      ) continue;
+
+      await client.query(query, [
+        start_year,
+        end_year,
+        term,
+        weekday,
+        start_time,
+        end_time,
+        subject,
+        recurrence || "WEEKLY",
+        week_parity || 1
+      ]);
+    }
+
+    await client.query("COMMIT");
+    res.json({ message: "Schedule saved successfully." });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("Error saving schedule:", err);
+    res.status(500).json({ error: "Failed to save schedule." });
+  } finally {
+    client.release();
+  }
+});
+
