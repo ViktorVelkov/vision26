@@ -45,18 +45,14 @@
     <button id="nextWeekBtn" title="Next week">▶</button>
   </div>
 
-  <h2 style="margin-top:16px; font-size:18px;">Lessons search</h2>
-    <div class="status" id="status">Loading…</div>
-    <div class="toolbar" style="margin-bottom: 8px; margin-top: 8px;">
-      <input id="lessonsQuery" type="text" placeholder="Search lessons…" style="min-width:260px" />
-      <button id="lessonsSearchBtn" title="Search lessons">Search</button>
-    </div>
-    <div class="table-container" style="max-height: 400px;">
-      <table id="lessonsTable">
-        <thead id="lessonsThead"></thead>
-        <tbody id="lessonsTbody"></tbody>
-      </table>
-    </div>
+  <h2 style="margin-top:16px; font-size:18px;">Библиотека уроци</h2>
+  <div class="status" id="status"></div>
+  <div class="toolbar" style="margin: 8px 0;">
+    <a href="/lessonsLibrary.html" id="openLessonsLibraryLink" style="
+      display:inline-block; background:#2563eb; color:#fff; text-decoration:none; padding:8px 14px; border-radius:8px; font-weight:600;">
+      Отиди към Lessons Library →
+    </a>
+  </div>
  
 
   <script>
@@ -70,10 +66,6 @@
     const weekNumberInput = document.getElementById('weekNumberInput');
     let currentWeek = 1;
 
-    const lessonsQuery = document.getElementById('lessonsQuery');
-    const lessonsSearchBtn = document.getElementById('lessonsSearchBtn');
-    const lessonsThead = document.getElementById('lessonsThead');
-    const lessonsTbody = document.getElementById('lessonsTbody');
 
     // Helper to send PATCH for cell update
     async function updateCell(id, column, value){
@@ -237,58 +229,6 @@
       statusEl.textContent = `Loaded ${rows.length} row(s).`;
     }
 
-    function renderLessons(rows){
-      lessonsThead.innerHTML = '';
-      lessonsTbody.innerHTML = '';
-      const cols = ['url','filepath','theory_snippets','exercises_ids'];
-      // header
-      const trh = document.createElement('tr');
-      cols.forEach(c => { const th = document.createElement('th'); th.textContent = c; trh.appendChild(th); });
-      lessonsThead.appendChild(trh);
-      if (!rows || rows.length === 0){
-        const tr = document.createElement('tr');
-        const td = document.createElement('td');
-        td.colSpan = cols.length;
-        td.textContent = 'No lessons found.';
-        tr.appendChild(td);
-        lessonsTbody.appendChild(tr);
-        return;
-      }
-      // body
-      rows.forEach(r => {
-        const tr = document.createElement('tr');
-        cols.forEach(c => {
-          const td = document.createElement('td');
-          let v = r[c];
-          if (c === 'theory_snippets') {
-            td.style.whiteSpace = 'pre-wrap';
-          }
-          if (Array.isArray(v)) {
-            td.textContent = v.join(', ');
-          } else if (v && typeof v === 'object') {
-            try { td.textContent = JSON.stringify(v); } catch { td.textContent = String(v); }
-          } else {
-            td.textContent = v == null ? '' : String(v);
-          }
-          tr.appendChild(td);
-        });
-        lessonsTbody.appendChild(tr);
-      });
-    }
-
-    async function searchLessons(){
-      try {
-        const q = lessonsQuery ? lessonsQuery.value : '';
-        const url = '/lessons-calendar/lessons' + (q ? (`?q=${encodeURIComponent(q)}`) : '');
-        const res = await fetch(url);
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const data = await res.json();
-        renderLessons(data);
-      } catch(err){
-        console.error(err);
-        statusEl.textContent = 'Error searching lessons. See console.';
-      }
-    }
 
     async function loadData(weekArg){
       try{
@@ -304,10 +244,6 @@
         statusEl.textContent = 'Error loading data. See console.';
       }
     }
-    if (lessonsSearchBtn) lessonsSearchBtn.addEventListener('click', searchLessons);
-    if (lessonsQuery) lessonsQuery.addEventListener('keydown', (e)=>{
-      if (e.key === 'Enter') searchLessons();
-    });
     if (prevWeekBtn) prevWeekBtn.addEventListener('click', ()=>{
       const nextW = Math.max(1, (parseInt(weekNumberInput.value || currentWeek, 10) || 1) - 1);
       loadData(nextW);
@@ -328,7 +264,6 @@
     });
     // Initial loads
     if (weekNumberInput) weekNumberInput.value = String(currentWeek);
-    searchLessons();
     loadData(currentWeek);
   </script>
 </body>

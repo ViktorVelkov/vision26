@@ -113,7 +113,7 @@ router.patch('/update', async (req, res) => {
       return res.status(400).json({ error: 'Missing id or column.' });
     }
 
-    const whereKey = idKey && /^[A-Za-z_][A-Za-z0-9_]*$/.test(idKey) ? idKey : 'id';
+    const whereKey = idKey && /^[A-Za-z_][A-Za-z0-9_]*$/.test(idKey) ? idKey : 'lesson_id';
 
     // Detect real column type for this column (handles exercises_ids being int[] or text[])
     let targetUdt = '';
@@ -145,104 +145,72 @@ router.patch('/update', async (req, res) => {
     let params;
 
     if (INT_ARRAY_COLUMNS.has(column)) {
-      // Handle integer[] columns robustly. Accept inputs like "1,2,3", "{1,2,3}", "[1,2,3]",
-      // and also tokens like "RID-Page-Number" (or with '/', '.' or spaces) which are resolved
-      // via the unique key (ResourceID, Page, Number) in the Exercises table.
       const raw = value;
 
-      // If blank, set to NULL
+      // If blank -> NULL
       if (raw == null || (typeof raw === 'string' && raw.trim() === '')) {
-        sql = `UPDATE "Lessons" SET "${column}" = NULL, "updated_at" = CURRENT_TIMESTAMP WHERE (${whereKey})::text = ($1)::text RETURNING *`;
+        sql = `UPDATE "Lessons" SET "${column}" = NULL, "updated_at" = CURRENT_TIMESTAMP
+               WHERE (${whereKey})::text = ($1)::text RETURNING *`;
         params = [idParam];
       } else {
+        // Parse tokens preserving delete prefixes
         let tokens = [];
         if (Array.isArray(raw)) {
-          tokens = raw.map(x => String(x));
+          tokens = raw.map(String);
         } else if (typeof raw === 'string') {
           const t = raw.trim().replace(/[{}\[\]]/g, '');
-          if (t.length > 0) tokens = t.split(',');
+          if (t) tokens = t.split(',');
         } else {
           tokens = [String(raw)];
         }
 
-        // Parse tokens into numeric IDs or composite keys to resolve
-        const idCandidates = [];
-        const compositeTriples = []; // {rid,page,number,raw}
-        const tripleRegex = /^(\d+)[\.\-_/\s]+(\d+)[\.\-_/\s]+(\d+)$/;
+        const delPrefix = /^(?:-+|!+|del:)\s*/i;
+        const addInts = [];
+        const delInts = [];
+        let hasExplicitDelete = false;
 
         for (let tok of tokens) {
           if (!tok) continue;
-          const s = String(tok).trim();
+          let s = String(tok).trim();
           if (!s) continue;
+
+          let isDelete = false;
+          if (delPrefix.test(s)) {
+            s = s.replace(delPrefix, '').trim();
+            isDelete = true;
+            hasExplicitDelete = true;
+          }
           const n = parseInt(s, 10);
-          if (!Number.isNaN(n) && String(n) === s.replace(/^\+/, '')) {
-            idCandidates.push(n);
-            continue;
-          }
-          const m = s.match(tripleRegex);
-          if (m) {
-            compositeTriples.push({ rid: parseInt(m[1], 10), page: parseInt(m[2], 10), number: parseInt(m[3], 10), raw: s });
+          if (!Number.isNaN(n)) {
+            if (isDelete) delInts.push(n);
+            else addInts.push(n);
           }
         }
 
-        // Resolve composite triples to exercise IDs using the unique key
-        let resolvedIds = [];
-        if (compositeTriples.length > 0) {
-          // Build VALUES list: (rid,page,number)
-          const valuesParts = [];
-          const valuesParams = [];
-          let p = 1;
-          for (const t of compositeTriples) {
-            valuesParts.push(`($${p}, $${p + 1}, $${p + 2})`);
-            valuesParams.push(t.rid, t.page, t.number);
-            p += 3;
-          }
-          const sqlResolve = `
-            WITH inp("ResourceID","Page","Number") AS (
-              VALUES ${valuesParts.join(', ')}
-            )
-            SELECT e."ID", i."ResourceID", i."Page", i."Number"
-            FROM inp i
-            JOIN "Exercises" e
-              ON e."ResourceID" = (i."ResourceID")::int
-             AND e."Page"       = (i."Page")::int
-             AND e."Number"     = (i."Number")::int;
-          `;
-          const { rows: resRows } = await dbq(sqlResolve, valuesParams);
-          const foundMap = new Map(resRows.map(r => [`${r.ResourceID}|${r.Page}|${r.Number}`, r.ID]));
-          for (const t of compositeTriples) {
-            const key = `${t.rid}|${t.page}|${t.number}`;
-            if (!foundMap.has(key)) {
-              return res.status(400).json({ error: `Exercise not found for tuple (${t.rid}, ${t.page}, ${t.number})` });
-            }
-            resolvedIds.push(foundMap.get(key));
-          }
-        }
-
-        // Combine and deduplicate IDs
-        let finalIds = Array.from(new Set([...idCandidates, ...resolvedIds]))
-          .filter(n => Number.isInteger(n) && n > 0);
-
-        // Validate that every ID exists in Exercises
-        let missingIds = [];
-        if (finalIds.length > 0) {
-          const { rows: chk } = await dbq(
-            `SELECT "ID" FROM "Exercises" WHERE "ID" = ANY($1::int[])`,
-            [finalIds]
+        // Read existing array
+        let existing = [];
+        try {
+          const sel = await dbq(
+            `SELECT "${column}"::int[] AS vals FROM "Lessons" WHERE (${whereKey})::text = ($1)::text`,
+            [idParam]
           );
-          const ok = new Set(chk.map(r => r.ID));
-          missingIds = finalIds.filter(x => !ok.has(x));
-          if (missingIds.length > 0) {
-            console.warn('[LessonsLibrary.update][int[]] skipping unknown IDs:', missingIds);
-            // Keep only valid IDs
-            finalIds = finalIds.filter(x => ok.has(x));
-          }
+          if (sel.rowCount) existing = Array.isArray(sel.rows[0].vals) ? sel.rows[0].vals.filter(Number.isInteger) : [];
+        } catch (_) {}
+
+        let merged;
+        if (hasExplicitDelete) {
+          // Use add/remove semantics when a delete prefix is present
+          const delSet = new Set(delInts);
+          const afterDelete = existing.filter(v => !delSet.has(v));
+          merged = Array.from(new Set([...afterDelete, ...addInts])).filter(Number.isInteger);
+        } else {
+          // No explicit deletes -> treat provided list as full replacement
+          merged = Array.from(new Set(addInts)).filter(Number.isInteger);
         }
 
-        // Write int[] directly using a typed array bind
         sql = `UPDATE "Lessons" SET "${column}" = $1::int[], "updated_at" = CURRENT_TIMESTAMP
                WHERE (${whereKey})::text = ($2)::text RETURNING *`;
-        params = [finalIds, idParam];
+        params = [merged, idParam];
       }
     } else if (column === EXERCISES_TEXT_ARRAY) {
       // Handle exercises_ids as text[] while still validating/resolving against Exercises.
@@ -355,18 +323,88 @@ router.patch('/update', async (req, res) => {
         const rawTokens = (tokens || [])
           .map(t => String(t).trim())
           .filter(t => t.length > 0);
+        // Prepare raw tokens list (trim and keep original form the user typed)
+        const rawTokensAll = (tokens || [])
+          .map(t => String(t).trim())
+          .filter(t => t.length > 0);
 
-        // We STORE exactly what user typed (tokens), append-only, dedupe by string value
+        // Split into additions and deletions. Support prefixes: '-', '!', 'del:' (case-insensitive)
+        const delPrefix = /^(?:-+|!+|del:)\s*/i;
+        const addTokens = [];
+        const delTokens = [];
+        for (const tok of rawTokensAll) {
+          if (delPrefix.test(tok)) {
+            const core = tok.replace(delPrefix, '').trim();
+            if (core) delTokens.push(core);
+          } else {
+            addTokens.push(tok);
+          }
+        }
+
+        // Existing stored tokens (as strings)
         const existingTokens = Array.isArray(existingIds) ? existingIds.map(String) : [];
-        const existSet = new Set(existingTokens);
-        const newUniqueTokens = rawTokens.filter(tok => !existSet.has(tok));
-        let mergedTokens = existingTokens.concat(newUniqueTokens);
 
-        // Mirror raw tokens to exercises_entered if the column exists (also append-only, deduped)
-        let mergedEntered = existingEntered;
+        // Helpers to normalize tokens for semantic deletion
+        const tripleNorm = (s) => {
+          const m = s.match(/^0*(\d+)[\.\-_/\\s]+0*(\d+)[\.\-_/\\s]+0*(\d+)$/);
+          return m ? `${parseInt(m[1],10)}|${parseInt(m[2],10)}|${parseInt(m[3],10)}` : null;
+        };
+        const numVal = (s) => (/^\d+$/.test(s) ? parseInt(s, 10) : null);
+
+        // --- Implicit deletions by omission ---------------------------------------
+        // If the user overwrites the cell with a full list (no explicit '-' tokens),
+        // treat tokens missing from the submitted list as deletions.
+        try {
+          const normalize = (s) => {
+            const tn = tripleNorm(s);
+            if (tn) return `T:${tn}`; // tagged triple
+            const nv = numVal(s);
+            if (nv != null) return `N:${nv}`; // tagged numeric
+            return `S:${String(s)}`; // raw string token
+          };
+          const submittedSet = new Set(addTokens.map(normalize));
+          const implicitDel = [];
+          for (const exTok of existingTokens) {
+            const exN = normalize(exTok);
+            if (!submittedSet.has(exN)) implicitDel.push(exTok);
+          }
+          if (implicitDel.length) delTokens.push(...implicitDel);
+        } catch (_) {}
+
+const delExact = new Set(delTokens);
+const delNums  = new Set(delTokens.map(numVal).filter(v => v != null));
+const delTrip  = new Set(delTokens.map(tripleNorm).filter(v => v));
+
+// Apply deletions to existing tokens (exact, numeric-equivalent, or triple-equivalent)
+const afterDeleteTokens = [];
+for (const tok of existingTokens) {
+  const drop = delExact.has(tok)
+    || (numVal(tok) != null && delNums.has(numVal(tok)))
+    || (tripleNorm(tok) && delTrip.has(tripleNorm(tok)));
+  if (!drop) afterDeleteTokens.push(tok);
+}
+
+// Mirror deletions to exercises_entered if present
+let mergedEntered = existingEntered;
+if (hasEnteredCol) {
+  const filt = [];
+  for (const tok of existingEntered) {
+    const drop = delExact.has(tok)
+      || (numVal(tok) != null && delNums.has(numVal(tok)))
+      || (tripleNorm(tok) && delTrip.has(tripleNorm(tok)));
+    if (!drop) filt.push(tok);
+  }
+  mergedEntered = filt;
+}
+
+// Additions: only tokens not already present after deletions
+const existSetAfterDel = new Set(afterDeleteTokens);
+const newUniqueTokens = addTokens.filter(tok => !existSetAfterDel.has(tok));
+let mergedTokens = afterDeleteTokens.concat(newUniqueTokens);
+
         if (hasEnteredCol) {
           const enteredSet = new Set(existingEntered);
-          mergedEntered = existingEntered.concat(rawTokens.filter(x => !enteredSet.has(x)));
+          mergedEntered = existingEntered.concat(addTokens.filter(x => !enteredSet.has(x)));
         }
 
         // If nothing stored yet and nothing typed now, write empty array for visibility
@@ -526,7 +564,7 @@ router.get('/lesson-exercise-photos', async (req, res) => {
     if (!idParam) {
       return res.status(400).json({ error: 'Missing id.' });
     }
-    const whereKey = idKey && /^[A-Za-z_][A-Za-z0-9_]*$/.test(idKey) ? idKey : 'id';
+    const whereKey = idKey && /^[A-Za-z_][A-Za-z0-9_]*$/.test(idKey) ? idKey : 'lesson_id';
 
     // Fetch exercises_ids as text[] from Lessons
     const sel = await dbq(

@@ -147,6 +147,15 @@
     .photos-panel figcaption { font-size: 12px; opacity: 0.8; margin-top: 4px; text-align: center; }
 
     #lessonsTable tbody tr.selected { outline: 2px solid rgba(0,120,255,0.35); }
+
+    .remove-cell {
+      color: #888 !important;
+      cursor: pointer;
+      user-select: none;
+      text-align: center;
+      width: 1%;
+      white-space: nowrap;
+    }
   </style>
 </head>
 <body>
@@ -207,19 +216,30 @@
       const rowId = tr?.dataset.rowId;
       const column = td.dataset.col;
       if (!rowId || !column) return; // nothing to do
-      const newValue = td.textContent;
+      // Remove newlines from contenteditable and trim
+      const newValue = (td.textContent || '').replace(/\n/g, '').trim();
+
+      // Prevent editing the primary key column itself to align with backend guard
+      if (currentIdKey && column && currentIdKey.toLowerCase() === column.toLowerCase()) {
+        td.dataset.error = '1';
+        setTimeout(() => { td.dataset.error = ''; }, 1000);
+        return;
+      }
 
       // Visual feedback: saving
       td.dataset.saving = '1';
 
       try {
+        const payload = { id: rowId, idKey: currentIdKey || 'lesson_id', column, value: (newValue ?? '').trim() };
+        console.log('[PATCH /lessons-library/update] payload =>', payload);
         const res = await fetch('/lessons-library/update', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: rowId, idKey: currentIdKey, column, value: newValue })
+          body: JSON.stringify(payload)
         });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
+        console.log('[PATCH /lessons-library/update] response =>', res.status, data);
+        if (!res.ok || !data?.ok) throw new Error('HTTP ' + res.status + (data?.error ? (': ' + data.error) : ''));
         // success flash
         td.dataset.saving = '';
         td.dataset.saved = '1';
@@ -257,6 +277,10 @@
 
       // Render header row
       const trHead = document.createElement('tr');
+      const removeTh = document.createElement('th');
+      removeTh.textContent = '';
+      removeTh.className = 'remove-cell';
+      trHead.appendChild(removeTh);
       for (const key of headers) {
         const th = document.createElement('th');
         th.textContent = key;
@@ -267,10 +291,20 @@
       // Render body rows
       for (const lesson of lessons) {
         const tr = document.createElement('tr');
-        // Optionally, set a data-row-id for editing
-        if (lesson.id !== undefined) tr.dataset.rowId = lesson.id;
-        else if (lesson.ID !== undefined) tr.dataset.rowId = lesson.ID;
-        else if (lesson.lesson_id !== undefined) tr.dataset.rowId = lesson.lesson_id;
+        // Prefer stable lesson_id for row id; fall back to detected key / common variants
+        let idVal = null;
+        if (lesson.lesson_id !== undefined) {
+          idVal = lesson.lesson_id;
+        } else if (currentIdKey && Object.prototype.hasOwnProperty.call(lesson, currentIdKey)) {
+          idVal = lesson[currentIdKey];
+        } else if (lesson.id !== undefined) {
+          idVal = lesson.id;
+        } else if (lesson.ID !== undefined) {
+          idVal = lesson.ID;
+        }
+        if (idVal !== null && idVal !== undefined) {
+          tr.dataset.rowId = String(idVal);
+        }
 
         // Add lessonBytextId for photo lookup (for compatibility)
         if (lesson.lesson_bytext_id !== undefined) {
@@ -281,6 +315,17 @@
           tr.dataset.lessonBytextId = lesson.id;
         }
 
+        // Add ✖ remove button as first column (monochrome, consistent gray)
+        const removeTd = document.createElement('td');
+        removeTd.className = 'remove-cell';
+        // Use a monochrome multiplication sign to guarantee gray color across fonts
+        removeTd.textContent = '✖';
+        removeTd.addEventListener('click', (e) => {
+          e.stopPropagation();
+          tr.remove();
+        });
+        tr.appendChild(removeTd);
+
         for (const key of headers) {
           const td = document.createElement('td');
           let val = lesson[key];
@@ -289,14 +334,18 @@
             td.textContent = val.join(', ');
             td.classList.add('pre');
           } else if (typeof val === 'boolean') {
-            td.textContent = val ? '✅' : '❌';
+            td.textContent = String(val);
           } else if (val === null || typeof val === 'undefined') {
             td.textContent = '';
           } else {
             td.textContent = val;
           }
-          // Optionally: allow inline editing
-          td.setAttribute('contenteditable', 'true');
+          // Optionally: allow inline editing, but not for updated_at, created_at, lesson_id
+          if (['updated_at','created_at','lesson_id'].includes(key)) {
+            td.setAttribute('contenteditable','false');
+          } else {
+            td.setAttribute('contenteditable','true');
+          }
           td.dataset.col = key;
           tr.appendChild(td);
         }
@@ -515,6 +564,29 @@
       });
     })();
   </script>
+  <script>
+    (function wireInlineEditing(){
+      const table = document.getElementById('lessonsTable');
+      if (!table) return;
+
+      // Commit on Enter key inside contenteditable cell
+      table.addEventListener('keydown', (e) => {
+        const td = e.target.closest('td[data-col]');
+        if (!td) return;
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          td.blur();
+        }
+      });
+
+      // Save on blur
+      table.addEventListener('blur', (e) => {
+        const td = e.target.closest('td[data-col]');
+        if (!td) return;
+        if (typeof saveCell === 'function') saveCell(td);
+      }, true);
+    })();
+  </script>
   <!-- Обработка на PDF бутон -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -569,10 +641,8 @@
         btn.addEventListener('click', exportToPDF);
       }
     });
-  </script>
-</body>
+  </script> 
   <div class="resources-toggle" onclick="toggleResources()">ℹ️</div>
-
   <script>
   function toggleResources() {
     const panel = document.querySelector('.resources-mini');
@@ -585,4 +655,6 @@
       if (resultsContainer) resultsContainer.innerHTML = '';
     });
   </script>
+</body>
+ 
 </html>

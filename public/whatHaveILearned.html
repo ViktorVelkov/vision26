@@ -1,0 +1,137 @@
+
+
+<!doctype html>
+<html lang="bg">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>What Have I Learned — Classes</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; }
+    h1 { margin: 0 0 16px; }
+    .row { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; }
+    label { font-weight: 600; }
+    select { padding: 6px 8px; min-width: 180px; }
+    #status { color: #666; font-size: 0.9rem; margin-top: 6px; }
+    .table-box {
+      max-height: 420px;
+      overflow: auto;
+      border: 1px solid #e6e6e6;
+      border-radius: 8px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+      background: #fff;
+      padding: 4px;
+      margin-top: 8px;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    thead th { position: sticky; top: 0; background: #f7f7f7; z-index: 1; }
+    th, td { padding: 8px 10px; border-bottom: 1px solid #eee; }
+    th { text-align: left; }
+    td { text-align: left; }
+    .muted { color: #9aa0a6; font-style: italic; }
+    @keyframes flashGreen {
+      0%   { background-color: #e6ffe6; }
+      100% { background-color: transparent; }
+    }
+    @keyframes flashRed {
+      0%   { background-color: #ffe6e6; }
+      100% { background-color: transparent; }
+    }
+    .row-actions { display: flex; gap: 6px; }
+    .table-toolbar { background:#fafafa; }
+    .table-toolbar th { padding:6px 10px; }
+    .icon-btn { border:1px solid #ccc; background:#fff; border-radius:50%; width:28px; height:28px; line-height:26px; text-align:center; font-weight:700; cursor:pointer; }
+    .icon-btn:hover { background:#f0f0f0; }
+    .primary-btn {
+      background:#2563eb; color:#fff; border:none; border-radius:6px;
+      padding:8px 14px; font-weight:600; cursor:pointer;
+      box-shadow:0 1px 2px rgba(0,0,0,.06);
+    }
+    .primary-btn:hover { background:#1e4fd9; }
+    .primary-btn:disabled { background:#9bb3ff; cursor:not-allowed; }
+    /* Centered CTA wrapper for the Assess button */
+    .assess-cta { display:flex; justify-content:center; gap:10px; margin-top:12px; }
+    /* Larger, more visible variant */
+    .primary-btn--lg { padding:8px 22px; font-size:1.08rem; border-radius:10px; }
+    /* Light blue theme for the Assess button */
+    .primary-btn--light { background:#60a5fa; }
+    .primary-btn--light:hover { background:#3b82f6; }
+    .primary-btn--light:disabled { background:#bfdbfe; }
+    td input[type="text"], td input[type="date"] { padding: 4px 6px; font: inherit; }
+    td button { padding: 4px 8px; }
+    
+    .flash-success { animation: flashGreen 900ms ease-out; }
+    .flash-error   { animation: flashRed 1100ms ease-out; }
+  </style>
+</head>
+<body>
+  <h1>Избор на клас</h1>
+
+  <div class="row">
+    <label for="classesSelect">Клас:</label>
+    <select id="classesSelect" disabled>
+      <option value="" selected>Зареждане…</option>
+    </select>
+    <button id="searchLessonsBtn" disabled>Търси</button>
+  </div>
+
+  <div id="status"></div>
+
+  <div id="lessonsTakenWrap" class="table-box" hidden>
+    <table id="lessonsTakenTable">
+      <thead>
+        <tr class="table-toolbar">
+          <th colspan="5">
+            <button id="addLessonRowBtn" class="icon-btn" title="Добави нов ред">+</button>
+          </th>
+        </tr>
+        <tr>
+          <th>ID</th>
+          <th>Клас</th>
+          <th>Име</th>
+          <th>Дата</th>
+          <th>Свързан урок</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <!-- Skills for selected/linked lesson -->
+  <div id="skillsWrap" class="table-box" hidden>
+    <h3>Умения за урок</h3>
+    <table id="lessonSkillsTable">
+      <thead>
+        <tr class="table-toolbar">
+          <th id="skillsToolbarTh" colspan="1">
+            <button id="addSkillRowBtn" class="icon-btn" title="Добави умение">+</button>
+          </th>
+        </tr>
+        <tr id="lessonSkillsHeadRow"></tr>
+      </thead>
+      <tbody id="lessonSkillsBody"></tbody>
+    </table>
+    <div class="assess-cta">
+      <button id="openAssessBtn" class="primary-btn primary-btn--lg primary-btn--light">Оцени класа</button>
+    </div>
+  </div>
+  <div id="yearPlanWrap" class="table-box" hidden>
+    <h3>Годишен план</h3>
+    <table id="yearPlanTable">
+      <thead>
+        <tr>
+          <th>Дата</th>
+          <th>Ден</th>
+          <th>Име на урок</th>
+          <th>Тип</th>
+          <th>Създаден урок</th>
+          <th>Код на урок</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <script src="/whatHaveILearned.js" defer></script>
+</body>
+</html>

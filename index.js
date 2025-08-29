@@ -21,6 +21,168 @@ app.use("/", scheduleSelectionRouter);
 app.use('/lessons-calendar', require('./routes/lessonsCalendar'));
 app.use('/lessons-library', require('./public/lessonsLibrary'));
 
+
+
+/**
+ * GET /lesson-skills?triplet=001001001
+ * Returns all columns from "Snippets" for the given triplet.
+ * Matches both the single-value "tripplet_lesson" and the array "lessons_in_tripplets".
+ */
+app.get('/lesson-skills', async (req, res) => {
+  const triplet = req.query.triplet;
+  if (!triplet) return res.status(400).json({ error: 'Missing triplet parameter' });
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         "id",
+         "name",
+         COALESCE(TO_JSON("keyWords"), '[]'::json)             AS "keyWords",
+         "order",
+         COALESCE(TO_JSON("relatedTopic"), '[]'::json)         AS "relatedTopic",
+         COALESCE(TO_JSON("lessons_in_tripplets"), '[]'::json) AS "lessons_in_tripplets",
+         COALESCE(TO_JSON("associatedSnippets"), '[]'::json)   AS "associatedSnippets",
+         "uslovie",
+         "class"
+       FROM "Snippets"
+       WHERE "tripplet_lesson" = $1
+          OR $1 = ANY ("lessons_in_tripplets")
+       ORDER BY "id" ASC`,
+      [triplet]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('Error querying table Snippets:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * PATCH /lesson-skills/:id
+ * Updates any editable column of Snippets by id (except "id").
+ * Expects body with one or more fields among:
+ * name (text), keyWords (text[]), tripplet_lesson (text), associatedSnippet (int),
+ * order (int), relatedTopic (text[]), lessons_in_tripplets (text[]),
+ * associatedSnippets (int[]), uslovie (text), class (int)
+ */
+app.patch('/lesson-skills/:id', async (req, res) => {
+  const { id } = req.params;
+  if (!id) return res.status(400).json({ error: 'Missing id' });
+
+  // Helper casters
+  const asTextArray = (v) => Array.isArray(v) ? v : (typeof v === 'string' ? v.split(',').map(s=>s.trim()).filter(Boolean) : []);
+  const asIntArray  = (v) => Array.isArray(v) ? v.map(n=>parseInt(n,10)).filter(n=>Number.isInteger(n))
+                                             : (typeof v === 'string' ? v.split(',').map(s=>parseInt(s.trim(),10)).filter(n=>Number.isInteger(n)) : []);
+
+  const allowed = {
+    name:                { cast: null },
+    keyWords:            { cast: 'text[]',   transform: asTextArray },
+    tripplet_lesson:     { cast: null },
+    associatedSnippet:   { cast: 'int' },
+    order:               { cast: 'int' },
+    relatedTopic:        { cast: 'text[]',   transform: asTextArray },
+    lessons_in_tripplets:{ cast: 'text[]',   transform: asTextArray },
+    associatedSnippets:  { cast: 'int[]',    transform: asIntArray },
+    uslovie:             { cast: null },
+    class:               { cast: 'int' }
+  };
+
+  const sets = [];
+  const params = [];
+  for (const [key, meta] of Object.entries(allowed)) {
+    if (typeof req.body[key] === 'undefined') continue;
+    let val = req.body[key];
+    if (meta.transform) val = meta.transform(val);
+    params.push(val);
+    const idx = `$${params.length}`;
+    if (meta.cast) {
+      sets.push(`"${key}" = ${idx}::${meta.cast}`);
+    } else {
+      sets.push(`"${key}" = ${idx}`);
+    }
+  }
+
+  if (sets.length === 0) return res.status(400).json({ error: 'No valid fields provided' });
+
+  params.push(id);
+  const sql = `UPDATE "Snippets" SET ${sets.join(', ')} WHERE "id" = $${params.length}
+               RETURNING "id","name",
+                         COALESCE(TO_JSON("keyWords"), '[]'::json)             AS "keyWords",
+                         "tripplet_lesson","associatedSnippet","order",
+                         COALESCE(TO_JSON("relatedTopic"), '[]'::json)         AS "relatedTopic",
+                         COALESCE(TO_JSON("lessons_in_tripplets"), '[]'::json) AS "lessons_in_tripplets",
+                         COALESCE(TO_JSON("associatedSnippets"), '[]'::json)   AS "associatedSnippets",
+                         "uslovie","class"`;
+  try {
+    const r = await pool.query(sql, params);
+    if (r.rowCount === 0) return res.status(404).json({ error: 'Row not found' });
+    res.json({ ok:true, row: r.rows[0] });
+  } catch (err) {
+    console.error('Error updating Snippets:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /lesson-skills
+ * Creates a new Snippets row. Body may contain any editable field; if `triplet`
+ * is provided it will be used to prefill tripplet_lesson/lessons_in_tripplets.
+ */
+app.post('/lesson-skills', async (req, res) => {
+  const body = req.body || {};
+  const asTextArray = (v) => Array.isArray(v) ? v : (typeof v === 'string' ? v.split(',').map(s=>s.trim()).filter(Boolean) : []);
+  const asIntArray  = (v) => Array.isArray(v) ? v.map(n=>parseInt(n,10)).filter(n=>Number.isInteger(n))
+                                             : (typeof v === 'string' ? v.split(',').map(s=>parseInt(s.trim(),10)).filter(n=>Number.isInteger(n)) : []);
+
+  const triplet = body.triplet || body.tripplet_lesson || null;
+
+  const cols = [
+    'name','keyWords','tripplet_lesson','associatedSnippet','order',
+    'relatedTopic','lessons_in_tripplets','associatedSnippets','uslovie','class'
+  ];
+  const vals = {
+    name: body.name ?? null,
+    keyWords: asTextArray(body.keyWords),
+    tripplet_lesson: triplet ?? null,
+    associatedSnippet: (body.associatedSnippet != null ? parseInt(body.associatedSnippet,10) : null),
+    order: (body.order != null ? parseInt(body.order,10) : null),
+    relatedTopic: asTextArray(body.relatedTopic),
+    lessons_in_tripplets: (triplet ? asTextArray(body.lessons_in_tripplets || triplet) : asTextArray(body.lessons_in_tripplets)),
+    associatedSnippets: asIntArray(body.associatedSnippets),
+    uslovie: body.uslovie ?? null,
+    class: (body.class != null ? parseInt(body.class,10) : null)
+  };
+
+  const params = [];
+  const placeholders = [];
+  const casts = {
+    keyWords:'text[]', relatedTopic:'text[]', lessons_in_tripplets:'text[]', associatedSnippets:'int[]'
+  };
+
+  cols.forEach((c, i) => {
+    params.push(vals[c]);
+    const cast = casts[c] ? `::${casts[c]}` : '';
+    placeholders.push(`$${i+1}${cast}`);
+  });
+
+  const sql = `INSERT INTO "Snippets" (${cols.map(c=>`"${c}"`).join(', ')})
+               VALUES (${placeholders.join(', ')})
+               RETURNING "id","name",
+                         COALESCE(TO_JSON("keyWords"), '[]'::json)             AS "keyWords",
+                         "tripplet_lesson","associatedSnippet","order",
+                         COALESCE(TO_JSON("relatedTopic"), '[]'::json)         AS "relatedTopic",
+                         COALESCE(TO_JSON("lessons_in_tripplets"), '[]'::json) AS "lessons_in_tripplets",
+                         COALESCE(TO_JSON("associatedSnippets"), '[]'::json)   AS "associatedSnippets",
+                         "uslovie","class"`;
+  try {
+    const r = await pool.query(sql, params);
+    res.status(201).json({ ok:true, row: r.rows[0] });
+  } catch (err) {
+    console.error('Error inserting into Snippets:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+
 // Настройка на връзката към PostgreSQL
 
 const PORT = 3001;
@@ -74,6 +236,195 @@ app.get('/classes', async (req, res) => {
         console.error(err);
         res.status(500).send('Error fetching classes');
     }
+});
+
+app.get('/lessons-taken', async (req, res) => {
+  const className = req.query.className; // e.g., "11 А"
+  if (!className) return res.status(400).json({ error: 'Missing className parameter' });
+
+  // Parse grade and division (e.g., "11 А" -> 11, "А")
+  const grade = parseInt(className, 10);
+  const division = className.includes(' ')
+    ? className.substring(className.indexOf(' ') + 1).trim()
+    : '';
+
+  // Build flexible patterns to match variations like "11 МодулА", "11-А", etc.
+  // p1: exact or starts-with "11 А" (spaces optional)
+  // p2: contains grade and division in order, with any text in between (e.g., "11 МодулА")
+  const p1 = `${grade} ${division}`.trim();
+  const p2 = `${grade}%${division}`.trim();
+
+  try {
+    const result = await pool.query(
+      `SELECT 
+         "id", 
+         "class", 
+         "name", 
+         TO_CHAR("date", 'YYYY-MM-DD') AS "date", 
+         "associatedLesson"
+       FROM "lessons_taken"
+       WHERE (
+         ("class" ILIKE $1 || '%')
+         OR ("class" ILIKE $2)
+       )
+       ORDER BY "date" DESC NULLS LAST, "id" DESC`,
+      [p1, `%${p2}%`]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error querying lessons_taken:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PATCH /lessons-taken/:id - update name, date, and/or associatedLesson
+app.patch('/lessons-taken/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name, date, associatedLesson } = req.body || {};
+
+  if (!id) return res.status(400).json({ error: 'Missing id' });
+
+  const sets = [];
+  const params = [];
+
+  if (typeof name === 'string') {
+    params.push(name);
+    sets.push(`"name" = $${params.length}`);
+  }
+  if (typeof associatedLesson === 'string' || typeof associatedLesson === 'number') {
+    params.push(String(associatedLesson));
+    sets.push(`"associatedLesson" = $${params.length}`);
+  }
+  if (typeof date === 'string') {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: 'Invalid date format. Expected YYYY-MM-DD' });
+    }
+    params.push(date);
+    sets.push(`"date" = $${params.length}::date`);
+  }
+
+  if (sets.length === 0) {
+    return res.status(400).json({ error: 'No updatable fields provided' });
+  }
+
+  params.push(id);
+
+  const sql = `UPDATE "lessons_taken"
+                 SET ${sets.join(', ')}
+               WHERE "id" = $${params.length}
+               RETURNING "id", "class", "name", TO_CHAR("date", 'YYYY-MM-DD') AS "date", "associatedLesson"`;
+
+  try {
+    const result = await pool.query(sql, params);
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Row not found' });
+    res.json({ ok: true, row: result.rows[0] });
+  } catch (err) {
+    console.error('Error updating lessons_taken:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /lessons-taken - create new row
+app.post('/lessons-taken', async (req, res) => {
+  const { class: cls, name, date, associatedLesson } = req.body || {};
+  if (!cls) return res.status(400).json({ error: 'Missing class' });
+  if (!name && !associatedLesson && !date) {
+    return res.status(400).json({ error: 'Provide at least one of name, date or associatedLesson' });
+  }
+  let dateParam = null;
+  if (typeof date === 'string' && date.trim() !== '') {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: 'Invalid date format. Expected YYYY-MM-DD' });
+    }
+    dateParam = date;
+  }
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO "lessons_taken" ("class", "name", "date", "associatedLesson")
+       VALUES ($1, $2, $3::date, $4)
+       RETURNING "id", "class", "name", TO_CHAR("date", 'YYYY-MM-DD') AS "date", "associatedLesson"`,
+      [cls, name || null, dateParam, associatedLesson || null]
+    );
+    res.status(201).json({ ok: true, row: rows[0] });
+  } catch (err) {
+    console.error('Error inserting into lessons_taken:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+
+// GET /generatedyearplan?className=...
+app.get('/generatedyearplan', async (req, res) => {
+  const className = req.query.className;
+  if (!className) return res.status(400).json({ error: 'Missing className parameter' });
+  try {
+    const { rows } = await pool.query(
+      `SELECT 
+         "id",
+         TO_CHAR("date", 'YYYY-MM-DD') AS "date",
+         "weekday",
+         "unit",
+         "unitetype",
+         "lessonCreated",
+         "lessonCode"
+       FROM "generatedyearplan"
+       WHERE "subject" = $1
+       ORDER BY "date" ASC NULLS LAST, "id" ASC`,
+      [className]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('Error querying generatedyearplan:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PATCH /generatedyearplan/:id - update editable fields
+app.patch('/generatedyearplan/:id', async (req, res) => {
+  const { id } = req.params;
+  if (!id) return res.status(400).json({ error: 'Missing id' });
+
+  const { date, weekday, unit, unitetype, lessonCreated, lessonCode } = req.body || {};
+
+  const sets = [];
+  const params = [];
+
+  if (typeof weekday === 'string') { params.push(weekday); sets.push(`"weekday" = $${params.length}`); }
+  if (typeof unit === 'string') { params.push(unit); sets.push(`"unit" = $${params.length}`); }
+  if (typeof unitetype === 'string') { params.push(unitetype); sets.push(`"unitetype" = $${params.length}`); }
+  if (typeof lessonCode === 'string') { params.push(lessonCode); sets.push(`"lessonCode" = $${params.length}`); }
+  if (typeof date === 'string') {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Invalid date. Use YYYY-MM-DD' });
+    params.push(date); sets.push(`"date" = $${params.length}::date`);
+  }
+  if (typeof lessonCreated !== 'undefined') {
+    // accept 'true'/'false'/'1'/'0' or boolean
+    let val = lessonCreated;
+    if (typeof val === 'string') {
+      val = val.trim().toLowerCase();
+      if (val === '1') val = true; else if (val === '0') val = false; else if (val === 'true') val = true; else if (val === 'false') val = false;
+    }
+    params.push(val === true);
+    sets.push(`"lessonCreated" = $${params.length}::boolean`);
+  }
+
+  if (sets.length === 0) return res.status(400).json({ error: 'No updatable fields provided' });
+
+  params.push(id);
+  const sql = `UPDATE "generatedyearplan"
+                 SET ${sets.join(', ')}
+               WHERE "id" = $${params.length}
+               RETURNING "id",
+                         TO_CHAR("date", 'YYYY-MM-DD') AS "date",
+                         "weekday","unit","unitetype","lessonCreated","lessonCode"`;
+  try {
+    const result = await pool.query(sql, params);
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Row not found' });
+    res.json({ ok: true, row: result.rows[0] });
+  } catch (err) {
+    console.error('Error updating generatedyearplan:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 
