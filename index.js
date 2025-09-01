@@ -44,8 +44,8 @@ app.get('/lesson-skills', async (req, res) => {
          "uslovie",
          "class"
        FROM "Snippets"
-       WHERE "tripplet_lesson" = $1
-          OR $1 = ANY ("lessons_in_tripplets")
+       WHERE ("tripplet_lesson" = $1::text)
+          OR ($1::text = ANY ("lessons_in_tripplets"))
        ORDER BY "id" ASC`,
       [triplet]
     );
@@ -683,12 +683,139 @@ app.post("/exercises", async (req, res) => {
             ]
         );
 
-        res.status(201).json({ id: result.rows[0].ID });
+         const exerciseId = result.rows[0].ID;
+
+        // 2️⃣ Вмъкване и в exercises_snippets_relationship
+        await client.query(
+            `INSERT INTO "exercises_snippets_relationship" 
+             ("resource", "number", "page")
+             VALUES ($1, $2, $3)`,
+            [resourceID, number, page]
+        );
+
+        await client.query("COMMIT");
+
+        res.status(201).json({ id: exerciseId });
     } catch (err) {
+        await client.query("ROLLBACK");
         console.error("DB insert error:", err);
-        res.status(500).send("❌ Failed to insert into Exercises");
+        res.status(500).send("❌ Failed to insert into Exercises and relationship table");
+    } finally {
+        client.release();
     }
 });
+// Search relationships by relatedSnippet only
+app.get('/exercises-rel/search', async (req, res) => {
+  const qRaw = (req.query.q || '').trim();
+  if (!qRaw) return res.json([]);
+
+  // приемаме няколко ID-та, разделени със запетаи, интервали или ; 
+  const ids = qRaw
+    .split(/[\s,;]+/)
+    .map(s => parseInt(s, 10))
+    .filter(n => Number.isInteger(n));
+
+  if (!ids.length) return res.json([]);
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT "resource","number","page","relatedSnippet","comments"
+         FROM "exercises_snippets_relationship"
+         WHERE "relatedSnippet" = ANY($1::int[])
+         ORDER BY "resource","relatedSnippet"
+         LIMIT 200`,
+      [ids]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('exercises-rel/search failed:', err && err.stack ? err.stack : err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /assessment-log — запис в таблица "assesment_log"
+app.post('/assessment-log', async (req, res) => {
+  const { class: rawClass, class_division, lesson_tripplet, className } = req.body || {};
+  console.log('📥 /assessment-log payload:', req.body);
+
+  // Парсиране на class от число или низ („11“, „11 А“)
+  let cls = null;
+  if (Number.isInteger(rawClass)) {
+    cls = rawClass;
+  } else if (typeof rawClass === 'string') {
+    const m = rawClass.match(/\d+/);
+    if (m) cls = parseInt(m[0], 10);
+  } else if (typeof className === 'string') {
+    const m = className.match(/\d+/);
+    if (m) cls = parseInt(m[0], 10);
+  }
+
+  // Триплетът трябва да е непразен низ и да не е шаблон като ${...}
+  let triplet = null;
+  if (typeof lesson_tripplet === 'string') {
+    const t = lesson_tripplet.trim();
+    if (t && !(t.startsWith('${') && t.endsWith('}'))) triplet = t;
+  }
+
+  const div = (typeof class_division === 'string') ? class_division : '';
+
+  // ❗ Строга валидация — НЕ записваме ако липсват стойности
+  if (!Number.isInteger(cls) || !triplet) {
+    console.warn('⚠️ /assessment-log validation failed:', { cls, triplet });
+    return res.status(400).json({
+      error: 'Invalid payload',
+      details: { class_received: rawClass, parsed_class: cls, class_division: div, lesson_tripplet }
+    });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO "assesment_log" ("timedAt","class","class_division","lesson_tripplet")
+       VALUES (NOW(), $1, $2, $3)
+       RETURNING "id",
+                 TO_CHAR("timedAt", 'YYYY-MM-DD HH24:MI:SS') AS "timed_at",
+                 "class","class_division","lesson_tripplet"`,
+      [cls, div, triplet]
+    );
+    res.status(201).json({ ok: true, log: rows[0] });
+  } catch (err) {
+    console.error('Error inserting into assesment_log:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /assessment-log — list recent submissions (optional filters: className, triplet)
+app.get('/assessment-log', async (req, res) => {
+  const className = req.query.className || '';
+  const triplet = req.query.triplet || '';
+  // Parse class number and division
+  let cls = null, div = '';
+  if (className){
+    cls = parseInt(className, 10);
+    if (className.includes(' ')) div = className.substring(className.indexOf(' ') + 1).trim();
+  }
+  const where = [];
+  const params = [];
+  if (Number.isInteger(cls)) { params.push(cls); where.push(`"class" = $${params.length}`); }
+  if (div) { params.push(div); where.push(`"class_division" ILIKE $${params.length}`); }
+  if (triplet) { params.push(triplet); where.push(`"lesson_tripplet" = $${params.length}`); }
+
+  const sql = `SELECT id,
+                      TO_CHAR("timedAt", 'YYYY-MM-DD HH24:MI') AS timedAt,
+                      "class","class_division","lesson_tripplet"
+               FROM "assesment_log"
+               ${where.length?('WHERE '+where.join(' AND ')):''}
+               ORDER BY "timedAt" DESC, id DESC
+               LIMIT 100`;
+  try{
+    const { rows } = await pool.query(sql, params);
+    res.json(rows);
+  }catch(err){
+    console.error('GET /assessment-log failed:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 app.patch("/update-exercise", async (req, res) => {
   const { id, field, value } = req.body;
 
@@ -801,6 +928,56 @@ app.get("/exercise-details", async (req, res) => {
   } catch (err) {
     console.error("DB error:", err);
     res.status(500).json({ error: "Failed to retrieve exercise." });
+  }
+});
+
+// Lightweight search by ID or triple (ResourceID-Page-Number OR Number-Page-ResourceID)
+app.get('/exercises/search', async (req, res) => {
+  const qRaw = (req.query.q || '').trim();
+  if (!qRaw) return res.json([]);
+
+  // helper
+  const tripleRe = /^0*(\d+)[.\-_\s/–—−‑‒]+0*(\d+)[.\-_\s/–—−‑‒]+0*(\d+)$/;
+
+  try {
+    // Case 1: pure numeric -> treat as ID
+    if (/^\d+$/.test(qRaw)) {
+      const { rows } = await pool.query(
+        `SELECT "ID","ResourceID","Page","Number",
+                "has_assignmentCondition","has_solution","multiple_solutions",
+                "text_filepath","solution_filepath"
+           FROM "Exercises"
+          WHERE "ID" = $1
+          LIMIT 50`,
+        [parseInt(qRaw, 10)]
+      );
+      return res.json(rows);
+    }
+
+    // Case 2: triple with separators
+    const m = qRaw.match(tripleRe);
+    if (m) {
+      const a = parseInt(m[1], 10);
+      const b = parseInt(m[2], 10);
+      const c = parseInt(m[3], 10);
+      const { rows } = await pool.query(
+        `SELECT "ID","ResourceID","Page","Number",
+                "has_assignmentCondition","has_solution","multiple_solutions",
+                "text_filepath","solution_filepath"
+           FROM "Exercises"
+          WHERE ("ResourceID" = $1 AND "Page" = $2 AND "Number" = $3)
+             OR ("Number" = $1 AND "Page" = $2 AND "ResourceID" = $3)
+          LIMIT 50`,
+        [a, b, c]
+      );
+      return res.json(rows);
+    }
+
+    // Otherwise return empty
+    return res.json([]);
+  } catch (err) {
+    console.error('exercises/search failed:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

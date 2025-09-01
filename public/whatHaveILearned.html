@@ -62,6 +62,15 @@
     
     .flash-success { animation: flashGreen 900ms ease-out; }
     .flash-error   { animation: flashRed 1100ms ease-out; }
+
+    ul.skills{list-style:none;padding-left:0;margin:0}
+    .skills li{padding:6px 0;border-bottom:1px solid #f2f2f2}
+    .skill-row{display:flex;align-items:center;gap:12px}
+    .sk-name{flex:1;}
+    .rating{display:inline-flex;gap:6px;align-items:center}
+    .pill{min-width:28px;height:28px;border:1px solid #cfd4dc;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-weight:600;cursor:pointer;user-select:none;color:#334155;background:#fff}
+    .pill:hover{background:#f3f4f6}
+    .pill.is-active{background:#3b82f6;color:#fff;border-color:#3b82f6}
   </style>
 </head>
 <body>
@@ -73,6 +82,7 @@
       <option value="" selected>Зареждане…</option>
     </select>
     <button id="searchLessonsBtn" disabled>Търси</button>
+    <button id="toggleLogBtn" class="primary-btn log-toggle" title="Покажи/скрий лог">Лог</button>
   </div>
 
   <div id="status"></div>
@@ -133,5 +143,28 @@
   </div>
 
   <script src="/whatHaveILearned.js" defer></script>
+  <!-- Hidden assessment log side panel -->
+<aside id="logPanel" class="log-panel" hidden>
+  <header>
+    <h4>История на подаванията</h4>
+    <button id="closeLogBtn" class="close-btn">Затвори</button>
+  </header>
+  <div id="logFilters" class="small muted" style="margin-bottom:6px"></div>
+  <table class="log-table">
+    <thead>
+      <tr>
+        <th>Време</th>
+        <th>Клас</th>
+        <th>Парал.</th>
+        <th>Triplet</th>
+      </tr>
+    </thead>
+    <tbody id="logTbody">
+      <tr><td colspan="4" class="muted">Няма записи</td></tr>
+    </tbody>
+  </table>
+</aside>
+
+
 </body>
 </html>
