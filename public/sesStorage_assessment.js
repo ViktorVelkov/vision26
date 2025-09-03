@@ -5,19 +5,44 @@
 // - при смяна на ученик (картата сменя data-student-id) възстановява цветовете
 
 (function(){
-  // --- In-memory оценки: { [studentId]: { [snippetKey]: number } }
-  var SCORES = {};
+  // --- sessionStorage helpers (namespace per class + triplet)
+  function storageKey(){
+    var cls = (window.CLASS_INFO && window.CLASS_INFO.className) ? String(window.CLASS_INFO.className) : 'default-class';
+    var trip = window.TRIPLET ? String(window.TRIPLET) : 'default-triplet';
+    return 'assess_scores::' + cls + '::' + trip;
+  }
+  function loadScores(){
+    try {
+      var raw = sessionStorage.getItem(storageKey());
+      if (!raw) return {};
+      var obj = JSON.parse(raw);
+      return (obj && typeof obj === 'object') ? obj : {};
+    } catch(_) { return {}; }
+  }
+  var __saveTimer = null;
+  function saveScoresDebounced(data){
+    try { if (__saveTimer) clearTimeout(__saveTimer); } catch(_){}
+    __saveTimer = setTimeout(function(){
+      try { sessionStorage.setItem(storageKey(), JSON.stringify(data || {})); }
+      catch(e){ /* ignore quota */ }
+    }, 50);
+  }
+
+  // --- SCORES persisted in sessionStorage: { [studentId]: { [snippetKey]: number } }
+  var SCORES = loadScores();
   function getScore(sid, key){
     return (SCORES[sid] && typeof SCORES[sid][key] !== 'undefined') ? SCORES[sid][key] : null;
   }
   function setScore(sid, key, val){
     if (!SCORES[sid]) SCORES[sid] = {};
     SCORES[sid][key] = val;
+    saveScoresDebounced(SCORES);
   }
   function clearScore(sid, key){
     if (!SCORES[sid]) return;
     delete SCORES[sid][key];
     if (Object.keys(SCORES[sid]).length === 0) delete SCORES[sid];
+    saveScoresDebounced(SCORES);
   }
 
   // Намира текущата карта и studentId
@@ -94,8 +119,14 @@
 
   document.addEventListener('DOMContentLoaded', function(){
     wireClicks();
+    try { SCORES = loadScores(); } catch(_){}
     // Дай шанс на aw2 да дорендерира списъка, после маркирай
     setTimeout(applySavedScores, 0);
     observeStudentSwitch();
+    try {
+      window.addEventListener('beforeunload', function(){
+        try { sessionStorage.setItem(storageKey(), JSON.stringify(SCORES || {})); } catch(_e){}
+      });
+    } catch(_e){}
   });
 })();

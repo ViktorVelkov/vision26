@@ -179,4 +179,155 @@
 </body>
 <script src="listOfStudentsAndSnippets.js"></script>
 <script src="sesStorage_assessment.js"></script>
+<script src="generalComment.js"></script>
+<script>
+(function(){
+  // --- sessionStorage for per-skill notes (namespace per class + triplet)
+  function storageKey(){
+    var cls = (window.CLASS_INFO && window.CLASS_INFO.className) ? String(window.CLASS_INFO.className) : 'default-class';
+    var trip = window.TRIPLET ? String(window.TRIPLET) : 'default-triplet';
+    return 'assess_skillnotes::' + cls + '::' + trip;
+  }
+  function loadNotes(){
+    try { var raw = sessionStorage.getItem(storageKey()); return raw ? JSON.parse(raw) : {}; } catch(_){ return {}; }
+  }
+  var NOTES = loadNotes();
+  window.__SKILL_NOTES__ = NOTES; // debug: live reference
+  var __saveTimer = null;
+  function saveNotesDebounced(){
+    try { if (__saveTimer) clearTimeout(__saveTimer); } catch(_){}
+    __saveTimer = setTimeout(function(){
+      try { sessionStorage.setItem(storageKey(), JSON.stringify(NOTES || {})); } catch(_e){}
+      console.log('[SKNOTE] saved to sessionStorage', storageKey(), JSON.parse(sessionStorage.getItem(storageKey())||'{}'));
+    }, 80);
+  }
+  function getSid(){
+    var card = document.querySelector('main.wrap .card');
+    if (!card) return null;
+    var sidRaw = card.getAttribute('data-student-id');
+    if (sidRaw == null || sidRaw === '') return null;
+    return Number.isFinite(+sidRaw) ? +sidRaw : sidRaw; // allow numeric or string ids
+  }
+  function getNote(sid, key){
+    return (NOTES[sid] && typeof NOTES[sid][key] === 'string') ? NOTES[sid][key] : '';
+  }
+  function setNote(sid, key, val){
+    if (!NOTES[sid]) NOTES[sid] = {};
+    NOTES[sid][key] = String(val || '');
+    console.log('[SKNOTE] set', { sid: sid, key: key, val: String(val||''), snapshot: Object.assign({}, NOTES[sid]) });
+    saveNotesDebounced();
+  }
+  function clearNote(sid, key){
+    if (!NOTES[sid]) return;
+    delete NOTES[sid][key];
+    console.log('[SKNOTE] clear', { sid: sid, key: key, remaining: NOTES[sid] ? Object.keys(NOTES[sid]).length : 0 });
+    if (Object.keys(NOTES[sid]).length === 0) delete NOTES[sid];
+    saveNotesDebounced();
+  }
+
+  // Enhance current card's skill rows with inline note UI (button + input)
+  function enhanceSkillRows(){
+    var card = document.querySelector('main.wrap .card');
+    if (!card) return;
+    var sid = getSid();
+    var rows = card.querySelectorAll('.skill-row');
+    rows.forEach(function(row){
+      // skip if already enhanced
+      if (row.__enhanced_note) return;
+      row.__enhanced_note = true;
+
+      // find rating to read snippet key
+      var rating = row.querySelector('.rating[data-snippet-id]');
+      var key = rating ? rating.getAttribute('data-snippet-id') : null;
+      if (!key) return;
+
+      // create toggle button (…)
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'add-note-btn';
+      btn.title = 'Добави/скрий бележка за това умение';
+      btn.textContent = '…';
+
+      // create input
+      var inp = document.createElement('input');
+      inp.type = 'text';
+      inp.className = 'skill-inline-note';
+      inp.placeholder = 'Бележка за това умение…';
+
+      // initial value from storage
+      if (sid != null){
+        try { inp.value = getNote(sid, key); } catch(_){}
+        if (inp.value) inp.style.display = 'block';
+        console.log('[SKNOTE] enhance initial', { sid: sid, key: key, value: inp.value });
+      }
+
+      // toggle visibility
+      btn.addEventListener('click', function(){
+        if (inp.style.display === 'none' || !inp.style.display){
+          inp.style.display = 'block';
+          inp.focus();
+          console.log('[SKNOTE] toggle show', { key: key });
+        } else {
+          inp.style.display = 'none';
+          console.log('[SKNOTE] toggle hide', { key: key });
+        }
+      });
+
+      // persist on input
+      inp.addEventListener('input', function(){
+        var s = getSid();
+        if (s == null) return;
+        var v = String(inp.value || '').trim();
+        if (v) setNote(s, key, v); else clearNote(s, key);
+        console.log('[SKNOTE] input', { sid: s, key: key, value: v });
+      });
+
+      // insert UI at end of row
+      row.appendChild(btn);
+      row.appendChild(inp);
+    });
+  }
+
+  function applyNotesToCurrent(){
+    var card = document.querySelector('main.wrap .card');
+    if (!card) return;
+    var sid = getSid();
+    console.log('[SKNOTE] apply for SID', sid);
+    var rows = card.querySelectorAll('.skill-row');
+    rows.forEach(function(row){
+      var rating = row.querySelector('.rating[data-snippet-id]');
+      var key = rating ? rating.getAttribute('data-snippet-id') : null;
+      var inp = row.querySelector('.skill-inline-note');
+      if (!key || !inp) return;
+      try {
+        var v = (sid != null) ? getNote(sid, key) : '';
+        inp.value = v || '';
+        inp.style.display = v ? 'block' : 'none';
+      } catch(_){ }
+    });
+  }
+
+  function observe(){
+    var card = document.querySelector('main.wrap .card');
+    if (!card || !window.MutationObserver) { enhanceSkillRows(); applyNotesToCurrent(); return; }
+    var mo = new MutationObserver(function(muts){
+      var attrChanged = muts.some(function(m){ return m.type==='attributes' && m.attributeName==='data-student-id'; });
+      var listChanged = muts.some(function(m){ return m.type==='childList'; });
+      if (attrChanged || listChanged){
+        enhanceSkillRows();
+        applyNotesToCurrent();
+      }
+    });
+    mo.observe(card, { attributes:true, attributeFilter:['data-student-id'], childList:true, subtree:true });
+  }
+
+  document.addEventListener('DOMContentLoaded', function(){
+    // Initial pass (after list renders)
+    setTimeout(function(){
+      console.log('[SKNOTE] DOM ready — notes key:', storageKey());
+      enhanceSkillRows(); applyNotesToCurrent(); observe();
+    }, 0);
+  });
+})();
+</script>
 </html>
