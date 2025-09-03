@@ -510,6 +510,7 @@ function fromDisplay(text, type){
   return t;
 }
 
+
 async function loadLessonSkills(triplet){
   const tbody = document.getElementById('lessonSkillsBody');
   const wrap = document.getElementById('skillsWrap');
@@ -638,65 +639,46 @@ function escapeHtml(s) {
     .replace(/'/g,'&#039;');
 }
 
+///// ТОВА БИЛДВАМ СЕГА
 async function openAssessmentWindow() {
   const cls = selectEl.value;
   if (!cls) { alert('Моля, изберете клас.'); return; }
   if (!currentSkillsTriplet) { alert('Няма избран урок (triplet). Кликни в „Свързан урок“.'); return; }
+
   try {
-    // Load students + snippets
-    const [stRes, snRes] = await Promise.all([
-      fetch('/students?className=' + encodeURIComponent(cls)),
-      fetch('/lesson-skills?triplet=' + encodeURIComponent(currentSkillsTriplet))
-    ]);
-    if (!stRes.ok) throw new Error('HTTP ' + stRes.status);
-    if (!snRes.ok) throw new Error('HTTP ' + snRes.status);
-    const students = await stRes.json();
-    let snippets  = await snRes.json();
-    // Normalize names (trim "(ID N)" suffixes)
-    snippets = (snippets || []).map(function(s){
-      if (s && typeof s.name === 'string') {
-        s.name = s.name.replace(/\s*\(ID\s*\d+\)\s*$/i, '');
-      }
-      return s;
-    });
-    // Sort by order then name
-    snippets = (snippets || []).slice().sort(function(a,b){
-      const ao = Number.isFinite(+a.order) ? +a.order : 999999;
-      const bo = Number.isFinite(+b.order) ? +b.order : 999999;
-      if (ao !== bo) return ao - bo;
-      return String(a.name||'').localeCompare(String(b.name||''));
-    });
-    // Prepare replacements
-    const esc = function(s){
-      return String(s ?? '')
-        .replace(/&/g,'&amp;')
-        .replace(/</g,'&lt;')
-        .replace(/>/g,'&gt;')
-        .replace(/"/g,'&quot;')
-        .replace(/'/g,'&#039;');
-    };
-    const studentsJSON = JSON.stringify(students || []);
-    const snippetsJSON = JSON.stringify(snippets || []);
-    const lessonName = currentLessonName ? esc(currentLessonName) : '';
-    // Fetch HTML template
-    const tplRes = await fetch('/assessmentWindow.html');
+    // 1) Load template HTML
+    const tplRes = await fetch('/aw2.html');
     if (!tplRes.ok) throw new Error('HTTP ' + tplRes.status);
     let html = await tplRes.text();
-    // Replace placeholders
+
+    // 2) Prepare values
+    const esc = s => String(s ?? '')
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+    const lessonName = currentLessonName ? String(currentLessonName) : '';
+
+    // 3) Replace simple placeholders in the static template
     html = html
-      .replace(/{{CLS}}/g, esc(cls))
-      .replace(/{{TRIPLET}}/g, esc(currentSkillsTriplet))
-      .replace(/{{LESSON}}/g, lessonName)
-      .replace(/{{STUDENTS_JSON}}/g, studentsJSON)
-      .replace(/{{SNIPPETS_JSON}}/g, snippetsJSON);
-    // Open window
-    const w = window.open('', 'assess-' + Date.now(), 'width=980,height=760');
+      .replace(/\{\{CLS\}\}/g, esc(cls))
+      .replace(/\{\{TRIPLET\}\}/g, esc(currentSkillsTriplet))
+      .replace(/\{\{LESSON\}\}/g, esc(lessonName));
+
+    // 4) Inject bootstrap script with runtime data for the popup scripts (class info, triplet, lesson)
+    const boot = '<script>'
+      + 'window.CLASS_INFO = ' + JSON.stringify({ className: cls }) + ';'
+      + 'window.TRIPLET = ' + JSON.stringify(currentSkillsTriplet) + ';'
+      + 'window.LESSON = ' + JSON.stringify(lessonName) + ';'
+      + '</' + 'script>';
+    html = html.replace('</body>', boot + '\n</body>');
+
+    // 5) Open popup and write the composed HTML
+    const w = window.open('', 'assess-' + Date.now(), 'width=600,height=600');
     if (!w) { alert('Разрешете изскачащи прозорци и опитайте отново.'); return; }
     w.document.open();
     w.document.write(html);
     w.document.close();
-  } catch (err) {
-    console.error('openAssessmentWindow failed:', err);
+  } catch (e) {
+    console.error('openAssessmentWindow failed:', e);
     alert('Грешка при отваряне на прозореца за оценяване.');
   }
 }

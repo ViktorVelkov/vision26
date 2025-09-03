@@ -1,0 +1,181 @@
+<!doctype html>
+      <html lang="bg">
+      <head>
+        <meta charset="utf-8" />
+        <title>Оценяване — {{CLS}} — {{TRIPLET}}</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <style>
+          body{font-family: system-ui,-apple-system,Segoe UI,Roboto,sans-serif; margin:16px;}
+          header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap}
+          .muted{color:#9aa0a6;font-style:italic}
+          /* --- Assessment Log panel (hidden, toggled) --- */
+          .log-toggle { margin-left:auto; }
+          .log-panel { position:fixed; top:24px; right:24px; width:420px; max-height:70vh; overflow:auto; background:#fff; border:1px solid #e6e6e6; border-radius:10px; box-shadow:0 6px 22px rgba(0,0,0,.12); padding:10px; z-index:9999; }
+          .log-panel[hidden] { display:none; }
+          .log-panel header { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+          .log-panel h4 { margin:0; font-size:1rem; }
+          .log-panel .close-btn { border:none; background:#f3f4f6; border-radius:6px; padding:4px 8px; cursor:pointer; }
+          .log-table { width:100%; border-collapse:collapse; font-size:0.92rem; }
+          .log-table th, .log-table td { padding:6px 8px; border-bottom:1px solid #eee; text-align:left; }
+          .log-table thead th { position:sticky; top:0; background:#f9fafb; z-index:1; }
+          .topline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+          .badge{background:#eef2ff;color:#3346d3;border-radius:6px;padding:2px 8px;font-weight:600;font-size:.8rem}
+          .small{font-size:.78rem;color:#777}
+          .nav{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+          .btn{background:#2563eb;color:#fff;border:none;border-radius:8px;padding:8px 12px;font-weight:600;cursor:pointer}
+          .btn:disabled{background:#9bb3ff;cursor:not-allowed}
+          .btn--ghost{background:#f3f6ff;color:#1f3bb3}
+          .wrap{max-width:900px;margin:56px auto 0;display:flex;justify-content:center}
+          .card{border:1px solid #e7e7e7;border-radius:12px;padding:16px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.06);overflow:hidden;max-width:720px;width:100%;}
+          .card h2{margin:0 0 8px 0;font-size:1.25rem;text-align:center;font-weight:600;}
+          .hero{height:40px;margin:-16px -16px 12px -16px;border-radius:12px 12px 0 0;background:#eef2ff;transition:background 200ms ease-in-out;filter:saturate(0.85) brightness(1.03);}
+          .sub{font-size:.9rem;color:#666;margin-bottom:8px}
+          ul.skills{list-style:none;padding-left:0;margin:0}
+          .skills li{padding:6px 0;border-bottom:1px solid #f2f2f2}
+          .skill-row{display:flex;align-items:center;gap:12px}
+          .sk-name{flex:1;}
+          .rating{display:inline-flex;gap:6px;align-items:center}
+          .pill{min-width:28px;height:28px;border:1px solid #000;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-weight:600;cursor:pointer;user-select:none;color:#000;background:#fff}
+          .pill:hover{background:#f3f4f6}
+          .pill.is-active{background:#3b82f6;color:#fff;border-color:#3b82f6}
+          .pill--v0.is-active{background:#ef4444;border-color:#ef4444;color:#fff}
+          .pill--v1.is-active{background:#f59e0b;border-color:#f59e0b;color:#fff}
+          .pill--v2.is-active{background:#3b82f6;border-color:#3b82f6;color:#fff}
+          .pill--v3.is-active{background:#22c55e;border-color:#22c55e;color:#fff}
+          /* Note field shown only for added tasks */
+          .task-note{flex:1;min-width:160px;border:1px solid #d1d5db;border-radius:6px;padding:4px 6px;font:inherit}
+          .task-note::placeholder{color:#94a3b8}
+          /* Inline per-skill comment add button */
+          .add-note-btn{border:none;background:transparent;cursor:pointer;font-weight:700;opacity:.5;transition:opacity .15s ease;padding:2px 6px;margin-left:4px}
+          .add-note-btn:hover{opacity:1}
+          .skill-inline-note{flex:1;min-width:160px;border:1px solid #d1d5db;border-radius:6px;padding:4px 6px;font:inherit}
+          .skill-inline-note::placeholder{color:#94a3b8}
+          .notes {margin-top:12px;display:flex;align-items:center;gap:10px;}
+          .notes-label {margin:0;font-weight:600;color:#374151;white-space:nowrap;}
+          .notes-ta{width:90%;min-height:1.8em;max-height:1.8em;resize:both;border:1px solid #d1d5db;border-radius:8px;padding:8px 10px;font:inherit}          .notes-ta:focus{outline:none;box-shadow:0 0 0 3px rgba(59,130,246,.2);border-color:#3b82f6}
+          .notes-ta{
+            width:90%;
+            min-height:1.8em;
+            max-height:1.8em;
+            resize:both;
+            border:1px solid #d1d5db;
+            border-radius:8px;
+            padding:8px 10px;
+            font:inherit;
+            transition:none; /* важно за безфликерно показване */
+          }
+          .notes-status{margin-top:4px}
+          .footer-hint{position:fixed;left:0;right:0;bottom:12px;text-align:center;color:#666;font-size:.85rem}
+          .toolbar{display:flex;gap:8px;align-items:center}
+          select{padding:6px 8px}
+          /* --- Collapsible search panel styles --- */
+          .search-panel{max-width:900px;margin:8px auto 0}
+          .search-panel .sp-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+          .iconbtn{border:1px solid #d1d5db;background:#fff;border-radius:8px;min-width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+          .iconbtn:hover{background:#f3f4f6}
+          .search-panel.is-collapsed .search-row{display:none}
+          .search-row{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;margin:8px auto 0;max-width:900px}
+          .scol{flex:1 1 420px;min-width:320px;background:#fff;border:1px solid #e7e7e7;border-radius:12px;padding:10px;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+          .scol header{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+          .scol input[type="text"]{flex:1;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px}
+          .result-box{max-height:240px;overflow:auto;border:1px solid #e7e7e7;border-radius:8px;background:#fff}
+          table.mini-table{width:100%;border-collapse:collapse}
+          .mini-table thead th{position:sticky;top:0;background:#f7f7f7;z-index:1}
+          .mini-table th,.mini-table td{padding:6px 8px;border-bottom:1px solid #eee;font-size:.9rem;text-align:left}
+          .sk-id{font-size:.8rem;color:#94a3b8;margin-left:8px}
+          /* --- Add/Assign buttons in left results --- */
+          .add-cell{display:flex;gap:8px;align-items:center}
+          .circle-btn{
+            width:28px;height:28px;border:1px solid #cbd5e1;border-radius:50%;
+            display:inline-flex;align-items:center;justify-content:center;
+            background:#fff;color:#111;font-weight:700;cursor:pointer
+          }
+          .circle-btn:hover{background:#f1f5f9}
+          .circle-btn:active{transform:translateY(1px)}
+          /* Hide duplicate ID column in the left search results (2nd column = ID) */
+          #leftResultsTable thead th:nth-child(2),
+          #leftResultsTable tbody td:nth-child(2){
+            display:none;
+          }
+         .skill-inline-note {
+            display: none; /* ← скрито по подразбиране */
+            flex: 1;
+            min-width: 160px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            padding: 4px 6px;
+            font: inherit;
+          }   
+        </style>
+      </head>
+      <body>
+        <header>
+          <div class="topline">
+            <div class="badge">{{CLS}}</div>
+            <div class="badge">Triplet: {{TRIPLET}}</div>
+            <div class="badge" id="lessonBadge"></div>
+            <span class="small" id="metaCount"></span>
+          </div>
+          <div class="nav">
+            <button id="prevBtn" class="btn btn--ghost" title="Предишен (←)">← Предишен</button>
+            <button id="nextBtn" class="btn" title="Следващ (→)">Следващ →</button>
+            <div class="toolbar">
+              <label for="studentPicker" class="small">Към ученик:</label>
+              <select id="studentPicker"></select>
+            </div>
+            <button id="undoBtn" class="btn btn--ghost" title="Отмени последното действие" disabled>Отмени</button>
+            <button id="submitAssessBtn" class="btn btn--ghost">Подай</button>
+          </div>
+        </header>
+        <!-- Добавяне не задачите, индивидуално или поединично -->
+        <section class="search-panel is-collapsed" id="searchPanel">
+          <div class="sp-head">
+            <button id="toggleSearchPanelBtn" class="iconbtn" title="Покажи/Скрий търсене">▸</button>
+            <span class="sp-title small">Задачи</span>
+          </div>
+          <section class="search-row" id="assessmentSearchRow">
+            <div class="scol" id="leftSearchCol">
+              <header>
+                <input id="leftSearchInput" type="text" placeholder="Търси… (по код)">
+                <button id="leftSearchBtn" class="btn btn--ghost">Търси</button>
+              </header>
+              <div class="result-box">
+                <table class="mini-table" id="leftResultsTable">
+                  <thead><tr id="leftHead"></tr></thead>
+                  <tbody id="leftBody"><tr><td class="muted">Няма резултати</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="scol" id="rightSearchCol">
+              <header>
+                <input id="rightSearchInput" type="text" placeholder="Търси… (по snippets)">
+                <button id="rightSearchBtn" class="btn">Търси</button>
+              </header>
+              <div class="result-box">
+                <table class="mini-table" id="rightResultsTable">
+                  <thead><tr id="rightHead"></tr></thead>
+                  <tbody id="rightBody"><tr><td class="muted">Няма резултати</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <main class="wrap">
+          <section class="card">
+            <div id="hero" class="hero"></div>
+            <h2 id="studentName">—</h2>
+            <div class="sub">Списък с умения за оценяване:</div>
+            <ul id="skillsList" class="skills"></ul>
+            <div class="notes">
+              <label for="studentNotes" class="notes-label">Коментари</label>
+              <textarea id="studentNotes" class="notes-ta" rows="4" placeholder="Бележки за този ученик…"></textarea>
+              <div id="notesStatus" class="notes-status small muted"></div>
+            </div>
+          </section>
+        </main>
+        <div class="footer-hint">Навигация: клавиши ← / → за предишен/следващ • Избор от падащото меню</div>
+        <script src="listOfStudentsAndSnippets.js"></script>
+</body>
+</html>
