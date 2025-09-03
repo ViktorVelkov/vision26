@@ -171,35 +171,38 @@ function addTaskToAllStudents(task){
   return Promise.resolve();
 }
 
-// --- Undo stack & UI wiring ---
-var __UNDO = [];
-function pushAction(a) { __UNDO.push(a); updateUndoBtn(); }
+var __ADD_ALL_HISTORY = window.__ADD_ALL_HISTORY || [];
+
 function updateUndoBtn() {
     var btn = byId('undoBtn');
     if (!btn) return;
-    btn.disabled = __UNDO.length === 0;
+    btn.disabled = !(__ADD_ALL_HISTORY && __ADD_ALL_HISTORY.length > 0);
 }
+
+// --- Undo stack & UI wiring ---
+var __UNDO = [];
+function pushAction(a) { __UNDO.push(a); updateUndoBtn(); }
 (function () {
     var btn = byId('undoBtn');
     if (!btn) return;
     btn.addEventListener('click', function () {
-        if (!__UNDO.length) return;
-        var a = __UNDO.pop();
-        if (a && a.type === 'add-one') {
-            var sid = a.studentId; var key = a.task && a.task.key;
-            var arr = window.ADDED_TASKS[sid] || [];
-            window.ADDED_TASKS[sid] = arr.filter(function (t) { return t.key !== key; });
-            if (typeof window.renderSkillsForStudent === 'function') window.renderSkillsForStudent(getCurrentStudentId());
-        } else if (a && a.type === 'add-all') {
-            var keyAll = a.task && a.task.key;
-            Object.keys(window.ADDED_TASKS).forEach(function (sid) {
-                window.ADDED_TASKS[sid] = (window.ADDED_TASKS[sid] || []).filter(function (t) { return t.key !== keyAll; });
+        if (!__ADD_ALL_HISTORY || __ADD_ALL_HISTORY.length === 0) return;
+        var last = __ADD_ALL_HISTORY.pop();
+        var keyAll = last && last.task && last.task.key;
+        if (keyAll) {
+            Object.keys(window.ADDED_TASKS || {}).forEach(function (sid) {
+                var arr = window.ADDED_TASKS[sid] || [];
+                window.ADDED_TASKS[sid] = arr.filter(function (t) { return t.key !== keyAll; });
+                if (window.ADDED_TASKS[sid].length === 0) delete window.ADDED_TASKS[sid];
             });
-            if (typeof window.renderSkillsForStudent === 'function') window.renderSkillsForStudent(getCurrentStudentId());
+            if (window.__ADDED_TASKS_STORE__) window.__ADDED_TASKS_STORE__.saveDebounced();
+            // само панела под картата
+            applyAddedTasksToCurrentCard();
         }
         updateUndoBtn();
     });
 })();
+
 
 // --- Build task from LEFT table row (exercises) ---
 function makeTaskFromRow(tr) {
@@ -375,6 +378,8 @@ if (rightBodyEl) {
         if (action === 'add-all') {
             addTaskToAllStudents(task).then(function(){
                 pushAction({ type: 'add-all', task: task });
+                __ADD_ALL_HISTORY.push({ task: task });
+                updateUndoBtn();
                 if (window.__ADDED_TASKS_STORE__) window.__ADDED_TASKS_STORE__.saveDebounced();
                 applyAddedTasksToCurrentCard();
             });
@@ -481,6 +486,8 @@ if (leftBody) {
             console.log(task);
             addTaskToAllStudents(task).then(function(){
                 pushAction({ type: 'add-all', task });
+                __ADD_ALL_HISTORY.push({ task: task });
+                updateUndoBtn();
                 if (window.__ADDED_TASKS_STORE__) window.__ADDED_TASKS_STORE__.saveDebounced();
                 applyAddedTasksToCurrentCard();
             });
