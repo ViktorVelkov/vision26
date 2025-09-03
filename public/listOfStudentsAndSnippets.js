@@ -153,6 +153,10 @@
       var row = document.createElement('div'); row.className = 'skill-row';
       var name = document.createElement('div'); name.className = 'sk-name';
       name.textContent = (sn && sn.name) ? sn.name : '-';
+      var sidSpan = document.createElement('span');
+      sidSpan.className = 'sk-id';
+      sidSpan.textContent = '(ID ' + String(sn && sn.id != null ? sn.id : '?') + ')';
+      name.appendChild(sidSpan);
       var pills = buildRatingPills('id:' + sn.id);
       row.appendChild(name);
       row.appendChild(pills);
