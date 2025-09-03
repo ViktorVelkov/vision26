@@ -25,7 +25,7 @@
           .btn{background:#2563eb;color:#fff;border:none;border-radius:8px;padding:8px 12px;font-weight:600;cursor:pointer}
           .btn:disabled{background:#9bb3ff;cursor:not-allowed}
           .btn--ghost{background:#f3f6ff;color:#1f3bb3}
-          .wrap{max-width:900px;margin:56px auto 0;display:flex;justify-content:center}
+          .wrap{max-width:900px;margin:56px auto 0;display:flex;flex-direction:column; align-items:center}
           .card{border:1px solid #e7e7e7;border-radius:12px;padding:16px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.06);overflow:hidden;max-width:720px;width:100%;}
           .card h2{margin:0 0 8px 0;font-size:1.25rem;text-align:center;font-weight:600;}
           .hero{height:40px;margin:-16px -16px 12px -16px;border-radius:12px 12px 0 0;background:#eef2ff;transition:background 200ms ease-in-out;filter:saturate(0.85) brightness(1.03);}
@@ -106,8 +106,18 @@
             padding: 4px 6px;
             font: inherit;
           }   
-        </style>
-      </head>
+        
+        .card.card--secondary{margin-top:12px}
+        .added-header{display:flex;align-items:center;justify-content:space-between;margin:0 0 8px 0}
+        .added-header h3{margin:0;font-size:1.05rem}
+        .added-list{list-style:none;margin:0;padding-left:0}
+        .added-list li{display:flex;align-items:center;gap:12px;padding:6px 0;border-bottom:1px solid #f2f2f2}
+        .added-label{flex:1}
+        .remove-task{border:1px solid #ef4444;background:#fff;color:#ef4444;border-radius:6px;padding:4px 8px;cursor:pointer}
+        .remove-task:hover{background:#fee2e2}
+        .muted-note{color:#9aa0a6;font-style:italic}
+          </style>
+</head>
       <body>
         <header>
           <div class="topline">
@@ -173,6 +183,13 @@
               <textarea id="studentNotes" class="notes-ta" rows="4" placeholder="Бележки за този ученик…"></textarea>
               <div id="notesStatus" class="notes-status small muted"></div>
             </div>
+          </section>
+          <section class="card card--secondary" id="addedTasksCard">
+            <div class="added-header">
+              <span class="small muted" id="addedTasksCount">0</span>
+            </div>
+            <ul id="addedTasksList" class="added-list"></ul>
+            <div id="addedTasksEmpty" class="muted-note">Няма добавени задачи за този ученик.</div>
           </section>
         </main>
         <div class="footer-hint">Навигация: клавиши ← / → за предишен/следващ • Избор от падащото меню</div>
