@@ -1,0 +1,1213 @@
+<!doctype html>
+      <html lang="bg">
+      <head>
+        <meta charset="utf-8" />
+        <title>Оценяване — {{CLS}} — {{TRIPLET}}</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <style>
+          body{font-family: system-ui,-apple-system,Segoe UI,Roboto,sans-serif; margin:16px;}
+          header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap}
+          .muted{color:#9aa0a6;font-style:italic}
+          /* --- Assessment Log panel (hidden, toggled) --- */
+          .log-toggle { margin-left:auto; }
+          .log-panel { position:fixed; top:24px; right:24px; width:420px; max-height:70vh; overflow:auto; background:#fff; border:1px solid #e6e6e6; border-radius:10px; box-shadow:0 6px 22px rgba(0,0,0,.12); padding:10px; z-index:9999; }
+          .log-panel[hidden] { display:none; }
+          .log-panel header { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+          .log-panel h4 { margin:0; font-size:1rem; }
+          .log-panel .close-btn { border:none; background:#f3f4f6; border-radius:6px; padding:4px 8px; cursor:pointer; }
+          .log-table { width:100%; border-collapse:collapse; font-size:0.92rem; }
+          .log-table th, .log-table td { padding:6px 8px; border-bottom:1px solid #eee; text-align:left; }
+          .log-table thead th { position:sticky; top:0; background:#f9fafb; z-index:1; }
+          .topline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+          .badge{background:#eef2ff;color:#3346d3;border-radius:6px;padding:2px 8px;font-weight:600;font-size:.8rem}
+          .small{font-size:.78rem;color:#777}
+          .nav{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+          .btn{background:#2563eb;color:#fff;border:none;border-radius:8px;padding:8px 12px;font-weight:600;cursor:pointer}
+          .btn:disabled{background:#9bb3ff;cursor:not-allowed}
+          .btn--ghost{background:#f3f6ff;color:#1f3bb3}
+          .wrap{max-width:900px;margin:56px auto 0;display:flex;justify-content:center}
+          .card{border:1px solid #e7e7e7;border-radius:12px;padding:16px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.06);overflow:hidden;max-width:720px;width:100%;}
+          .card h2{margin:0 0 8px 0;font-size:1.25rem;text-align:center;font-weight:600;}
+          .hero{height:40px;margin:-16px -16px 12px -16px;border-radius:12px 12px 0 0;background:#eef2ff;transition:background 200ms ease-in-out;filter:saturate(0.85) brightness(1.03);}
+          .sub{font-size:.9rem;color:#666;margin-bottom:8px}
+          ul.skills{list-style:none;padding-left:0;margin:0}
+          .skills li{padding:6px 0;border-bottom:1px solid #f2f2f2}
+          .skill-row{display:flex;align-items:center;gap:12px}
+          .sk-name{flex:1;}
+          .rating{display:inline-flex;gap:6px;align-items:center}
+          .pill{min-width:28px;height:28px;border:1px solid #000;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-weight:600;cursor:pointer;user-select:none;color:#000;background:#fff}
+          .pill:hover{background:#f3f4f6}
+          .pill.is-active{background:#3b82f6;color:#fff;border-color:#3b82f6}
+          .pill--v0.is-active{background:#ef4444;border-color:#ef4444;color:#fff}
+          .pill--v1.is-active{background:#f59e0b;border-color:#f59e0b;color:#fff}
+          .pill--v2.is-active{background:#3b82f6;border-color:#3b82f6;color:#fff}
+          .pill--v3.is-active{background:#22c55e;border-color:#22c55e;color:#fff}
+          /* Note field shown only for added tasks */
+          .task-note{flex:1;min-width:160px;border:1px solid #d1d5db;border-radius:6px;padding:4px 6px;font:inherit}
+          .task-note::placeholder{color:#94a3b8}
+          /* Inline per-skill comment add button */
+          .add-note-btn{border:none;background:transparent;cursor:pointer;font-weight:700;opacity:.5;transition:opacity .15s ease;padding:2px 6px;margin-left:4px}
+          .add-note-btn:hover{opacity:1}
+          .skill-inline-note{flex:1;min-width:160px;border:1px solid #d1d5db;border-radius:6px;padding:4px 6px;font:inherit}
+          .skill-inline-note::placeholder{color:#94a3b8}
+          .notes {margin-top:12px;display:flex;align-items:center;gap:10px;}
+          .notes-label {margin:0;font-weight:600;color:#374151;white-space:nowrap;}
+          .notes-ta{width:90%;min-height:1.8em;max-height:1.8em;resize:both;border:1px solid #d1d5db;border-radius:8px;padding:8px 10px;font:inherit}          .notes-ta:focus{outline:none;box-shadow:0 0 0 3px rgba(59,130,246,.2);border-color:#3b82f6}
+          .notes-ta{
+            width:90%;
+            min-height:1.8em;
+            max-height:1.8em;
+            resize:both;
+            border:1px solid #d1d5db;
+            border-radius:8px;
+            padding:8px 10px;
+            font:inherit;
+            transition:none; /* важно за безфликерно показване */
+          }
+          .notes-status{margin-top:4px}
+          .footer-hint{position:fixed;left:0;right:0;bottom:12px;text-align:center;color:#666;font-size:.85rem}
+          .toolbar{display:flex;gap:8px;align-items:center}
+          select{padding:6px 8px}
+          /* --- Collapsible search panel styles --- */
+          .search-panel{max-width:900px;margin:8px auto 0}
+          .search-panel .sp-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+          .iconbtn{border:1px solid #d1d5db;background:#fff;border-radius:8px;min-width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+          .iconbtn:hover{background:#f3f4f6}
+          .search-panel.is-collapsed .search-row{display:none}
+          .search-row{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;margin:8px auto 0;max-width:900px}
+          .scol{flex:1 1 420px;min-width:320px;background:#fff;border:1px solid #e7e7e7;border-radius:12px;padding:10px;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+          .scol header{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+          .scol input[type="text"]{flex:1;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px}
+          .result-box{max-height:240px;overflow:auto;border:1px solid #e7e7e7;border-radius:8px;background:#fff}
+          table.mini-table{width:100%;border-collapse:collapse}
+          .mini-table thead th{position:sticky;top:0;background:#f7f7f7;z-index:1}
+          .mini-table th,.mini-table td{padding:6px 8px;border-bottom:1px solid #eee;font-size:.9rem;text-align:left}
+          .sk-id{font-size:.8rem;color:#94a3b8;margin-left:8px}
+          /* --- Add/Assign buttons in left results --- */
+          .add-cell{display:flex;gap:8px;align-items:center}
+          .circle-btn{
+            width:28px;height:28px;border:1px solid #cbd5e1;border-radius:50%;
+            display:inline-flex;align-items:center;justify-content:center;
+            background:#fff;color:#111;font-weight:700;cursor:pointer
+          }
+          .circle-btn:hover{background:#f1f5f9}
+          .circle-btn:active{transform:translateY(1px)}
+          /* Hide duplicate ID column in the left search results (2nd column = ID) */
+          #leftResultsTable thead th:nth-child(2),
+          #leftResultsTable tbody td:nth-child(2){
+            display:none;
+          }
+         .skill-inline-note {
+            display: none; /* ← скрито по подразбиране */
+            flex: 1;
+            min-width: 160px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            padding: 4px 6px;
+            font: inherit;
+          }   
+        </style>
+      </head>
+      <body>
+        <header>
+          <div class="topline">
+            <div class="badge">{{CLS}}</div>
+            <div class="badge">Triplet: {{TRIPLET}}</div>
+            <div class="badge" id="lessonBadge"></div>
+            <span class="small" id="metaCount"></span>
+          </div>
+          <div class="nav">
+            <button id="prevBtn" class="btn btn--ghost" title="Предишен (←)">← Предишен</button>
+            <button id="nextBtn" class="btn" title="Следващ (→)">Следващ →</button>
+            <div class="toolbar">
+              <label for="studentPicker" class="small">Към ученик:</label>
+              <select id="studentPicker"></select>
+            </div>
+            <button id="undoBtn" class="btn btn--ghost" title="Отмени последното действие" disabled>Отмени</button>
+            <button id="submitAssessBtn" class="btn btn--ghost">Подай</button>
+          </div>
+        </header>
+
+        <section class="search-panel is-collapsed" id="searchPanel">
+          <div class="sp-head">
+            <button id="toggleSearchPanelBtn" class="iconbtn" title="Покажи/Скрий търсене">▸</button>
+            <span class="sp-title small">Задачи</span>
+          </div>
+          <section class="search-row" id="assessmentSearchRow">
+            <div class="scol" id="leftSearchCol">
+              <header>
+                <input id="leftSearchInput" type="text" placeholder="Търси… (по код)">
+                <button id="leftSearchBtn" class="btn btn--ghost">Търси</button>
+              </header>
+              <div class="result-box">
+                <table class="mini-table" id="leftResultsTable">
+                  <thead><tr id="leftHead"></tr></thead>
+                  <tbody id="leftBody"><tr><td class="muted">Няма резултати</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="scol" id="rightSearchCol">
+              <header>
+                <input id="rightSearchInput" type="text" placeholder="Търси… (по snippets)">
+                <button id="rightSearchBtn" class="btn">Търси</button>
+              </header>
+              <div class="result-box">
+                <table class="mini-table" id="rightResultsTable">
+                  <thead><tr id="rightHead"></tr></thead>
+                  <tbody id="rightBody"><tr><td class="muted">Няма резултати</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <main class="wrap">
+          <section class="card">
+            <div id="hero" class="hero"></div>
+            <h2 id="studentName">—</h2>
+            <div class="sub">Списък с умения за оценяване:</div>
+            <ul id="skillsList" class="skills"></ul>
+            <div class="notes">
+              <label for="studentNotes" class="notes-label">Коментари</label>
+              <textarea id="studentNotes" class="notes-ta" rows="4" placeholder="Бележки за този ученик…"></textarea>
+              <div id="notesStatus" class="notes-status small muted"></div>
+            </div>
+          </section>
+        </main>
+        <div class="footer-hint">Навигация: клавиши ← / → за предишен/следващ • Избор от падащото меню</div>
+        <script>
+          // --- Injected placeholders from parent ---
+          const CLS = "{{CLS}}";
+          const currentSkillsTriplet = "{{TRIPLET}}";
+          const LESSON = "{{LESSON}}";
+          // Data injected as JSON (no quotes):
+          window.STUDENTS = {{STUDENTS_JSON}};
+          window.SNIPPETS  = {{SNIPPETS_JSON}};
+          (function(){
+            var lb = document.getElementById('lessonBadge');
+            if (lb && LESSON) { lb.textContent = 'Урок: ' + LESSON; }
+          })();
+          // ---- Build payload for submission ----
+          function getClassParts(raw){
+            const grade = parseInt(raw, 10);
+            const division = raw.includes(' ')? raw.substring(raw.indexOf(' ')+1).trim() : '';
+            return { grade: Number.isFinite(grade)? grade : null, division };
+          }
+
+          function collectStudentNotesMap(){
+            const out = {};
+            const students = (typeof STUDENTS !== 'undefined' && Array.isArray(STUDENTS)) ? STUDENTS : [];
+            const ns = (typeof NOTES_NS !== 'undefined') ? NOTES_NS : 'notes:';
+            students.forEach(st=>{ out[st.id] = (localStorage.getItem(ns + String(st.id)) || ''); });
+            return out;
+          }
+
+          function collectTaskNotesMap(){
+            const out = {};
+            const students = (typeof STUDENTS !== 'undefined' && Array.isArray(STUDENTS)) ? STUDENTS : [];
+            const added = (typeof ADDED_TASKS !== 'undefined' && ADDED_TASKS) ? ADDED_TASKS : {};
+            students.forEach(st=>{
+              const tasks = Array.isArray(added[st.id]) ? added[st.id] : [];
+              const per = {};
+              tasks.forEach(t=>{
+                const tid = (t && (t.id != null ? t.id : t.key)) ?? '';
+                const k = 'tasknotes:' + encodeURIComponent(CLS) + ':' + encodeURIComponent(currentSkillsTriplet) + ':' + String(st.id) + ':' + String(tid);                per[String(tid)] = localStorage.getItem(k) || '';
+              });
+              out[st.id] = per;
+            });
+            return out;
+          }
+
+            function collectScores(){
+              // чети директно текущия in-memory обект, а не window.SCORES
+              return (typeof SCORES !== 'undefined') ? SCORES
+                  : ((typeof window !== 'undefined' && window.SCORES) ? window.SCORES : {});
+            }
+
+         (function(){
+            const STUDENTS = (window.STUDENTS || []);
+            const SNIPPETS = (window.SNIPPETS || []);
+            // Local HTML escaper for the child window scope (prevents broken attributes / stray backticks confusion)
+            function escapeHtml(s){
+              return String(s ?? '')
+                .replace(/&/g,'&amp;')
+                .replace(/</g,'&lt;')
+                .replace(/>/g,'&gt;')
+                .replace(/"/g,'&quot;')
+                .replace(/'/g,'&#039;');
+            }
+            let idx = 0;
+            let prevIdx = -1;
+
+            const GRADIENTS = [
+              'linear-gradient(90deg, #bfdbfe, #c7d2fe)',
+              'linear-gradient(90deg, #c7d2fe, #f5d0fe)',
+              'linear-gradient(90deg, #fbcfe8, #fecdd3)',
+              'linear-gradient(90deg, #a7f3d0, #99f6e4)',
+              'linear-gradient(90deg, #fef3c7, #fde68a)',
+              'linear-gradient(90deg, #fed7aa, #fdba74)',
+              'linear-gradient(90deg, #bae6fd, #bfdbfe)',
+              'linear-gradient(90deg, #ddd6fe, #c7d2fe)',
+              'linear-gradient(90deg, #e9d5ff, #ddd6fe)',
+              'linear-gradient(90deg, #ffe4e6, #fecdd3)',
+              'linear-gradient(90deg, #d1fae5, #bbf7d0)',
+              'linear-gradient(90deg, #e0f2fe, #bae6fd)',
+              'linear-gradient(90deg, #fef9c3, #fde68a)',
+              'linear-gradient(90deg, #fae8ff, #e9d5ff)',
+              'linear-gradient(90deg, #fce7f3, #fbcfe8)',
+              'linear-gradient(90deg, #f5f5f5, #e5e7eb)',
+              'linear-gradient(90deg, #f1f5f9, #e2e8f0)',
+              'linear-gradient(90deg, #dbeafe, #e0e7ff)',
+              'linear-gradient(90deg, #ccfbf1, #a7f3d0)',
+              'linear-gradient(90deg, #fef2f2, #fee2e2)',
+              'linear-gradient(90deg, #e0e7ff, #ddd6fe)',
+              'linear-gradient(90deg, #bae6fd, #93c5fd)',
+              'linear-gradient(90deg, #93c5fd, #a5b4fc)',
+              'linear-gradient(90deg, #a5b4fc, #ddd6fe)',
+              'linear-gradient(90deg, #99f6e4, #67e8f9)',
+              'linear-gradient(90deg, #86efac, #bbf7d0)',
+              'linear-gradient(90deg, #fef3c7, #fed7aa)',
+              'linear-gradient(90deg, #fee2e2, #fecdd3)',
+              'linear-gradient(90deg, #e2e8f0, #e5e7eb)',
+              'linear-gradient(90deg, #e0f2fe, #cffafe)',
+              'linear-gradient(90deg, #f1f5f9, #e0f2fe)',
+              'linear-gradient(90deg, #f3e8ff, #e9d5ff)',
+              'linear-gradient(90deg, #fde68a, #fed7aa)',
+              'linear-gradient(90deg, #ffe4e6, #fbcfe8)',
+              'linear-gradient(90deg, #f5f3ff, #ede9fe)',
+              'linear-gradient(90deg, #ecfeff, #e0f2fe)',
+              'linear-gradient(90deg, #f0fdf4, #dcfce7)',
+              'linear-gradient(90deg, #fff7ed, #ffedd5)',
+              'linear-gradient(90deg, #fefce8, #fef9c3)',
+              'linear-gradient(90deg, #fae8ff, #f5d0fe)',
+              'linear-gradient(90deg, #e0e7ff, #c7d2fe)',
+              'linear-gradient(90deg, #dbeafe, #bfdbfe)',
+              'linear-gradient(90deg, #fde2e2, #fecdd3)'
+            ];
+            let lastGradIdx = -1;
+            function pickNextGradient(){
+              if (GRADIENTS.length === 0) return '';
+              if (GRADIENTS.length === 1) { lastGradIdx = 0; return GRADIENTS[0]; }
+              let idx = lastGradIdx;
+              // pick a random different index than the last used
+              while (idx === lastGradIdx) {
+                idx = Math.floor(Math.random() * GRADIENTS.length);
+              }
+              lastGradIdx = idx;
+              return GRADIENTS[idx];
+            }
+
+            const byId = (id) => document.getElementById(id);
+          const nameEl = byId('studentName');
+          const heroEl = byId('hero');
+          const listEl = byId('skillsList');
+          const prevBtn = byId('prevBtn');
+          const nextBtn = byId('nextBtn');
+          const picker = byId('studentPicker');
+          const metaCount = byId('metaCount');
+          const undoBtn = byId('undoBtn');
+          const ACTION_HISTORY = []; // stack of {type:'add-all'| 'add-one', task:{...}, studentId?}
+
+          // --- Inserted fullName helper for student display ---
+          function fullName(st){
+            const a = (st && (st.first_name || st.firstName || st.fname)) || '';
+            const b = (st && (st.sirname || st.surname || st.last_name || st.lname || st.lastName)) || '';
+            const c = (st && (st.middle_name || st.middleName)) || '';
+            return [a, c, b].map(s => (s || '').toString().trim()).filter(Boolean).join(' ');
+          }
+           
+            // ---- Notes (comments) per student — SESSION ONLY (no localStorage) ----
+const notesTA = byId('studentNotes');
+const notesStatus = byId('notesStatus');
+const SESSION_NOTES = {}; // { [studentId]: string }
+function currentStudentId(){ return (STUDENTS && STUDENTS[idx]) ? STUDENTS[idx].id : null; }
+let notesSaveTimer = null;
+let notesFocused = false;
+let lastNotesForSid = null;
+function loadNotesFor(id){
+  if (!notesTA) return;
+  lastNotesForSid = id;
+  if (notesFocused) return;
+  const v = (id!=null) ? (SESSION_NOTES[id] || '') : '';
+  if (notesTA.value !== v) notesTA.value = v;
+  if (notesStatus) notesStatus.textContent = v ? '' : '';
+}
+function scheduleSaveNotes(){
+  if (!notesTA) return;
+  if (notesStatus) notesStatus.textContent = 'Запазване…';
+  if (notesSaveTimer) clearTimeout(notesSaveTimer);
+  notesSaveTimer = setTimeout(() => {
+    const sid = currentStudentId();
+    if (sid != null) {
+      SESSION_NOTES[sid] = notesTA.value || '';
+      if (notesStatus) notesStatus.textContent = '';
+    }
+  }, 300);
+}
+if (notesTA) {
+  notesTA.addEventListener('input', scheduleSaveNotes);
+  notesTA.addEventListener('focus', () => { notesFocused = true; });
+  notesTA.addEventListener('blur',  () => {
+    notesFocused = false;
+    scheduleSaveNotes();
+    const sid = currentStudentId();
+    if (sid != null) loadNotesFor(sid);
+  });
+}
+// Periodic refresh only on student change (does not overwrite while typing)
+setInterval(function(){
+  const sid = currentStudentId();
+  if (notesFocused) return;
+  if (sid !== lastNotesForSid) { loadNotesFor(sid); }
+}, 800);
+
+// --- Override collectors to use session-only notes ---
+function collectStudentNotesMap(){
+  const out = {}; (STUDENTS || []).forEach(st => { out[st.id] = SESSION_NOTES[st.id] || ''; });
+  return out;
+}
+
+           // ---- Per-task notes for added tasks — SESSION ONLY (no localStorage) ----
+const SESSION_TASK_NOTES = {}; // { [studentId]: { [taskKey]: text } }
+function taskIdFromLi(li){
+  const explicit = li.getAttribute('data-ex-id') || li.dataset?.exId || li.dataset?.id;
+  if (explicit) return explicit;
+  const badge = li.querySelector('.ex-badge');
+  const m = badge && badge.textContent ? badge.textContent.match(/\d+/) : null;
+  if (m) return 'ex-' + m[0];
+  const base = (li.querySelector('.sk-name')?.textContent || li.textContent || '').trim().slice(0,120);
+  return 'text:' + base;
+}
+function attachNoteInput(li, studentId){
+  const host = li.querySelector('.skill-row') || li;
+  if (host.querySelector('input.task-note')) return;
+  const input = document.createElement('input');
+  input.type = 'text'; input.className = 'task-note'; input.placeholder = 'Snippets';
+  const id = taskIdFromLi(li);
+  const sid = studentId;
+  if (!SESSION_TASK_NOTES[sid]) SESSION_TASK_NOTES[sid] = {};
+  input.value = SESSION_TASK_NOTES[sid][id] || '';
+  input.oninput = function(){
+    if (sid==null) return;
+    if (!SESSION_TASK_NOTES[sid]) SESSION_TASK_NOTES[sid] = {};
+    SESSION_TASK_NOTES[sid][id] = input.value || '';
+  };
+  const ratingEl = host.querySelector('.rating');
+  host.insertBefore(input, ratingEl || null);
+}
+if (listEl) {
+  const observer = new MutationObserver((mutations)=>{
+    const sid = currentStudentId();
+    for (const m of mutations){
+      for (const n of m.addedNodes){
+        if (n && n.nodeType === 1 && n.tagName === 'LI') {
+          if (n.getAttribute('data-added-task') === '1') {
+            try { attachNoteInput(n, sid); } catch(_) {}
+          }
+        }
+      }
+    }
+  });
+  observer.observe(listEl, { childList: true });
+}
+
+// --- Override collector to use session-only task notes ---
+function collectTaskNotesMap(){
+  const out = {}; (STUDENTS || []).forEach(st => {
+    const sid = st.id; const per = {}; const tasks = (ADDED_TASKS[sid] || []);
+    tasks.forEach(t => { const tid = (t && (t.id != null ? t.id : t.key)) ?? ''; per[String(tid)] = (SESSION_TASK_NOTES[sid] && SESSION_TASK_NOTES[sid][tid]) || ''; });
+    out[sid] = per;
+  }); return out;
+}
+
+            // Only refresh general notes; inputs for tasks are added when tasks are appended to the list
+            (function(){
+              const g = window;
+              const origRender = g.renderSkillsForStudent;
+              if (typeof origRender === 'function') {
+                g.renderSkillsForStudent = function(studentId){
+                  const r = origRender.apply(this, arguments);
+                  // Only refresh general notes; inputs for tasks are added when tasks are appended to the list
+                  loadNotesFor(studentId);
+                  return r;
+                };
+              }
+            })();
+
+            // Fallback: refresh notes periodically, but never overwrite while typing
+            setInterval(function(){
+              const sid = currentStudentId();
+              if (notesFocused) return;
+              if (sid !== lastNotesForSid) {
+                loadNotesFor(sid);
+              }
+            }, 800);
+
+            function updateUndoBtn(){
+              if (undoBtn) undoBtn.disabled = ACTION_HISTORY.length === 0;
+            }
+            function pushAction(a){
+              ACTION_HISTORY.push(a);
+              updateUndoBtn();
+            }
+            function removeTaskFromStudent(sid, taskKey){
+              const list = ADDED_TASKS[sid];
+              if (!list) return;
+              const i = list.findIndex(t => t.key === taskKey);
+              if (i !== -1) list.splice(i,1);
+            }
+            function removeTaskFromAllStudents(taskKey){
+              (STUDENTS || []).forEach(st => removeTaskFromStudent(st.id, taskKey));
+            }
+            function undoLastAction(){
+              const a = ACTION_HISTORY.pop();
+              if (!a) return;
+              if (a.type === 'add-all'){
+                removeTaskFromAllStudents(a.task.key);
+              } else if (a.type === 'add-one'){
+                if (a.studentId) removeTaskFromStudent(a.studentId, a.task.key);
+              }
+              updateUndoBtn();
+              const currentId = (STUDENTS && STUDENTS[idx]) ? STUDENTS[idx].id : null;
+              if (currentId) renderSkillsForStudent(currentId);
+            }
+            if (undoBtn){
+              undoBtn.addEventListener('click', undoLastAction);
+            }
+            // Collapsible search panel toggle
+            const searchPanel = byId('searchPanel');
+            const toggleSearchPanelBtn = byId('toggleSearchPanelBtn');
+            if (toggleSearchPanelBtn && searchPanel) {
+              toggleSearchPanelBtn.addEventListener('click', function(){
+                const collapsed = searchPanel.classList.toggle('is-collapsed');
+                this.textContent = collapsed ? '▸' : '▾';
+              });
+            }
+
+            // Left search UI (Exercises)
+            const leftInput = byId('leftSearchInput');
+            const leftBtn   = byId('leftSearchBtn');
+            const leftHead  = byId('leftHead');
+            const leftBody  = byId('leftBody');
+            // Right search UI (Exercises–Snippets relationship)
+            // Define with safe fallbacks so missing elements won't break the page
+            const rightInput = byId('rightSearchInput') || null;
+            const rightBtn   = byId('rightSearchBtn') || { addEventListener: () => {} };
+            let rightHeadEl  = byId('rightHead');
+            if (!rightHeadEl) rightHeadEl = document.createElement('tr');
+            let rightBodyEl  = byId('rightBody');
+            if (!rightBodyEl) rightBodyEl = document.createElement('tbody');
+            // ---- RIGHT (relationships) search + buttons A/1 ----
+            function setRightHeadVisible(visible){
+              if (!rightHeadEl) return;
+              rightHeadEl.style.display = visible ? '' : 'none';
+              rightHeadEl.innerHTML = visible
+                ? '<th>RID</th><th>Page</th><th>№</th><th>Свързан snippet</th><th>Бележки</th>'
+                : '';
+            }
+
+            function renderRightRows(rows){
+              if (!rightBodyEl) return;
+              if (!rows || !rows.length){
+                setRightHeadVisible(false);
+                rightBodyEl.innerHTML = '<tr><td class="muted" colspan="5">Няма резултати</td></tr>';
+                return;
+              }
+              setRightHeadVisible(true);
+              rightBodyEl.innerHTML = rows.map(function(r){
+                var rid  = (r.resource ?? r.Resource ?? r.resourceid ?? r.ResourceID ?? '');
+                var page = (r.page ?? r.Page ?? '');
+                var num  = (r.number ?? r.Number ?? '');
+                var rel  = (r.relatedSnippet ?? r.relatedsnippet ?? '');
+                var com  = (r.comments ?? '');
+                return '<tr>'
+                     + '<td>' + escapeHtml(String(rid))  + '</td>'
+                     + '<td>' + escapeHtml(String(page)) + '</td>'
+                     + '<td>' + escapeHtml(String(num))  + '</td>'
+                     + '<td>' + escapeHtml(String(rel))  + '</td>'
+                     + '<td>' + escapeHtml(String(com))  + '</td>'
+                     + '</tr>';
+              }).join('');
+            }
+
+            function doRightSearch(){
+                if (!rightInput) { if (rightBodyEl) rightBodyEl.innerHTML=''; return; }
+                const term = (rightInput.value || '').trim();
+                if (!term) { renderRightRows([]); return; }
+
+                // позволяваме няколко числа, разделени с , ; или интервали
+                const ids = term.split(/[\s,;]+/)
+                                .map(s => parseInt(s,10))
+                                .filter(n => Number.isInteger(n));
+                if (ids.length === 0) { renderRightRows([]); return; }
+
+                const q = ids.join(','); // изпращаме ги събрани
+                fetch('/exercises-rel/search?q=' + encodeURIComponent(q))
+                  .then(r => r.ok ? r.json() : Promise.reject(r))
+                  .then(rows => renderRightRows(Array.isArray(rows) ? rows : []))
+                  .catch(() => renderRightRows([]));
+             }
+
+            // Build normalized task object for relationship triple (resource-page-number)
+            function buildRelTask(resource, page, number){
+              const r = parseInt(resource,10) || 0;
+              const p = parseInt(page,10) || 0;
+              const n = parseInt(number,10) || 0;
+              const key = 'rel:' + r + '-' + p + '-' + n;
+              return { key, kind:'exercise', resource:r, page:p, number:n, label:(r+'-'+p+'-'+n) };
+            }
+
+            // Delegate clicks from right result rows for Add All / Add One + push to undo history
+            if (rightBodyEl) {
+              rightBodyEl.addEventListener('click', function(ev){
+                const btn = ev.target.closest('.circle-btn');
+                if (!btn) return;
+
+                const action = btn.dataset.action;
+                const task = buildRelTask(btn.dataset.r, btn.dataset.p, btn.dataset.n);
+
+                // Ensure data store exists
+                window.ADDED_TASKS = window.ADDED_TASKS || {};
+                function ensureForStudent(sid){
+                  if (!window.ADDED_TASKS[sid]) window.ADDED_TASKS[sid] = [];
+                  const arr = window.ADDED_TASKS[sid];
+                  if (!arr.some(function(t){ return t.key === task.key; })) {
+                    arr.push(task);
+                  }
+                }
+
+                if (action === 'add-all'){
+                  (STUDENTS || []).forEach(function(st){ ensureForStudent(st.id); });
+                  if (typeof pushAction === 'function') pushAction({ type:'add-all', task: task });
+                } else if (action === 'add-one'){
+                  const cur = (STUDENTS && STUDENTS[idx]) ? STUDENTS[idx].id : null;
+                  if (cur != null) {
+                    ensureForStudent(cur);
+                    if (typeof pushAction === 'function') pushAction({ type:'add-one', task: task, studentId: cur });
+                  }
+                }
+
+                // Refresh current card
+                const currentId = (STUDENTS && STUDENTS[idx]) ? STUDENTS[idx].id : null;
+                if (currentId && typeof renderSkillsForStudent === 'function') {
+                  renderSkillsForStudent(currentId);
+                }
+              });
+            }
+
+            // Bind handlers for right search
+            if (rightBtn) rightBtn.addEventListener('click', doRightSearch);
+            if (rightInput) rightInput.addEventListener('keydown', function(ev){ if (ev.key === 'Enter') doRightSearch(); });
+
+            function setLeftHeadVisible(visible){
+              if (!leftHead) return;
+              leftHead.style.display = visible ? '' : 'none';
+              leftHead.innerHTML = visible
+                ? '<th style="width:64px"></th><th>ID</th><th>RID</th><th>Page</th><th>№</th><th>Условие</th><th>Решение</th>'
+                : '';
+            }
+            // --- REMOVE toPublicUrl and linkOrDash helpers entirely ---
+            function renderLeftRows(rows){
+              if (!leftBody) return;
+              if (!rows || !rows.length){
+                setLeftHeadVisible(false);
+                leftBody.innerHTML = '<tr><td class="muted" colspan="7">Няма резултати</td></tr>';
+                return;
+              }
+              setLeftHeadVisible(true);
+              leftBody.innerHTML = rows.map(function(r){
+                var idv  = (r.ID ?? r.id ?? '');
+                var rid  = (r.ResourceID ?? r.resourceid ?? '');
+                var page = (r.Page ?? r.page ?? '');
+                var num  = (r.Number ?? r.number ?? '');
+                var cond = (r.has_assignmentCondition ? '✔︎' : '—');
+                var sol  = (r.has_solution ? '✔︎' : '—');
+                var addCell = '<td class="add-cell" title="Добави упражнение">'
+                            + '<button class="circle-btn circle-btn--all" data-action="add-all" data-ex-id="' + idv + '" title="Добави за всички">A</button>'
+                            + '<button class="circle-btn circle-btn--one" data-action="add-one" data-ex-id="' + idv + '" title="Добави за този ученик">1</button>'
+                            + '</td>';
+                return '<tr>'
+                     + addCell
+                     + '<td>' + idv  + '</td>'
+                     + '<td>' + rid  + '</td>'
+                     + '<td>' + page + '</td>'
+                     + '<td>' + num  + '</td>'
+                     + '<td>' + cond + '</td>'
+                     + '<td>' + sol  + '</td>'
+                     + '</tr>';
+              }).join('');
+            }
+            async function doLeftSearch(){
+              if (!leftInput) return;
+              const q = (leftInput.value || '').trim();
+              if (!q){
+                setLeftHeadVisible(false);
+                leftBody.innerHTML = '<tr><td class="muted" colspan="6">Няма резултати</td></tr>';
+                return;
+              }
+              try {
+                const resp = await fetch('/exercises/search?q=' + encodeURIComponent(q));
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                const rows = await resp.json();
+                renderLeftRows(rows);
+              } catch (e){
+                console.error('left search failed:', e);
+                setLeftHeadVisible(false);
+                leftBody.innerHTML = '<tr><td class="muted" colspan="6">Грешка при търсене</td></tr>';
+              }
+            }
+            if (leftBtn) leftBtn.addEventListener('click', doLeftSearch);
+            if (leftInput) leftInput.addEventListener('keydown', e => {
+              if (e.key === 'Enter') { e.preventDefault(); doLeftSearch(); }
+            });
+            // Hide headers by default; they appear only on non-empty results
+            setLeftHeadVisible(false);
+            const rightHead = byId('rightHead');
+            if (rightHead) rightHead.style.display = 'none';
+            if (leftBody) {
+              leftBody.addEventListener('click', function(e){
+                const btn = e.target.closest('.circle-btn');
+                if (!btn) return;
+                const tr = btn.closest('tr');
+                const task = makeTaskFromRow(tr);
+                if (!task) return;
+
+                if (btn.dataset.action === 'add-all') {
+                  addTaskToAllStudents(task);
+                  pushAction({ type:'add-all', task });
+                } else if (btn.dataset.action === 'add-one') {
+                  const cur = (STUDENTS && STUDENTS[idx]) ? STUDENTS[idx].id : null;
+                  if (cur) {
+                    addTaskToStudent(cur, task);
+                    pushAction({ type:'add-one', task, studentId: cur });
+                  }
+                }
+                const currentId = (STUDENTS && STUDENTS[idx]) ? STUDENTS[idx].id : null;
+                if (currentId) renderSkillsForStudent(currentId);
+              });
+            }
+            updateUndoBtn();
+            function escapeHtml(s){ return String(s ?? '')
+              .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+              .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+              .replace(/'/g,'&#039;'); }
+            window.SCORES = window.SCORES || {}; // expose globally inside popup
+            const SCORES = window.SCORES;         // { [studentId]: { [snippetId]: 0|1|2|3 } }
+            // ---- Score storage helpers (persist per session in localStorage) ----
+            
+            // ------- Temporary tasks (exercises) attached to students -------
+        const ADDED_TASKS = {}; // { [studentId]: [{ kind:'exercise', key:'ex-<ID>', label, id, rid, page, num }] }
+
+        function addTaskToStudent(sid, task) {
+          if (!sid || !task) return;
+          if (!ADDED_TASKS[sid]) ADDED_TASKS[sid] = [];
+          if (!ADDED_TASKS[sid].some(t => t.key === task.key)) {
+            ADDED_TASKS[sid].push(task);
+          }
+        }
+        function addTaskToAllStudents(task) {
+          (STUDENTS || []).forEach(st => addTaskToStudent(st.id, task));
+        }
+
+        function resolveTriplet(){
+          if (typeof currentSkillsTriplet !== 'undefined' && currentSkillsTriplet) return String(currentSkillsTriplet);
+          if (document && document.title){
+            var p = document.title.split('—'); // Заглавието ви е "Оценяване — Клас — TRIPLET"
+            return String((p[p.length-1] || '').trim());
+          }
+          return '';
+        }
+
+        function parseComponentIdFromKey(key){
+          if (!key || typeof key !== 'string') return null;
+          if (key.indexOf('id:') === 0) return parseInt(key.split(':')[1], 10);   // "id:2" -> 2
+          if (key.indexOf('ex-') === 0) return parseInt(key.split('-')[1], 10);   // "ex-15" -> 15
+          return null;
+        }
+
+        function readScoreFromRow(ratingEl){
+          // ако имаш getScore(studentId, key), ползвай него; иначе четем .pill.is-active
+          try{
+            var sid = window.ACTIVE_STUDENT_ID;
+            var key = ratingEl.getAttribute('data-snippet-id');
+            if (typeof getScore === 'function') {
+              var s = getScore(sid, key);
+              return (s == null ? null : Number(s));
+            }
+          }catch(_){}
+          var active = ratingEl.querySelector('.pill.is-active');
+          return active ? Number(active.getAttribute('data-val') || active.textContent) : null;
+        }
+
+
+/////
+
+//////
+
+      function makeTaskFromRow(tr) {
+        if (!tr || !tr.children || tr.children.length < 5) return null;
+        const id   = parseInt((tr.children[1].textContent || '').trim(), 10);
+        const rid  = parseInt((tr.children[2].textContent || '').trim(), 10);
+        const page = parseInt((tr.children[3].textContent || '').trim(), 10);
+        const num  = parseInt((tr.children[4].textContent || '').trim(), 10);
+        if (!Number.isInteger(id)) return null;
+        const key   = 'ex-' + id;
+        const label = 'Задача ' + rid + '-' + page+ '-' +num;
+        return { kind:'exercise', key, label, id, rid, page, num };
+      }
+
+
+      
+          const getScore  = (sid, snid) => (SCORES[sid] && (typeof SCORES[sid][snid] !== 'undefined')) ? SCORES[sid][snid] : null;
+          const setScore  = (sid, snid, val) => { if (!SCORES[sid]) SCORES[sid] = {}; SCORES[sid][snid] = val; };
+          const clearScore= (sid, snid) => { if (SCORES[sid]) delete SCORES[sid][snid]; };
+        
+          function renderSkillsForStudent(studentId){
+            // Построй базовите елементи (snippets)
+            const base = (SNIPPETS || []).map(sn => ({
+              kind: 'snippet',
+              key:  'id:' + sn.id,
+              label: sn.name,
+              id: sn.id
+            }));
+
+            // Добавените упражнения за конкретния ученик
+            const extra = (ADDED_TASKS[studentId] || []);
+
+            const items = base.concat(extra);
+
+            if (!items.length){
+              listEl.innerHTML = '<li class="muted">Няма умения</li>';
+              return;
+            }
+        
+
+            const html = items.map(function(it){
+              const score = getScore(studentId, it.key);
+              const pills = [0,1,2,3].map(function(v){
+                const act = (score === v) ? ' is-active' : '';
+                return '<span class="pill pill--v' + v + act + '" data-val="' + v + '">' + v + '</span>';
+              }).join('');
+              const name = escapeHtml(it.label || '-');
+              const liAttrs = (it.kind === 'exercise')
+                ? ' data-added-task="1" data-ex-id="' + escapeHtml(String(it.id != null ? it.id : (it.key != null ? it.key : ''))) + '"'
+                : '';
+              return '<li' + liAttrs + '>'
+                  + '<div class="skill-row">'
+                  +   '<div class="sk-name">' + name + ' <span class="sk-id">(' + escapeHtml(it.key) + ')</span></div>'
+                  +   '<div class="rating" data-snippet-id="' + it.key + '">' + pills + '</div>'    
+                  +   '<button type="button" class="add-note-btn" title="Добави коментар">⋯</button>'
+                  +   '<input type="text" class="skill-inline-note" placeholder="Коментар…" data-snippet-id="' + it.key + '">'    
+                  + '</div>'
+                  + '</li>';
+            }).join('');
+
+            listEl.innerHTML = html;
+
+            // Прикачаме toggle само веднъж върху списъка с умения
+if (!listEl._noteToggleAttached) {
+  listEl.addEventListener('click', function(ev){
+    var btn = ev.target.closest('.add-note-btn');
+    if (!btn) return;
+    var inp = btn.nextElementSibling;
+    if (inp && inp.classList && inp.classList.contains('skill-inline-note')){
+      var cur = (inp.style && inp.style.display) ? inp.style.display : '';
+      var next = (cur === 'none' || cur === '') ? 'inline-block' : 'none';
+      inp.style.display = next;
+
+      // пазим отворено/затворено състояние в sessionStorage
+      try {
+        var sid = String(studentId);
+        var snKey = String(inp.getAttribute('data-snippet-id') || '');
+        var trip = (typeof currentSkillsTriplet !== 'undefined' && currentSkillsTriplet)
+          ? String(currentSkillsTriplet)
+          : (document && document.title ? String(document.title.split('—').pop() || '').trim() : '');
+        var openKey = 'whil:note-open:' + trip + ':' + sid + ':' + snKey;
+        sessionStorage.setItem(openKey, next === 'inline-block' ? '1' : '0');
+      } catch(_){}
+
+      try { if (inp.style.display !== 'none') inp.focus(); } catch(_){}
+    }
+  });
+  listEl._noteToggleAttached = true;
+}
+            // --- Persist per-skill notes and general note across card switches (sessionStorage) ---
+try {
+var trip = (typeof currentSkillsTriplet !== 'undefined' && currentSkillsTriplet)
+  ? String(currentSkillsTriplet)
+  : (document && document.title ? String(document.title.split('—').pop() || '').trim() : '');
+  // Prefill + persist per-skill inline notes
+  [].slice.call(listEl.querySelectorAll('.skill-inline-note')).forEach(function(inp){
+    var snKey = inp.getAttribute('data-snippet-id');
+    var sidStr = String(studentId);
+    var storeKey = 'whil:note:' + trip + ':' + sidStr + ':' + String(snKey || '');
+    var saved = null;
+    try { saved = sessionStorage.getItem(storeKey); } catch(_){}
+    if (typeof saved === 'string') { inp.value = saved; }
+    inp.addEventListener('input', function(){
+      try { sessionStorage.setItem(storeKey, inp.value); } catch(_){}
+    });
+  });
+
+  // Ensure general notes box exists (if your template hasn’t created it)
+  var notesBox = document.querySelector('.notes');
+  if (!notesBox){
+    notesBox = document.createElement('div');
+    notesBox.className = 'notes';
+    var lbl = document.createElement('label');
+    lbl.className = 'notes-label';
+    lbl.textContent = 'Коментари';
+    var ta = document.createElement('textarea');
+    ta.className = 'notes-ta';
+    ta.setAttribute('data-student-id', String(studentId));
+    ta.placeholder = 'Общ коментар за ученика…';
+    notesBox.appendChild(lbl);
+    notesBox.appendChild(ta);
+
+    var wrapCard = document.querySelector('.card') || document.body;
+    wrapCard.appendChild(notesBox);
+  }
+  // ... преди това си построил/вкарал notesBox ...
+
+var taEl = notesBox.querySelector('.notes-ta');
+if (taEl){
+  // 1) безопасно взимаме triplet
+  var trip = (typeof currentSkillsTriplet !== 'undefined' && currentSkillsTriplet)
+    ? String(currentSkillsTriplet)
+    : (document && document.title ? String(document.title.split('—').pop() || '').trim() : '');
+
+  // 2) правим ключ за storage и го връзваме към елемента
+  var gStoreKey = 'whil:general:' + trip + ':' + String(studentId);
+  var boundKey  = taEl.getAttribute('data-bound-key');
+
+  // 3) скриваме и чистим незабавно, ако контекстът се е сменил
+  taEl.style.visibility = 'hidden';
+  if (boundKey !== gStoreKey){
+    taEl.value = '';
+  }
+
+  // 4) зареждаме запазената стойност (ако има)
+  var gSaved = null;
+  try { gSaved = sessionStorage.getItem(gStoreKey); } catch(_){}
+  if (typeof gSaved === 'string') {
+    taEl.value = gSaved;
+  }
+
+  // 5) маркираме новия контекст и показваме след layout-а (без мигане)
+  taEl.setAttribute('data-bound-key', gStoreKey);
+  requestAnimationFrame(function(){ taEl.style.visibility = 'visible'; });
+
+  // 6) пазим на всяко въвеждане
+  taEl.addEventListener('input', function(){
+    try { sessionStorage.setItem(gStoreKey, taEl.value); } catch(_){}
+  });
+}
+} catch(e){ console.warn('persist notes wiring failed:', e); }
+
+            
+
+        
+              // --- Toggle-aware click handler ---
+            listEl.addEventListener('click', (e) => {
+              const base = (e.target && e.target.nodeType === 1) ? e.target : (e.target && e.target.parentElement);
+              if (!base) return;
+
+              const pill  = base.closest('.pill');
+              if (!pill) return;
+
+              const group = pill.closest('.rating');
+              if (!group) return;
+
+              const snid = group.getAttribute('data-snippet-id'); // 'id:2', 'ex-15', ...
+              const val  = parseInt(pill.getAttribute('data-val'), 10);
+              const cur  = (STUDENTS && STUDENTS[idx]) ? STUDENTS[idx].id : null;
+              if (cur == null || Number.isNaN(val)) return;
+
+              const current = getScore(cur, snid);
+              if (current === val) {
+                clearScore(cur, snid);
+                group.querySelectorAll('.pill').forEach(p => p.classList.remove('is-active'));
+              } else {
+                setScore(cur, snid, val);
+                group.querySelectorAll('.pill').forEach(p => p.classList.remove('is-active'));
+                pill.classList.add('is-active');
+              }
+
+              // диагностичен лог – остави го временно
+              console.log('[CLICK]', { student: cur, key: snid, value: getScore(cur, snid) },
+            'keys=', Object.keys((window.SCORES && window.SCORES[cur]) || {}));
+            });
+    }
+
+            function render(){
+              if (!STUDENTS.length){ nameEl.textContent='Няма студенти'; listEl.innerHTML=''; prevBtn.disabled = true; nextBtn.disabled = true; return; }
+              if (idx < 0) idx = 0; if (idx >= STUDENTS.length) idx = STUDENTS.length - 1;
+              const st = STUDENTS[idx];
+              nameEl.textContent = fullName(st);
+              renderSkillsForStudent(st.id);
+              if (idx !== prevIdx) {
+                const bg = pickNextGradient();
+                if (heroEl) heroEl.style.background = bg;
+                prevIdx = idx;
+              }
+              picker.value = String(idx);
+              prevBtn.disabled = (idx === 0);
+              nextBtn.disabled = (idx === STUDENTS.length - 1);
+              metaCount.textContent = (idx+1) + ' / ' + STUDENTS.length + ' ученика' + (SNIPPETS.length ? (' • умения: ' + SNIPPETS.length) : '');
+            }
+
+            function goto(n){ idx = n; render(); }
+
+            // init picker
+            picker.innerHTML = (STUDENTS || []).map(function(st, i){
+            return '<option value="' + i + '">' + fullName(st) + '</option>';
+            }).join('');            
+            picker.addEventListener('change', () => goto(parseInt(picker.value,10)));
+
+            prevBtn.addEventListener('click', () => goto(Math.max(0, idx-1)));
+            nextBtn.addEventListener('click', () => goto(Math.min(STUDENTS.length-1, idx+1)));
+
+            window.addEventListener('keydown', (e) => {
+              if (e.key === 'ArrowLeft') { e.preventDefault(); prevBtn.click(); }
+              else if (e.key === 'ArrowRight') { e.preventDefault(); nextBtn.click(); }
+            });
+
+            // ---- initial render ----
+            try {
+              if (picker && Array.isArray(STUDENTS) && STUDENTS.length) {
+                picker.value = '0';
+              }
+              render();
+            } catch (_e) {
+              // swallow – if something fails here, UI will still be operable via controls
+            }
+            // ---- Cleanup on popup close ----
+            // ---- Cleanup on popup close ----
+          function cleanupAssessmentLocalData(){
+            try {
+              // clear per-student notes for this class + triplet
+              const ns  = 'notes:' + encodeURIComponent(CLS) + ':' + encodeURIComponent(currentSkillsTriplet) + ':';
+              const tns = 'tasknotes:' + encodeURIComponent(CLS) + ':' + encodeURIComponent(currentSkillsTriplet) + ':';              // iterate over keys safely
+              const keys = Object.keys(localStorage);
+              for (let i = 0; i < keys.length; i++) {
+                const k = keys[i];
+                if (k.startsWith(ns) || k.startsWith(tns)) {
+                  try { localStorage.removeItem(k); } catch(_) {}
+                }
+              }
+              // drop transient in-memory stores
+             // нулирай съществуващите обекти, без да чупиш референциите
+              if (window.SCORES) { for (const k in window.SCORES) delete window.SCORES[k]; }
+              if (window.ADDED_TASKS) { for (const k in window.ADDED_TASKS) delete window.ADDED_TASKS[k]; }
+            } catch (e) {
+              console.warn('cleanup failed', e);
+            }
+          }
+          // register cleanup on window close
+          window.addEventListener('beforeunload', cleanupAssessmentLocalData);
+          // ensure fresh session on popup open too (if a previous close didn't fire)
+          try { 
+            if (!window.__ASSESS_CLEANED_ON_OPEN__) { 
+              cleanupAssessmentLocalData(); 
+              window.__ASSESS_CLEANED_ON_OPEN__ = true; 
+            } 
+          } catch(_) {}
+          // Submit button
+          const submitBtn = document.getElementById('submitAssessBtnFinal') || document.getElementById('submitAssessBtn');
+
+if (submitBtn){
+  submitBtn.addEventListener('click', async (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (typeof ev.stopImmediatePropagation === 'function') ev.stopImmediatePropagation();
+
+    // Build summary payload (as before)
+    var parts = getClassParts('${escapeHtml(cls)}');
+    var payload = {
+      class: parts.grade,
+      class_division: parts.division,
+      lesson_tripplet: '${escapeHtml(currentSkillsTriplet)}',
+      details: {
+        students: STUDENTS,
+        scores: collectScores(),
+        student_notes: collectStudentNotesMap(),
+        task_notes: collectTaskNotesMap(),
+        skill_notes: (function(){
+          // Collect inline per-skill notes from visible cards (fresh on submit)
+          var out = {}; var inps = document.querySelectorAll('.skill-inline-note');
+          inps.forEach(function(inp){
+            var val = (inp.value || '').trim(); if (!val) return;
+            var row  = inp.closest('.skill-row');
+            var card = inp.closest('[data-student-id]');
+            var stu  = card ? (card.getAttribute('data-student-id') || card.dataset.studentId) : '';
+            var item = (row && row.getAttribute('data-item'))
+                    || ((row && row.querySelector('[data-item]')) ? row.querySelector('[data-item]').dataset.item : '')
+                    || ((row && row.querySelector('.sk-name')) ? row.querySelector('.sk-name').textContent.trim() : '');
+            if (!stu || !item) return; if (!out[stu]) out[stu] = {}; out[stu][item] = val;
+          });
+          return out;
+        })()
+      }
+    };
+     
+    // ---- Build detailed rows for student_assessment_skills_exercises ----
+      const rows = [];
+      // Ensure in-memory scores include any persisted values before we read them
+      const scoresMap    = collectScores(); // fresh snapshot AFTER merge
+      const studentNotes = collectStudentNotesMap();
+      const taskNotes    = collectTaskNotesMap();
+      try { console.log('[ASSESS] SCORES snapshot (after merge)', JSON.parse(JSON.stringify(scoresMap))); } catch(_) {}
+
+    (STUDENTS || []).forEach(st => {
+      const sid = st.id;
+      (STUDENTS || []).forEach(st => {
+        console.log('[SUBMIT] SCORES for student', st.id, Object.keys(scoresMap[st.id] || {}));
+      });
+      // snippets
+      (SNIPPETS || []).forEach(sn => {
+          // първо опитваме от in-memory snapshot
+          const key   = 'id:' + sn.id;                   // същият формат като data-snippet-id
+          let score = (scoresMap[sid] || {})['id:' + sn.id];     // без localStorage fallback
+          // (по желание за дебъг)
+          // console.log('[SUBMIT][SNIPPET]', {sid, key, score, keys:Object.keys(scoresMap[sid]||{})});
+          const perTask = (taskNotes[sid] || {});
+      
+          const comment = (studentNotes[sid] || '') || '';
+          rows.push({
+            studentID: sid,
+            lessonTriplet: '${escapeHtml(currentSkillsTriplet)}',
+            isSnippet: true,
+            componentID: sn.id,
+            assessment: (typeof score === 'number' ? score : null),
+            comment: comment
+          });
+        });
+      
+
+      // exercises (added tasks)
+      (ADDED_TASKS[sid] || []).forEach(ex => {
+  const key = String(ex.key ?? (ex.id != null ? ('ex-' + ex.id) : ''));
+let score = (scoresMap[sid] || {})['id:' + sn.id];
+  const perTask = (tasNotes[sid] || {});
+
+    const comment = perTask[(ex.id ?? '')] ?? perTask[key] ?? '';
+
+    rows.push({
+    studentID: sid,
+    lessonTriplet: '${escapeHtml(currentSkillsTriplet)}',
+    isSnippet: false,
+    componentID: (ex.id ?? null),
+    assessment: (typeof score === 'number') ? score : null,
+    comment: comment
+  });
+});
+
+      // DEBUG per-student: show keys we considered and collected scores for
+      try { console.log('[ASSESS] keys for student', sid, Object.keys(scoresMap[sid] || {})); } catch(_e){}
+        // --- general per-student comment as its own DB row ---
+      const generalComment = (studentNotes[sid] || '').trim();
+      if (generalComment) {
+        rows.push({
+          studentID: sid,
+          lessonTriplet: '${escapeHtml(currentSkillsTriplet)}',
+          isSnippet: false,
+          componentID: null,
+          assessment: null,
+          comment: generalComment
+        });
+      }
+    });
+
+    // ---- DEBUG: inspect detailed rows before posting ----
+    try {
+      console.log('[ASSESS] DETAIL ROWS count =', rows.length, rows);
+      window.__ASSESS_ROWS__ = rows;
+      const snap = JSON.stringify(rows);
+      localStorage.setItem('debug_last_rows', snap.length > 200000 ? snap.slice(0,200000) : snap);
+      alert('Ще подадем ' + rows.length + ' реда (виж Console → [ASSESS] DETAIL ROWS).');
+    } catch(_e) {}
+
+    var originalText = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Изпращам…';
+
+    try {
+      // 1) summary log
+      var r = await fetch('/assessment-log', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      await r.json();
+    } catch(e){}
+      // 2) details table
+      // 2) details table — пращаме по един ред
+    try {
+        var ok = [];
+        var fail = [];
+
+        for (var i = 0; i < rows.length; i++) {
+            var row = rows[i];
+            var one = {
+            lessonTriplet: String(row.lessonTriplet != null ? row.lessonTriplet : ""),
+            isSnippet: !!row.isSnippet,
+            componentID: row.componentID == null ? null : Number(row.componentID),
+            assessment: row.assessment == null ? null : Number(row.assessment),
+            comment: typeof row.comment === "string" ? row.comment : "",
+            studentID: Number(row.studentID)
+            };
+
+    
+
+            const resp = await fetch("/student-assessment-skills-exercises", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ rows: [one] })
+            });
+
+            if (!resp.ok) {
+                let txt = "";
+                try { 
+                txt = await resp.text(); 
+                } catch (e) {
+                console.warn("Row failed:", one, "→", resp.status, txt);
+                fail.push({ row: one, status: resp.status, msg: txt });
+                continue;
+            }
+            }
+
+            ok.push(one);
+
+            console.log("✔ Записани: " + ok.length + " • ✖ Пропаднали: " + fail.length);
+        }
+    } catch (e) { console.error("Posting detailed rows failed:", e);}
+
+      // success UI
+      alert('Успешно подадено!');
+    try { 
+        cleanupAssessmentLocalData(); 
+        //window.close();
+
+    } catch (err) {
+          console.error('Submit error:', err);
+          alert('Грешка при подаване.');
+          submitBtn.textContent = originalText;
+    } finally {
+  submitBtn.disabled = false;
+  setTimeout(function(){ submitBtn.textContent = originalText; }, 1200);
+}
+    } catch (e) {
+        console.error('Submit failed:', e);
+        alert('Грешка при подаване.');
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
+        }
+}
+});
+
+
+</script>
+</body>
+</html>

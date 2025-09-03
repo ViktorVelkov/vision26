@@ -21,8 +21,6 @@ app.use("/", scheduleSelectionRouter);
 app.use('/lessons-calendar', require('./routes/lessonsCalendar'));
 app.use('/lessons-library', require('./public/lessonsLibrary'));
 
-
-
 /**
  * GET /lesson-skills?triplet=001001001
  * Returns all columns from "Snippets" for the given triplet.
@@ -179,6 +177,99 @@ app.post('/lesson-skills', async (req, res) => {
   } catch (err) {
     console.error('Error inserting into Snippets:', err);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+
+// POST /student-assessment-skills-exercises — save detailed assessment rows
+// Expects: { rows: [ {lessonTriplet,isSnippet,componentID,assessment,comment,studentID,threadID} ] }
+app.post('/student-assessment-skills-exercises', async (req, res) => {
+  const { rows } = req.body || {};
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return res.status(400).json({ error: 'Missing rows[]' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // More explicit JSONB-based parsing and casting (accepts string numbers/booleans)
+    const sql = `
+      WITH src AS (
+        SELECT 
+          COALESCE(NULLIF(TRIM(x->>'lessonTriplet'), ''), '')::text                AS "lessonTriplet",
+          CASE 
+            WHEN (x ? 'isSnippet') THEN 
+              CASE LOWER(NULLIF(TRIM(x->>'isSnippet'), ''))
+                WHEN 'true'  THEN TRUE
+                WHEN '1'     THEN TRUE
+                WHEN 'false' THEN FALSE
+                WHEN '0'     THEN FALSE
+                ELSE (x->>'isSnippet')::boolean
+              END
+            ELSE NULL
+          END                                                             AS "isSnippet",
+          NULLIF(TRIM(x->>'componentID'), '')::int                         AS "componentID",
+          NULLIF(TRIM(x->>'assessment'),  '')::int                         AS "assessment",
+          COALESCE(x->>'comment','')::text                                 AS "comment",
+          NULLIF(TRIM(x->>'studentID'),  '')::int                          AS "studentID"
+        FROM jsonb_array_elements($1::jsonb) AS x
+      )
+      INSERT INTO "student_assessment_skills_exercises"
+        ("lessonTriplet","isSnippet","componentID","assessment","comment","studentID","entryTime")
+      SELECT "lessonTriplet","isSnippet","componentID","assessment","comment","studentID", NOW()
+      FROM src
+      RETURNING id,
+                "lessonTriplet","isSnippet","componentID","assessment","comment","studentID","entryTime";
+    `;
+
+    // Normalize keys coming from client so fields have expected names and types
+    const normRows = rows.map(function (r) {
+      var lessonTriplet = r.lessonTriplet != null ? r.lessonTriplet
+                        : (r.triplet != null ? r.triplet
+                        : (r.lesson_tripplet != null ? r.lesson_tripplet : ""));
+      var isSnippet = (typeof r.isSnippet !== "undefined") ? r.isSnippet
+                    : (typeof r.is_snippet !== "undefined" ? r.is_snippet : null);
+      var componentID = (r.componentID != null ? r.componentID
+                       : (r.componentId != null ? r.componentId
+                       : (r.component_id != null ? r.component_id
+                       : (r.id != null ? r.id : null))));
+      var assessment = (r.assessment != null ? r.assessment
+                      : (r.score != null ? r.score : null));
+      var comment = (typeof r.comment === "string" ? r.comment
+                   : (typeof r.note === "string" ? r.note : ""));
+      var studentID = (r.studentID != null ? r.studentID
+                     : (r.studentId != null ? r.studentId
+                     : (r.student_id != null ? r.student_id : null)));
+
+      return {
+        lessonTriplet: lessonTriplet != null ? String(lessonTriplet) : "",
+        isSnippet: isSnippet,
+        componentID: componentID == null ? null : componentID,
+        assessment: assessment == null ? null : assessment,
+        comment: comment || "",
+        studentID: studentID == null ? null : studentID
+      };
+    });
+
+    console.log("POST /student-assessment-skills-exercises sample row:",
+      Array.isArray(rows) && rows[0] ? rows[0] : null,
+      "keys=", Array.isArray(rows) && rows[0] ? Object.keys(rows[0]) : []
+    );
+    console.log("normalized sample:", normRows[0], "keys=", Object.keys(normRows[0] || {}));
+
+    const payloadJson = JSON.stringify(normRows);
+
+    const result = await client.query(sql, [payloadJson]);
+
+    await client.query('COMMIT');
+    res.json({ ok: true, inserted: result.rowCount, rows: result.rows });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('save student_assessment_skills_exercises failed:', e);
+    res.status(500).json({ error: 'DB error' });
+  } finally {
+    client.release();
   }
 });
 
