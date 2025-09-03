@@ -330,4 +330,42 @@
   });
 })();
 </script>
+<script>
+(function(){
+  // Muted solid colors for the hero bar
+  var COLORS = ['#fde8e8','#fef3c7','#e0f2fe','#dcfce7','#ede9fe','#cffafe','#e9d5ff','#ffedd5'];
+  var lastIdx = -1; // remember only the last shown color index (not per student)
+
+  function getHero(){ return document.getElementById('hero'); }
+
+  function nextColor(){
+    // cycle so the color never repeats immediately, even when returning to a previous card
+    var idx = (lastIdx + 1) % COLORS.length;
+    lastIdx = idx;
+    return COLORS[idx];
+  }
+
+  function applyNewHeroColor(){
+    var hero = getHero(); if (!hero) return;
+    hero.style.background = nextColor();
+  }
+
+  function observeCardSwitch(){
+    var card = document.querySelector('main.wrap .card');
+    if (!card || !window.MutationObserver){ applyNewHeroColor(); return; }
+    var mo = new MutationObserver(function(muts){
+      var changed = muts.some(function(m){ return m.type==='attributes' && m.attributeName==='data-student-id'; });
+      if (changed) applyNewHeroColor();
+    });
+    mo.observe(card, { attributes:true, attributeFilter:['data-student-id'] });
+  }
+
+  document.addEventListener('DOMContentLoaded', function(){
+    // initial paint
+    applyNewHeroColor();
+    // then react to card switches
+    observeCardSwitch();
+  });
+})();
+</script>
 </html>
