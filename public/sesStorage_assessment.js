@@ -41,9 +41,8 @@ window.__SKILL_SCORES__ = SCORES;
     saveScoresDebounced(SCORES);
   }
   function clearScore(sid, key){
-    if (!SCORES[sid]) return;
-    delete SCORES[sid][key];
-    if (Object.keys(SCORES[sid]).length === 0) delete SCORES[sid];
+    if (!SCORES[sid]) SCORES[sid] = {};
+    SCORES[sid][key] = null; // keep the skill key; represent "no score" as null
     saveScoresDebounced(SCORES);
   }
 
@@ -54,6 +53,70 @@ window.__SKILL_SCORES__ = SCORES;
     var sidRaw = card.getAttribute('data-student-id');
     var sid = sidRaw != null && sidRaw !== '' ? (Number.isFinite(+sidRaw) ? +sidRaw : sidRaw) : null;
     return { card: card, sid: sid };
+  }
+
+  // Normalize potential student id values to numeric-id strings; return null if not numeric
+  function __normSid(v){
+    if (v == null) return null;
+    if (typeof v === 'number' && Number.isFinite(v)) return String(v);
+    var s = String(v).trim();
+    return (/^\d+$/.test(s)) ? s : null;
+  }
+
+  // --- Seed helpers: map ALL skills to ALL students with null values initially
+  function collectAllStudentIds(){
+    // Prefer explicit class roster
+    if (window.CLASS_INFO && Array.isArray(window.CLASS_INFO.students)){
+      var ids = window.CLASS_INFO.students
+        .map(function(s){ return (s && (s.id ?? s.sid ?? s.studentId)); })
+        .map(__normSid)
+        .filter(Boolean);
+      if (ids.length) return ids;
+    }
+    // Fallback to global STUDENTS, if present
+    if (Array.isArray(window.STUDENTS)){
+      var ids2 = window.STUDENTS
+        .map(function(s){ return (s && (s.id ?? s.sid ?? s.studentId)); })
+        .map(__normSid)
+        .filter(Boolean);
+      if (ids2.length) return ids2;
+    }
+    // Try the student picker <select>
+    var sel = document.getElementById('studentPicker');
+    if (sel && sel.options && sel.options.length){
+      var ids3 = Array.prototype.map.call(sel.options, function(o){ return __normSid(o && o.value); }).filter(Boolean);
+      if (ids3.length) return ids3;
+    }
+    // Last resort: union of whatever we already know from any map — keep ONLY numeric-looking ids
+    var union = new Set();
+    [SCORES, window.ADDED_TASKS, window.__SKILL_NOTES__, window.__GENERAL_NOTES__].forEach(function(m){
+      if (!m) return; Object.keys(m).forEach(function(k){ var n = __normSid(k); if (n) union.add(n); });
+    });
+    // Also include current visible card sid if numeric
+    try { var cur = getCurrentCard(); var ncur = __normSid(cur && cur.sid); if (ncur) union.add(ncur); } catch(_e){}
+    return Array.from(union);
+  }
+  function collectAllSkillIds(){
+    var nodes = document.querySelectorAll('.rating[data-snippet-id]');
+    var ids = Array.prototype.map.call(nodes, function(n){ return n.getAttribute('data-snippet-id'); }).filter(Boolean);
+    // de-dup
+    return Array.from(new Set(ids));
+  }
+  function seedScoresAllNulls(){
+    try {
+      var students = collectAllStudentIds();
+      var skills = collectAllSkillIds();
+      if (!students || !students.length || !skills || !skills.length) return;
+      students.forEach(function(sid){
+        var k = __normSid(sid);
+        if (!k) return; // skip non-numeric ids (e.g., names)
+        if (!SCORES[k]) SCORES[k] = {};
+        skills.forEach(function(sk){
+          if (typeof SCORES[k][sk] === 'undefined') SCORES[k][sk] = null; // ensure presence with null
+        });
+      });
+      saveScoresDebounced(SCORES);
+    } catch (_e) { /* ignore */ }
   }
 
   // Прилага .is-active по запазените оценки върху видимата карта
@@ -110,12 +173,12 @@ window.__SKILL_SCORES__ = SCORES;
     if (!card || !window.MutationObserver) { applySavedScores(); return; }
     var mo = new MutationObserver(function(muts){
       var changed = muts.some(function(m){ return m.type === 'attributes' && m.attributeName === 'data-student-id'; });
-      if (changed) applySavedScores();
+      if (changed) { seedScoresAllNulls(); applySavedScores(); }
     });
     mo.observe(card, { attributes: true, attributeFilter: ['data-student-id'] });
     // Ако списъкът с умения се презаписва при навигация, може да има нужда и от observer за children:
     var skills = card.querySelector('#skillsList') || card;
-    var mo2 = new MutationObserver(function(){ applySavedScores(); });
+    var mo2 = new MutationObserver(function(){ seedScoresAllNulls(); applySavedScores(); });
     mo2.observe(skills, { childList: true, subtree: true });
   }
 
@@ -129,6 +192,8 @@ window.__SKILL_SCORES__ = SCORES;
         try { Object.assign(SCORES, __freshScores); } catch(_e){}
       }
     } catch(_){ }
+    // Ensure the full matrix (all students x all skills) exists with nulls before painting
+    setTimeout(seedScoresAllNulls, 0);
     // Дай шанс на aw2 да дорендерира списъка, после маркирай
     setTimeout(applySavedScores, 0);
     observeStudentSwitch();
