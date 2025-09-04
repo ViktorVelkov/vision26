@@ -16,7 +16,9 @@
   function loadAll(){
     try { var raw = sessionStorage.getItem(storageKey()); return raw ? JSON.parse(raw) : {}; } catch(_){ return {}; }
   }
-  var NOTES = loadAll(); // форма: { [studentId]: "текст" }
+var NOTES = loadAll(); // форма: { [studentId]: "текст" }
+  // Expose globally for submitAsmt.js (live reference)
+  window.__GENERAL_NOTES__ = NOTES;
   var __saveTimer = null;
   function saveDebounced(){
     try { if (__saveTimer) clearTimeout(__saveTimer); } catch(_){ }

@@ -672,7 +672,7 @@ async function openAssessmentWindow() {
     html = html.replace('</body>', boot + '\n</body>');
 
     // 5) Open popup and write the composed HTML
-    const w = window.open('', 'assess-' + Date.now(), 'width=600,height=600');
+    const w = window.open('', 'assess-' + Date.now(), 'width=900,height=700');
     if (!w) { alert('Разрешете изскачащи прозорци и опитайте отново.'); return; }
     w.document.open();
     w.document.write(html);
