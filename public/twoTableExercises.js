@@ -140,15 +140,83 @@ window.ADDED_TASKS = window.ADDED_TASKS || {};
     if (!window.ADDED_TASKS || Object.keys(window.ADDED_TASKS).length === 0) window.ADDED_TASKS = loaded || {};
     window.__ADDED_TASKS_STORE__ = { saveNow: saveNow, saveDebounced: saveDeb, reload: function () { window.ADDED_TASKS = load() || {}; } };
 })();
+
+// Ensure every student has a bucket in ADDED_TASKS (even if empty)
+(function ensureStudentBuckets(){
+  function seed(ids){
+    if (!Array.isArray(ids)) return;
+    ids.forEach(function(sid){
+      var k = String(sid);
+      if (!window.ADDED_TASKS[k]) window.ADDED_TASKS[k] = [];
+    });
+    if (window.__ADDED_TASKS_STORE__) window.__ADDED_TASKS_STORE__.saveDebounced();
+  }
+  var ids = getAllStudentIds();
+  if (ids && ids.length) { seed(ids); }
+  else {
+    // Fallback to probe if picker values are names
+    __probeCollectStudentIds().then(seed);
+  }
+})();
+
+
 function addTaskToStudent(sid, task) {
     if (sid == null || !task) return;
-    var key = task.key;
-    var sidKey = String(sid); // normalize so writer/reader use identical keys
+    var sidKey = String(sid);
     if (!window.ADDED_TASKS[sidKey]) window.ADDED_TASKS[sidKey] = [];
     var arr = window.ADDED_TASKS[sidKey];
-    if (!arr.some(function (t) { return t && t.key === key; })) arr.push(task);
+    var existing = arr.find(function(t){ return t && t.key === task.key; });
+    if (existing){
+        if (typeof existing.rating === 'undefined') existing.rating = null;
+        if (typeof existing.note === 'undefined') existing.note = '';
+        if (typeof existing.skills === 'undefined') existing.skills = '';
+    } else {
+        var copy = Object.assign({}, task);
+        copy.rating = null; // keep null until teacher sets 0–3
+        copy.note = '';
+        copy.skills = '';
+        arr.push(copy);
+    }
     if (window.__ADDED_TASKS_STORE__) window.__ADDED_TASKS_STORE__.saveDebounced();
 }
+
+function getTaskAssess(sid, key){
+  sid = String(sid);
+  var arr = (window.ADDED_TASKS && window.ADDED_TASKS[sid]) ? window.ADDED_TASKS[sid] : [];
+  var hit = arr.find(function(t){ return t && t.key === key; });
+  return hit ? { rating: (typeof hit.rating==='number'? hit.rating:null), note: (typeof hit.note==='string'? hit.note:'') } : { rating: null, note: '' };
+}
+function setTaskRating(sid, key, val){
+  sid = String(sid);
+  var arr = (window.ADDED_TASKS && window.ADDED_TASKS[sid]) ? window.ADDED_TASKS[sid] : [];
+  var hit = arr.find(function(t){ return t && t.key === key; });
+  if (!hit) return;
+  hit.rating = (typeof val==='number' && val>=0 && val<=3) ? val : null;
+  if (window.__ADDED_TASKS_STORE__) window.__ADDED_TASKS_STORE__.saveDebounced();
+}
+function setTaskNote(sid, key, text){
+  sid = String(sid);
+  var arr = (window.ADDED_TASKS && window.ADDED_TASKS[sid]) ? window.ADDED_TASKS[sid] : [];
+  var hit = arr.find(function(t){ return t && t.key === key; });
+  if (!hit) return;
+  hit.note = String(text||'');
+  if (window.__ADDED_TASKS_STORE__) window.__ADDED_TASKS_STORE__.saveDebounced();
+}
+function getTaskSkills(sid, key){
+  sid = String(sid);
+  var arr = (window.ADDED_TASKS && window.ADDED_TASKS[sid]) ? window.ADDED_TASKS[sid] : [];
+  var hit = arr.find(function(t){ return t && t.key === key; });
+  return hit && typeof hit.skills === 'string' ? hit.skills : '';
+}
+function setTaskSkills(sid, key, text){
+  sid = String(sid);
+  var arr = (window.ADDED_TASKS && window.ADDED_TASKS[sid]) ? window.ADDED_TASKS[sid] : [];
+  var hit = arr.find(function(t){ return t && t.key === key; });
+  if (!hit) return;
+  hit.skills = String(text || '');
+  if (window.__ADDED_TASKS_STORE__) window.__ADDED_TASKS_STORE__.saveDebounced();
+}
+function clearTaskAssess(sid, key){ /* no-op */ }
 
 function addTaskToAllStudents(task){
   function looksLikeNames(arr){
@@ -252,7 +320,56 @@ function ensureTaskVisibleForCurrent(task) {
         btn.setAttribute('data-key', task && task.key ? String(task.key) : '');
         btn.textContent = 'Премахни';
 
+        // controls: skills input + rating 0-3 + note
+        var controls = document.createElement('div');
+        controls.className = 'task-controls';
+
+        // NEW: skills input (IDs of related skills)
+        var skills = document.createElement('input');
+        skills.type = 'text';
+        skills.className = 'task-skills';
+        skills.placeholder = 'Свързани умения (IDs)…';
+        skills.setAttribute('data-task-key', task.key);
+
+        var rating = document.createElement('div');
+        rating.className = 'rating task-rating';
+        rating.setAttribute('data-task-key', task.key);
+        for (var i=0;i<=3;i++){
+          var sp = document.createElement('span');
+          sp.className = 'pill pill--v'+i;
+          sp.setAttribute('data-val', String(i));
+          sp.textContent = String(i);
+          rating.appendChild(sp);
+        }
+
+        var note = document.createElement('input');
+        note.type = 'text';
+        note.className = 'task-note';
+        note.placeholder = 'Бележка към задачата…';
+        note.setAttribute('data-task-key', task.key);
+
+        // load saved assess (rating+note) + skills
+        var sidNow = getCurrentStudentId();
+        try {
+          var assess = getTaskAssess(sidNow, task.key);
+          if (assess && assess.rating != null){
+            var pills = rating.querySelectorAll('.pill');
+            pills.forEach(function(p){ p.classList.remove('is-active'); });
+            var active = rating.querySelector('.pill[data-val="'+assess.rating+'"]');
+            if (active) active.classList.add('is-active');
+          }
+          if (assess && typeof assess.note === 'string') note.value = assess.note;
+          var savedSkills = getTaskSkills(sidNow, task.key);
+          skills.value = savedSkills || '';
+        } catch(_){ }
+
+        // order: skills -> rating -> note
+        controls.appendChild(skills);
+        controls.appendChild(rating);
+        controls.appendChild(note);
+
         li.appendChild(name);
+        li.appendChild(controls);
         li.appendChild(btn);
         list.appendChild(li);
 
@@ -366,12 +483,7 @@ if (rightBodyEl) {
         // Ensure data store exists
         window.ADDED_TASKS = window.ADDED_TASKS || {};
         function ensureForStudent(sid) {
-            var sidKey = String(sid);
-            if (!window.ADDED_TASKS[sidKey]) window.ADDED_TASKS[sidKey] = [];
-            const arr = window.ADDED_TASKS[sidKey];
-            if (!arr.some(function (t) { return t.key === task.key; })) {
-                arr.push(task);
-            }
+            addTaskToStudent(sid, task);
         }
 
         let addedTask = false;
@@ -539,6 +651,41 @@ updateUndoBtn();
         if (next) next.addEventListener('click', function () { setTimeout(applyAddedTasksToCurrentCard, 0); });
         if (pick) pick.addEventListener('change', function () { setTimeout(applyAddedTasksToCurrentCard, 0); });
     });
+})();
+
+// --- Delegated handlers for task rating (0-3) and per-task note in the panel ---
+(function(){
+  document.addEventListener('click', function(ev){
+    var pill = ev.target.closest && ev.target.closest('.task-rating .pill');
+    if (!pill) return;
+    var ratingBox = pill.closest('.task-rating'); if (!ratingBox) return;
+    var key = ratingBox.getAttribute('data-task-key'); if (!key) return;
+    var val = parseInt(pill.getAttribute('data-val'), 10);
+    var sid = getCurrentStudentId(); if (sid == null) return;
+    // UI update
+    ratingBox.querySelectorAll('.pill').forEach(function(el){ el.classList.remove('is-active'); });
+    pill.classList.add('is-active');
+    // persist
+    setTaskRating(sid, key, val);
+  });
+
+  document.addEventListener('input', function(ev){
+    var inp = ev.target.closest && ev.target.closest('input.task-note');
+    if (!inp) return;
+    var key = inp.getAttribute('data-task-key'); if (!key) return;
+    var sid = getCurrentStudentId(); if (sid == null) return;
+    setTaskNote(sid, key, inp.value || '');
+  });
+})();
+// Save task skills live
+(function(){
+  document.addEventListener('input', function(ev){
+    var inp = ev.target.closest && ev.target.closest('input.task-skills');
+    if (!inp) return;
+    var key = inp.getAttribute('data-task-key'); if (!key) return;
+    var sid = getCurrentStudentId(); if (sid == null) return;
+    setTaskSkills(sid, key, inp.value || '');
+  });
 })();
 // --- Toggle show/hide for the left/right search tables panel
 (function () {

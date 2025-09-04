@@ -30,6 +30,8 @@
 
   // --- SCORES persisted in sessionStorage: { [studentId]: { [snippetKey]: number } }
   var SCORES = loadScores();
+  // expose live reference so other scripts (submit) can read it
+window.__SKILL_SCORES__ = SCORES;
   function getScore(sid, key){
     return (SCORES[sid] && typeof SCORES[sid][key] !== 'undefined') ? SCORES[sid][key] : null;
   }
@@ -119,7 +121,14 @@
 
   document.addEventListener('DOMContentLoaded', function(){
     wireClicks();
-    try { SCORES = loadScores(); } catch(_){}
+    try {
+      var __freshScores = loadScores();
+      // mutate existing object to preserve external references
+      try { Object.keys(SCORES).forEach(function(k){ delete SCORES[k]; }); } catch(_e){}
+      if (__freshScores && typeof __freshScores === 'object') {
+        try { Object.assign(SCORES, __freshScores); } catch(_e){}
+      }
+    } catch(_){ }
     // Дай шанс на aw2 да дорендерира списъка, после маркирай
     setTimeout(applySavedScores, 0);
     observeStudentSwitch();

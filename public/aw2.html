@@ -19,12 +19,12 @@
           .log-table th, .log-table td { padding:6px 8px; border-bottom:1px solid #eee; text-align:left; }
           .log-table thead th { position:sticky; top:0; background:#f9fafb; z-index:1; }
           .topline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-          .badge{background:#eef2ff;color:#3346d3;border-radius:6px;padding:2px 8px;font-weight:600;font-size:.8rem}
+          .badge{background:#f1f5f9;color:#374151;border-radius:6px;padding:2px 8px;font-weight:600;font-size:.8rem}
           .small{font-size:.78rem;color:#777}
           .nav{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
-          .btn{background:#2563eb;color:#fff;border:none;border-radius:8px;padding:8px 12px;font-weight:600;cursor:pointer}
-          .btn:disabled{background:#9bb3ff;cursor:not-allowed}
-          .btn--ghost{background:#f3f6ff;color:#1f3bb3}
+          .btn{background:#6b7280;color:#fff;border:none;border-radius:8px;padding:8px 12px;font-weight:600;cursor:pointer}
+          .btn:disabled{background:#d1d5db;color:#ffffff;cursor:not-allowed}
+          .btn--ghost{background:#f3f4f6;color:#374151}
           .wrap{max-width:900px;margin:56px auto 0;display:flex;flex-direction:column; align-items:center}
           .card{border:1px solid #e7e7e7;border-radius:12px;padding:16px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.06);overflow:hidden;max-width:720px;width:100%;}
           .card h2{margin:0 0 8px 0;font-size:1.25rem;text-align:center;font-weight:600;}
@@ -45,6 +45,8 @@
           /* Note field shown only for added tasks */
           .task-note{flex:1;min-width:160px;border:1px solid #d1d5db;border-radius:6px;padding:4px 6px;font:inherit}
           .task-note::placeholder{color:#94a3b8}
+          .task-skills{flex:1;min-width:80px;max-width:120px;border:1px solid #d1d5db;border-radius:6px;padding:4px 6px;font:inherit}
+          .task-skills::placeholder{color:#94a3b8}
           /* Inline per-skill comment add button */
           .add-note-btn{border:none;background:transparent;cursor:pointer;font-weight:700;opacity:.5;transition:opacity .15s ease;padding:2px 6px;margin-left:4px}
           .add-note-btn:hover{opacity:1}
@@ -67,7 +69,20 @@
           .notes-status{margin-top:4px}
           .footer-hint{position:fixed;left:0;right:0;bottom:12px;text-align:center;color:#666;font-size:.85rem}
           .toolbar{display:flex;gap:8px;align-items:center}
-          select{padding:6px 8px}
+          select{
+            padding:6px 8px;
+            border:1px solid #d1d5db;
+            border-radius:6px;
+            background:#f3f4f6;
+            color:#374151;
+            appearance:none; -webkit-appearance:none; -moz-appearance:none;
+            background-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M6 8l4 4 4-4" stroke="%236b7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+            background-repeat:no-repeat; background-position:right 8px center; background-size:16px 16px;
+            padding-right:28px;
+            cursor:pointer;
+          }
+          select:hover{ background:#eee; }
+          select:focus{ outline:none; box-shadow:0 0 0 3px rgba(107,114,128,.25); border-color:#9ca3af; }
           /* --- Collapsible search panel styles --- */
           .search-panel{max-width:900px;margin:8px auto 0}
           .search-panel .sp-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
@@ -116,6 +131,8 @@
         .remove-task{border:1px solid #ef4444;background:#fff;color:#ef4444;border-radius:6px;padding:4px 8px;cursor:pointer}
         .remove-task:hover{background:#fee2e2}
         .muted-note{color:#9aa0a6;font-style:italic}
+        .task-controls{display:flex;align-items:center;gap:12px;margin-left:auto}
+        .task-rating{display:inline-flex;gap:6px;align-items:center}
           </style>
 </head>
       <body>
@@ -198,6 +215,7 @@
 <script src="sesStorage_assessment.js"></script>
 <script src="generalComment.js"></script>
 <script src="twoTableExercises.js"></script>
+<script src="submitAsmt.js"></script>
 <script>
 (function(){
   // --- sessionStorage for per-skill notes (namespace per class + triplet)
