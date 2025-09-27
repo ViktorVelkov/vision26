@@ -444,7 +444,39 @@ app.post('/lessons-taken', async (req, res) => {
 });
 
 
+// GET /schedule/available-years-generated — unique academic years present in generatedyearplan
+app.get('/schedule/available-years-generated', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      WITH g AS (
+        SELECT date::date AS d
+        FROM "generatedyearplan"
+        WHERE date IS NOT NULL
+      )
+      SELECT
+        CASE WHEN EXTRACT(MONTH FROM d) >= 9
+             THEN EXTRACT(YEAR FROM d)::int
+             ELSE (EXTRACT(YEAR FROM d)::int - 1)
+        END AS start_year,
+        CASE WHEN EXTRACT(MONTH FROM d) >= 9
+             THEN EXTRACT(YEAR FROM d)::int + 1
+             ELSE EXTRACT(YEAR FROM d)::int
+        END AS end_year,
+        COUNT(*) AS lessons_count
+      FROM g
+      GROUP BY 1,2
+      HAVING COUNT(*) > 0
+      ORDER BY start_year DESC;
+    `);
+    res.json(rows);
+  } catch (e) {
+    console.error('available-years-generated failed:', e);
+    res.status(500).json({ error: 'DB error' });
+  }
+});
+
 // GET /generatedyearplan?className=...
+
 app.get('/generatedyearplan', async (req, res) => {
   const className = req.query.className;
   if (!className) return res.status(400).json({ error: 'Missing className parameter' });
@@ -475,7 +507,24 @@ app.patch('/generatedyearplan/:id', async (req, res) => {
   const { id } = req.params;
   if (!id) return res.status(400).json({ error: 'Missing id' });
 
-  const { date, weekday, unit, unitetype, lessonCreated, lessonCode } = req.body || {};
+  // Destructure all possible fields from body
+  const {
+    date,
+    weekday,
+    unit,
+    unitetype,
+    lessonCreated,
+    lessonCode,
+    subject,
+    start_time,
+    end_time,
+    sectioninfo,
+    notes,
+    duration,
+    is_module,
+    week_number,
+    term
+  } = req.body || {};
 
   const sets = [];
   const params = [];
@@ -499,6 +548,64 @@ app.patch('/generatedyearplan/:id', async (req, res) => {
     sets.push(`"lessonCreated" = $${params.length}::boolean`);
   }
 
+  // ==== New fields logic ====
+  if (typeof subject === 'string') {
+    params.push(subject);
+    sets.push(`"subject" = $${params.length}`);
+  }
+  if (typeof start_time === 'string') {
+    params.push(start_time);
+    sets.push(`"start_time" = $${params.length}::time`);
+  }
+  if (typeof end_time === 'string') {
+    params.push(end_time);
+    sets.push(`"end_time" = $${params.length}::time`);
+  }
+  if (typeof sectioninfo === 'string') {
+    params.push(sectioninfo);
+    sets.push(`"sectioninfo" = $${params.length}`);
+  }
+  if (typeof notes === 'string') {
+    params.push(notes);
+    sets.push(`"notes" = $${params.length}`);
+  }
+  if (typeof duration === 'number' && !Number.isNaN(duration)) {
+    params.push(duration);
+    sets.push(`"duration" = $${params.length}`);
+  }
+  if (typeof is_module !== 'undefined') {
+    let v = is_module;
+    if (typeof v === 'string') {
+      v = v.trim().toLowerCase();
+      if (v === '1') v = true;
+      else if (v === '0') v = false;
+      else if (v === 'true') v = true;
+      else if (v === 'false') v = false;
+    }
+    params.push(v === true);
+    sets.push(`"is_module" = $${params.length}::boolean`);
+  }
+
+  // ==== Inserted logic for week_number and term ====
+  if (typeof week_number !== 'undefined') {
+    let v = week_number;
+    if (typeof v === 'string') v = parseInt(v, 10);
+    if (!Number.isNaN(v)) {
+      params.push(v);
+      sets.push(`"week_number" = $${params.length}`);
+    }
+  }
+
+  if (typeof term !== 'undefined') {
+    let v = term;
+    if (typeof v === 'string') v = parseInt(v, 10);
+    if (!Number.isNaN(v)) {
+      params.push(v);
+      sets.push(`"term" = $${params.length}`);
+    }
+  }
+  // ==== End inserted logic ====
+
   if (sets.length === 0) return res.status(400).json({ error: 'No updatable fields provided' });
 
   params.push(id);
@@ -518,6 +625,79 @@ app.patch('/generatedyearplan/:id', async (req, res) => {
   }
 });
 
+// POST /generatedyearplan - create new row
+app.post('/generatedyearplan', async (req, res) => {
+  const {
+    week_number,
+    date,
+    weekday,
+    start_time,
+    end_time,
+    subject,
+    unit,
+    sectioninfo,
+    unitetype,
+    notes,
+    duration,
+    is_module,
+    term,
+    lessonCreated,
+    lessonCode
+  } = req.body || {};
+
+  try {
+    const sql = `
+      INSERT INTO "generatedyearplan"
+      ("week_number","date","weekday","start_time","end_time","subject",
+       "unit","sectioninfo","unitetype","notes","duration","is_module",
+       "term","lessonCreated","lessonCode")
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+      RETURNING "id",
+                TO_CHAR("date", 'YYYY-MM-DD') AS "date",
+                "weekday","unit","unitetype","lessonCreated","lessonCode";
+    `;
+    const params = [
+      week_number || null,
+      date || null,
+      weekday || null,
+      start_time || null,
+      end_time || null,
+      subject || null,
+      unit || null,
+      sectioninfo || null,
+      unitetype || null,
+      notes || null,
+      duration || null,
+      is_module || null,
+      term || null,
+      lessonCreated != null ? lessonCreated : null,
+      lessonCode || null
+    ];
+    const { rows } = await pool.query(sql, params);
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error('Error inserting into generatedyearplan:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// DELETE /generatedyearplan/:id - delete row
+app.delete('/generatedyearplan/:id', async (req, res) => {
+  const { id } = req.params;
+  if (!id) return res.status(400).json({ error: 'Missing id' });
+  try {
+    const result = await pool.query(
+      'DELETE FROM "generatedyearplan" WHERE "id" = $1 RETURNING id',
+      [id]
+    );
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Row not found' });
+    res.json({ ok: true, deletedId: id });
+  } catch (err) {
+    console.error('Error deleting from generatedyearplan:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+ 
 
 app.get("/students/search", async (req, res) => {
     const name = req.query.name || "";
@@ -1128,3 +1308,21 @@ app.post("/schedule/save", async (req, res) => {
   }
 });
 
+// GET /schedule/available-years-scheduleentries — само уникални start_year–end_year от scheduleentries
+app.get('/schedule/available-years-scheduleentries', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT DISTINCT
+        start_year::int AS start_year,
+        end_year::int   AS end_year
+      FROM "scheduleentries"
+      WHERE start_year IS NOT NULL
+        AND end_year   IS NOT NULL
+      ORDER BY start_year DESC, end_year DESC;
+    `);
+    res.json(rows);
+  } catch (e) {
+    console.error('available-years-scheduleentries failed:', e);
+    res.status(500).json({ error: 'DB error' });
+  }
+});

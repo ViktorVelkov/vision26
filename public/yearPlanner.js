@@ -1,4 +1,5 @@
-document.getElementById("generatePlanBtn").addEventListener("click", () => {
+const _genBtn = document.getElementById("generatePlanBtn");
+if (_genBtn) _genBtn.addEventListener("click", () => {
   const outputWindow = window.open("", "_blank"); // Open tab immediately to avoid popup blockers
 
   // Duplicate function for debugging
@@ -288,4 +289,5 @@ document.getElementById("generatePlanBtn").addEventListener("click", () => {
       outputWindow.document.write(`\n❌ Mirror error: ${mirrorErr.message}`);
     }
   })();
+
 });

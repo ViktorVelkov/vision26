@@ -214,6 +214,7 @@
     <table id="currentScheduleTable" border="1" style="width: 100%; border-collapse: collapse; margin-top: 10px;">
       <thead>
         <tr>
+          <th>Година</th>
           <th>Class</th>
           <th>Division</th>
           <th>Term</th>
@@ -265,6 +266,22 @@
 </div>
 <div id="tab-generator" style="display: none;">
 <h2>Weekly Schedule</h2>
+  <div id="dbYearsHeader" style="display:flex;align-items:center;gap:10px;justify-content:flex-start;margin:10px 0 6px;">
+    <button type="button" id="dbYearsToggleBtn" style="padding:6px 10px;border:none;border-radius:4px;background:#e9ecef;cursor:pointer;">Учебни години в БД ▸</button>
+    <small style="color:#666;">Кликни, за да разгледаш.</small>
+  </div>
+  <div id="dbYearsPanel" style="display:none;background:#fff;border:1px solid #ddd;border-radius:6px;padding:10px;margin:6px 0 14px;">
+    <ul id="generatedYearsList" style="list-style:none;padding-left:0;margin:0;display:flex;flex-wrap:wrap;gap:8px;"></ul>
+    <small style="display:block;color:#666;margin-top:6px;">Натисни върху година, за да попълниш полетата.</small>
+  </div>
+  <div id="schedYearsHeader" style="display:flex;align-items:center;gap:10px;justify-content:flex-start;margin:6px 0 6px;">
+    <button type="button" id="schedYearsToggleBtn" style="padding:6px 10px;border:none;border-radius:4px;background:#e9ecef;cursor:pointer;">Седмични записи в БД ▸</button>
+    <small style="color:#666;">Запазени седмични шаблони (scheduleentries).</small>
+  </div>
+  <div id="schedYearsPanel" style="display:none;background:#fff;border:1px solid #ddd;border-radius:6px;padding:10px;margin:6px 0 14px;">
+    <ul id="scheduleYearsList" style="list-style:none;padding-left:0;margin:0;display:flex;flex-wrap:wrap;gap:8px;"></ul>
+    <small style="display:block;color:#666;margin-top:6px;">Натисни върху година, за да попълниш полетата.</small>
+  </div>
 <form id="scheduleForm">
   <div style="text-align:center; margin-bottom: 20px;">
     <label for="startYear">Start Year:
@@ -532,6 +549,7 @@ document.addEventListener("DOMContentLoaded", () => {
       data.currentRows.forEach(row => {
         const tr = document.createElement("tr");
         tr.innerHTML = `
+          <td>${row.start_year ?? ''}-${row.end_year ?? ''}</td>
           <td>${row.class}</td>
           <td>${row.division}</td>
           <td>${row.term}</td>
@@ -622,6 +640,95 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Initial populate of year dropdown
   loadAvailableYears();
+
+  // Load academic years detected in generatedyearplan and bind dropdown
+  async function loadGeneratedPlanYears() {
+    try {
+      const res = await fetch('/schedule/available-years-generated');
+      const years = await res.json();
+      const list = document.getElementById('generatedYearsList');
+      if (!list) return;
+      list.innerHTML = '';
+      years.forEach(({ start_year, end_year, lessons_count }) => {
+        const li = document.createElement('li');
+        li.innerHTML = `<button type="button" class="year-pill" data-range="${start_year}-${end_year}" title="часове: ${lessons_count}" style="padding:6px 10px;border:1px solid #ccc;border-radius:16px;background:#f8f9fa;cursor:pointer;">${start_year}-${end_year} (${lessons_count})</button>`;
+        list.appendChild(li);
+      });
+      list.addEventListener('click', (e) => {
+        const btn = e.target.closest('button.year-pill');
+        if (!btn) return;
+        const [s, eY] = btn.dataset.range.split('-').map(n => parseInt(n, 10));
+        const sInput = document.getElementById('startYear');
+        const eInput = document.getElementById('endYear');
+        if (sInput) sInput.value = isFinite(s) ? s : '';
+        if (eInput) eInput.value = isFinite(eY) ? eY : '';
+        [sInput, eInput].forEach(el => { if (!el) return; el.classList.add('pulsing'); setTimeout(() => el.classList.remove('pulsing'), 400); });
+      });
+    } catch (err) {
+      console.error('Failed to load generated years:', err);
+    }
+  }
+
+  // Load academic years present in scheduleentries
+  async function loadScheduleEntriesYears() {
+    try {
+      const res = await fetch('/schedule/available-years-scheduleentries');
+      const years = await res.json();
+      const list = document.getElementById('scheduleYearsList');
+      if (!list) return;
+      list.innerHTML = '';
+      years.forEach(({ start_year, end_year }) => {
+        const li = document.createElement('li');
+        li.innerHTML = `
+          <button type="button" class="year-pill" data-range="${start_year}-${end_year}"
+                  style="padding:6px 10px;border:1px solid #ccc;border-radius:16px;background:#f0f3f7;cursor:pointer;">
+            ${start_year}-${end_year}
+          </button>`;
+        list.appendChild(li);
+      });
+      list.addEventListener('click', (e) => {
+        const btn = e.target.closest('button.year-pill');
+        if (!btn) return;
+        const [s, eY] = btn.dataset.range.split('-').map(n => parseInt(n, 10));
+        const sInput = document.getElementById('startYear');
+        const eInput = document.getElementById('endYear');
+        if (sInput) sInput.value = Number.isFinite(s) ? s : '';
+        if (eInput) eInput.value = Number.isFinite(eY) ? eY : '';
+        [sInput, eInput].forEach(el => {
+          if (!el) return;
+          el.classList.add('pulsing');
+          setTimeout(() => el.classList.remove('pulsing'), 400);
+        });
+      });
+    } catch (err) {
+      console.error('Failed to load scheduleentries years:', err);
+    }
+  }
+
+  // Populate generated year dropdown on load
+  loadGeneratedPlanYears();
+
+  const _dbYearsToggleBtn = document.getElementById('dbYearsToggleBtn');
+  const _dbYearsPanel = document.getElementById('dbYearsPanel');
+  if (_dbYearsToggleBtn && _dbYearsPanel) {
+    _dbYearsToggleBtn.addEventListener('click', () => {
+      const open = _dbYearsPanel.style.display !== 'none';
+      _dbYearsPanel.style.display = open ? 'none' : 'block';
+      _dbYearsToggleBtn.textContent = open ? 'Учебни години в БД ▸' : 'Учебни години в БД ▾';
+    });
+  }
+
+  // Load scheduleentries years and wire toggle
+  loadScheduleEntriesYears();
+  const _schedYearsToggleBtn = document.getElementById('schedYearsToggleBtn');
+  const _schedYearsPanel = document.getElementById('schedYearsPanel');
+  if (_schedYearsToggleBtn && _schedYearsPanel) {
+    _schedYearsToggleBtn.addEventListener('click', () => {
+      const open = _schedYearsPanel.style.display !== 'none';
+      _schedYearsPanel.style.display = open ? 'none' : 'block';
+      _schedYearsToggleBtn.textContent = open ? 'Седмични записи в БД ▸' : 'Седмични записи в БД ▾';
+    });
+  }
 
   // Save selected resources to currentSchedule and refresh table
   document.getElementById("saveChangesBtn").addEventListener("click", async () => {

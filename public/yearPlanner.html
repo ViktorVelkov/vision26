@@ -62,7 +62,10 @@
     <label for="startSemester2">Start of Semester 2:</label>
     <input type="date" id="startSemester2" name="startSemester2" required>
 
-    <button id="generatePlanBtn">Generate Plan</button>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px;">
+    <button id="generatePlanBtn" type="button">Generate Plan</button> 
+    
+    </div>
 
   </form>
 
@@ -316,7 +319,8 @@
       return plan;
     }
 
-    document.getElementById("generatePlanBtn").addEventListener("click", () => {
+    const _genBtn2 = document.getElementById("generatePlanBtn");
+    if (_genBtn2) _genBtn2.addEventListener("click", () => {
       const outputWindow = window.open("", "_blank"); // Open tab immediately to avoid popup blockers
 
       (async () => {
@@ -355,6 +359,95 @@
           outputWindow.document.write("</pre>");
         } catch (err) {
           alert("❌ Error saving planner: " + err.message);
+          outputWindow.close();
+        }
+      })();
+    });
+    
+
+    // --- Generate Term 1 only ---
+    document.getElementById("generateTerm1Btn").addEventListener("click", () => {
+      const outputWindow = window.open("", "_blank");
+      (async () => {
+        const startDate = document.getElementById("startYearDate").value;
+        const endYearDate = document.getElementById("endYearDate").value; // not used, kept for parity
+        const semester1End = document.getElementById("endSemester1").value;
+        const semester2Start = document.getElementById("startSemester2").value;
+
+        if (!startDate || !semester1End) {
+          alert("❗ Попълни начална дата и край на първи срок.");
+          outputWindow.close();
+          return;
+        }
+
+        const planner = await generateWeeklyPlanDebug({ startDate, endDate: semester1End, semester1End, semester2Start });
+
+        try {
+          const res = await fetch("/schedule/generate-year-plan", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ planner, semester1End, semester2Start, semester1EndISO: semester1End, semester2StartISO: semester2Start })
+          });
+          const result = await res.json();
+          if (!res.ok) throw new Error(result.error || "Failed to save planner");
+
+          outputWindow.document.write("<pre style='font-family: monospace;'>");
+          outputWindow.document.write(`✅ ${result.message} (Първи срок)\n\n`);
+          planner.forEach((week, index) => {
+            outputWindow.document.write(`📅 Week ${index + 1}\n`);
+            week.entries.forEach(entry => {
+              const dayName = new Date(entry.date).toLocaleDateString('en-US', { weekday: 'long' });
+              outputWindow.document.write(`  ${entry.date} (${dayName}): ${entry.start_time}–${entry.end_time} — ${entry.subject}\n`);
+            });
+            outputWindow.document.write("\n");
+          });
+          outputWindow.document.write("</pre>");
+        } catch (err) {
+          alert("❌ Error saving Term 1 planner: " + err.message);
+          outputWindow.close();
+        }
+      })();
+    });
+
+    // --- Generate Term 2 only ---
+    document.getElementById("generateTerm2Btn").addEventListener("click", () => {
+      const outputWindow = window.open("", "_blank");
+      (async () => {
+        const startYearDate = document.getElementById("startYearDate").value; // not used, kept for parity
+        const endDate = document.getElementById("endYearDate").value;
+        const semester1End = document.getElementById("endSemester1").value;
+        const semester2Start = document.getElementById("startSemester2").value;
+
+        if (!semester2Start || !endDate) {
+          alert("❗ Попълни начало на втори срок и край на учебната година.");
+          outputWindow.close();
+          return;
+        }
+
+        const planner = await generateWeeklyPlanDebug({ startDate: semester2Start, endDate, semester1End, semester2Start });
+
+        try {
+          const res = await fetch("/schedule/generate-year-plan", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ planner, semester1End, semester2Start, semester1EndISO: semester1End, semester2StartISO: semester2Start })
+          });
+          const result = await res.json();
+          if (!res.ok) throw new Error(result.error || "Failed to save planner");
+
+          outputWindow.document.write("<pre style='font-family: monospace;'>");
+          outputWindow.document.write(`✅ ${result.message} (Втори срок)\n\n`);
+          planner.forEach((week, index) => {
+            outputWindow.document.write(`📅 Week ${index + 1}\n`);
+            week.entries.forEach(entry => {
+              const dayName = new Date(entry.date).toLocaleDateString('en-US', { weekday: 'long' });
+              outputWindow.document.write(`  ${entry.date} (${dayName}): ${entry.start_time}–${entry.end_time} — ${entry.subject}\n`);
+            });
+            outputWindow.document.write("\n");
+          });
+          outputWindow.document.write("</pre>");
+        } catch (err) {
+          alert("❌ Error saving Term 2 planner: " + err.message);
           outputWindow.close();
         }
       })();

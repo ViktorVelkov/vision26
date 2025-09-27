@@ -29,6 +29,12 @@
       min-width: 300px;
       max-width: 500px;
     }
+
+    /* Flash green on successful save */
+    .success-flash {
+      background-color: #e6f4ea !important; /* soft green */
+      transition: background-color 0.8s ease;
+    }
   </style>
 </head>
 <body>
@@ -43,6 +49,7 @@
     <label for="weekNumberInput">Week</label>
     <input id="weekNumberInput" type="number" min="1" step="1" style="width: 72px;" />
     <button id="nextWeekBtn" title="Next week">▶</button>
+    <button id="addRowBtn" title="Добави нов ред">+ Ред</button>
   </div>
 
   <h2 style="margin-top:16px; font-size:18px;">Библиотека уроци</h2>
@@ -60,20 +67,29 @@
     const tbody = document.getElementById('tbody');
     const statusEl = document.getElementById('status');
 
+    function flashSaved(cell){
+      if (!cell) return;
+      cell.classList.add('success-flash');
+      setTimeout(()=> cell.classList.remove('success-flash'), 900);
+    }
+
     const weekToolbar = document.getElementById('weekToolbar');
     const prevWeekBtn = document.getElementById('prevWeekBtn');
     const nextWeekBtn = document.getElementById('nextWeekBtn');
     const weekNumberInput = document.getElementById('weekNumberInput');
+    const addRowBtn = document.getElementById('addRowBtn');
     let currentWeek = 1;
 
 
     // Helper to send PATCH for cell update
     async function updateCell(id, column, value){
       try{
-        const res = await fetch(`/lessons-calendar/generatedyearplan/${id}`, {
+        const body = {};
+        body[column] = value;   // instead of { column, value }
+        const res = await fetch(`/generatedyearplan/${id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ column, value })
+          body: JSON.stringify(body)
         });
         if(!res.ok){
           const t = await res.text();
@@ -129,18 +145,13 @@
       });
       thead.appendChild(trh);
 
-      // Editable columns: last two visible (ordered), always include lessonCreated and notes if present
-      const editableCols = (() => {
-        const lastTwo = displayColsOrdered.slice(-2);
-        const extra = [];
-        if (displayColsOrdered.includes('lessonCreated')) extra.push('lessonCreated');
-        if (displayColsOrdered.includes('notes')) extra.push('notes');
-        return Array.from(new Set([...lastTwo, ...extra]));
-      })();
+      // Editable columns: make all visible columns editable
+      const editableCols = [...displayColsOrdered];
 
       // Build body using ordered columns
       for(const r of rows){
         const tr = document.createElement('tr');
+        if (r.id != null) tr.dataset.id = String(r.id);
         displayColsOrdered.forEach(c => {
           const td = document.createElement('td');
           let v = r[c];
@@ -178,6 +189,7 @@
               try{
                 await updateCell(td.dataset.id, 'lessonCreated', next);
                 setDisplay(next);
+                flashSaved(td);
                 statusEl.textContent = 'Saved';
               }catch(e){ }
             });
@@ -217,6 +229,7 @@
                 if (td.dataset.col === 'notes') {
                   td.style.whiteSpace = 'pre-wrap';
                 }
+                flashSaved(td);
                 statusEl.textContent = 'Saved';
               }catch{}
             });
@@ -262,9 +275,11 @@
       const val = parseInt(weekNumberInput.value, 10);
       if (!Number.isNaN(val) && val > 0) loadData(val);
     });
+
     // Initial loads
     if (weekNumberInput) weekNumberInput.value = String(currentWeek);
     loadData(currentWeek);
   </script>
+  <script src="/lesCal_tableMod.js" defer></script>
 </body>
 </html>
