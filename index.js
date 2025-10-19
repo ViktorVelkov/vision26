@@ -1326,3 +1326,116 @@ app.get('/schedule/available-years-scheduleentries', async (req, res) => {
     res.status(500).json({ error: 'DB error' });
   }
 });
+
+
+// POST /schedule/apply-distribution-smart
+// Body: { subject, start, end }
+// Чете CSV от 'разпределения/<razpredelenie>' според currentSchedule за subject.
+// Колони: 1) Учебна седмица (число), 2) Тема -> unit, 3) Вид -> unitetype.
+// Разпределя по week_number: за всеки ред от generatedyearplan в дадена седмица се взима
+// следваща тема за същата седмица. sectioninfo се попълва “Седмица X, №k”.
+app.post('/schedule/apply-distribution-smart', async (req, res) => {
+  const { subject, start, end } = req.body || {};
+  if (!subject || !start || !end) {
+    return res.status(400).json({ error: 'Missing subject/start/end' });
+  }
+
+  try {
+    // 1) файл от currentSchedule
+    const cs = await pool.query(
+      `SELECT "razpredelenie"
+         FROM "currentSchedule"
+        WHERE ("class" || ' ' || COALESCE("division", '')) = $1
+        LIMIT 1`,
+      [subject]
+    );
+    const fileName = cs.rows?.[0]?.razpredelenie;
+    if (!fileName) {
+      return res.status(404).json({ error: `No razpredelenie for subject ${subject}` });
+    }
+
+    // 2) прочит на CSV/Numbers-експорт
+    const csvPath = path.join(__dirname, 'разпределения', fileName);
+    if (!fs.existsSync(csvPath)) {
+      return res.status(404).json({ error: `CSV not found: ${csvPath}` });
+    }
+    let raw = fs.readFileSync(csvPath, 'utf8').replace(/\uFEFF/g, ''); // махни BOM
+    const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    // очакваме хедър в първия ред; ще го прескочим ако първата колона не е число
+    const csv = [];
+    for (const line of lines) {
+      const parts = (line.includes(';') ? line.split(';') : line.split(',')).map(s => s.trim());
+      if (parts.length < 2) continue;
+      const tema = parts[1] || '';
+      const vid  = (parts[2] || '').toUpperCase();
+
+      // Пропускаме хедъра или редове с "Тема" в колоната
+      if (!tema || /^тема$/i.test(tema)) continue;
+
+      csv.push({ unit: tema, unitetype: vid });
+    }
+    if (csv.length === 0) {
+      return res.status(400).json({ error: 'CSV parsed but contains no usable rows (check delimiter and columns)' });
+    }
+
+    // 3) вземи редовете от generatedyearplan за subject в диапазона
+    const { rows: plan } = await pool.query(
+      `SELECT id, TO_CHAR("date",'YYYY-MM-DD') AS d, "start_time"
+       FROM "generatedyearplan"
+       WHERE "subject" = $1
+         AND "date" BETWEEN $2::date AND $3::date
+       ORDER BY "date","start_time","id"`,
+      [subject, start, end]
+    );
+    if (plan.length === 0) {
+      return res.json({ ok: true, updated: 0, note: 'No generated rows in range' });
+    }
+
+    // ---- Sequential assignment logic ----
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      // Prepare lesson list in order of appearance
+      const lessons = csv.filter(r => r.unit).map(r => ({
+        unit: r.unit,
+        unitetype: r.unitetype
+      }));
+
+      let idx = 0;
+      let updated = 0;
+
+      // Assign each CSV lesson sequentially to generatedyearplan
+      for (const row of plan) {
+        if (idx >= lessons.length) break;
+        const { unit, unitetype } = lessons[idx];
+        const sectioninfo = `№${idx + 1}`;
+        const isModule = /модул/i.test(unit) || /модул/i.test(unitetype);
+
+        await client.query(`
+          UPDATE "generatedyearplan"
+            SET "unit" = $1,
+                "unitetype" = NULLIF($2,'')::text,
+                "sectioninfo" = $3,
+                "is_module" = CASE WHEN $4 THEN TRUE ELSE "is_module" END
+          WHERE id = $5
+        `, [unit, unitetype, sectioninfo, isModule, row.id]);
+
+        idx++;
+        updated++;
+      }
+
+      await client.query('COMMIT');
+      console.log(`Sequentially assigned ${updated} lessons from CSV`);
+      res.json({ ok: true, updated, totalSlots: plan.length });
+    } catch (e) {
+      await client.query('ROLLBACK');
+      console.error('apply-distribution-smart failed:', e);
+      return res.status(500).json({ error: 'DB error applying distribution' });
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error('apply-distribution-smart error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});

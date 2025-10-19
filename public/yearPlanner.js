@@ -1,3 +1,70 @@
+// ---- Year Planner bootstrap: defaults + info boxes ----
+function addDays(d, n) { const dt = new Date(d); dt.setDate(dt.getDate() + n); return dt; }
+function fmtDate(d){ return new Date(d).toISOString().slice(0,10); }
+
+async function loadCurrentScheduleInfo(){
+  try {
+    const res = await fetch("/schedule/current");
+    const data = await res.json();
+    const box = document.getElementById("currentScheduleInfo");
+    if (!box) return;
+    if (!data.hasCurrent) { box.textContent = "⚠️ No current schedule set."; return; }
+    const { current, currentRows } = data;
+    let out = `📅 Year: ${current.start_year}–${current.end_year}\n\n`;
+    if (Array.isArray(currentRows)) {
+      currentRows.forEach(r => {
+        out += `📘 Class ${r.class} ${r.division}, Term ${r.term}:\n`;
+        out += `    Разпределение: ${r.razpredelenie}\n\n`;
+      });
+    }
+    box.textContent = out;
+  } catch (e){
+    const box = document.getElementById("currentScheduleInfo");
+    if (box) box.textContent = "❌ Failed to load current schedule.";
+  }
+}
+
+async function loadWeeklyScheduleInfo(){
+  try {
+    const res = await fetch("/schedule/weekly-current");
+    const data = await res.json();
+    const box = document.getElementById("weeklyScheduleInfo");
+    if (!box) return;
+    if (!data.hasCurrent) { box.textContent = "⚠️ No weekly schedule available."; return; }
+    let out = `📅 Year: ${data.current.start_year}–${data.current.end_year}\n\n`;
+    data.weeklyRows.forEach(row => {
+      out += `🗓️ ${row.weekday}, ${row.start_time}–${row.end_time} — ${row.subject} (Term ${row.term})\n`;
+    });
+    box.textContent = out;
+  } catch (e){
+    const box = document.getElementById("weeklyScheduleInfo");
+    if (box) box.textContent = "❌ Failed to load weekly schedule.";
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  // Set sensible random-close defaults like the original HTML did
+  const today = new Date();
+  const start = addDays(today, Math.floor(Math.random()*30));
+  const end   = addDays(start, Math.floor(Math.random()*60)+15);
+  const duration = Math.round((end - start) / 86400000);
+  const midOffset = Math.floor(duration/2 + (Math.random()*10 - 5));
+  const sem1End = addDays(start, midOffset);
+  const sem2Start = addDays(sem1End, Math.floor(Math.random()*7)+1);
+
+  const s = document.getElementById("startYearDate");
+  const e = document.getElementById("endYearDate");
+  const s1= document.getElementById("endSemester1");
+  const s2= document.getElementById("startSemester2");
+  if (s) s.value = fmtDate(start);
+  if (e) e.value = fmtDate(end);
+  if (s1) s1.value = fmtDate(sem1End);
+  if (s2) s2.value = fmtDate(sem2Start);
+
+  // Load info panels
+  loadCurrentScheduleInfo();
+  loadWeeklyScheduleInfo();
+});
 const _genBtn = document.getElementById("generatePlanBtn");
 if (_genBtn) _genBtn.addEventListener("click", () => {
   const outputWindow = window.open("", "_blank"); // Open tab immediately to avoid popup blockers
@@ -288,6 +355,80 @@ if (_genBtn) _genBtn.addEventListener("click", () => {
     } catch (mirrorErr) {
       outputWindow.document.write(`\n❌ Mirror error: ${mirrorErr.message}`);
     }
+
+        // … след mirror+диагностики:
+    const subjects = [...new Set(planner.flatMap(w => w.entries.map(e => e.subject)))];
+
+    for (const subj of subjects) {
+      try {
+        const r = await fetch('/schedule/apply-distribution-smart', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subject: subj, start: startDate, end: endDate })
+        });
+        const j = await r.json();
+        outputWindow.document.write(`\n📚 Distribution (smart) for ${subj}: updated ${j.updated || 0} rows`);
+      } catch (e) {
+        outputWindow.document.write(`\n⚠️ Distribution (smart) failed for ${subj}`);
+      }
+}
   })();
 
+});
+
+// ---- Optional term-only generators (if buttons exist) ----
+const _t1Btn = document.getElementById("generateTerm1Btn");
+if (_t1Btn) _t1Btn.addEventListener("click", () => {
+  const outputWindow = window.open("", "_blank");
+  (async () => {
+    const startDate = document.getElementById("startYearDate").value;
+    const semester1End = document.getElementById("endSemester1").value;
+    const semester2Start = document.getElementById("startSemester2").value;
+    if (!startDate || !semester1End) { alert("❗ Попълни начална дата и край на първи срок."); outputWindow.close(); return; }
+    const planner = await generateWeeklyPlanDebug({ startDate, endDate: semester1End, semester1End, semester2Start });
+    try {
+      const res = await fetch("/schedule/generate-year-plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ planner, semester1End, semester2Start, semester1EndISO: semester1End, semester2StartISO: semester2Start }) });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || "Failed to save planner");
+      outputWindow.document.write("<pre style='font-family: monospace;'>");
+      outputWindow.document.write(`✅ ${result.message} (Първи срок)\n\n`);
+      planner.forEach((week, idx)=>{
+        outputWindow.document.write(`📅 Week ${idx+1}\n`);
+        week.entries.forEach(e=>{
+          const dayName = new Date(e.date).toLocaleDateString('en-US', { weekday:'long' });
+          outputWindow.document.write(`  ${e.date} (${dayName}): ${e.start_time}–${e.end_time} — ${e.subject}\n`);
+        });
+        outputWindow.document.write("\n");
+      });
+      outputWindow.document.write("</pre>");
+    } catch (err){ alert("❌ Error saving Term 1 planner: " + err.message); outputWindow.close(); }
+  })();
+});
+
+const _t2Btn = document.getElementById("generateTerm2Btn");
+if (_t2Btn) _t2Btn.addEventListener("click", () => {
+  const outputWindow = window.open("", "_blank");
+  (async () => {
+    const endDate = document.getElementById("endYearDate").value;
+    const semester1End = document.getElementById("endSemester1").value;
+    const semester2Start = document.getElementById("startSemester2").value;
+    if (!semester2Start || !endDate) { alert("❗ Попълни начало на втори срок и край на учебната година."); outputWindow.close(); return; }
+    const planner = await generateWeeklyPlanDebug({ startDate: semester2Start, endDate, semester1End, semester2Start });
+    try {
+      const res = await fetch("/schedule/generate-year-plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ planner, semester1End, semester2Start, semester1EndISO: semester1End, semester2StartISO: semester2Start }) });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || "Failed to save planner");
+      outputWindow.document.write("<pre style='font-family: monospace;'>");
+      outputWindow.document.write(`✅ ${result.message} (Втори срок)\n\n`);
+      planner.forEach((week, idx)=>{
+        outputWindow.document.write(`📅 Week ${idx+1}\n`);
+        week.entries.forEach(e=>{
+          const dayName = new Date(e.date).toLocaleDateString('en-US', { weekday:'long' });
+          outputWindow.document.write(`  ${e.date} (${dayName}): ${e.start_time}–${e.end_time} — ${e.subject}\n`);
+        });
+        outputWindow.document.write("\n");
+      });
+      outputWindow.document.write("</pre>");
+    } catch (err){ alert("❌ Error saving Term 2 planner: " + err.message); outputWindow.close(); }
+  })();
 });

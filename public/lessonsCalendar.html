@@ -19,7 +19,16 @@
     table { border-collapse: collapse; width: 100%; font-size: 14px; }
     thead th { position: sticky; top: 0; background: #f4f6f8; border-bottom: 1px solid #e1e5ea; text-align: left; padding: 8px; }
     tbody td { border-bottom: 1px solid #f0f2f5; padding: 8px; }
-    tbody tr:hover { background: #fafbfc; }
+
+    /* Zebra striping and hover rules removed */
+
+    /* Force single-line display with ellipsis for all cells */
+    #resultsTable th,
+    #resultsTable td {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
     .status { margin-top: 8px; font-size: 12px; color: #555; }
     .hidden { display: none; }
 
@@ -34,6 +43,12 @@
     .success-flash {
       background-color: #e6f4ea !important; /* soft green */
       transition: background-color 0.8s ease;
+    }
+
+    /* Collapse actions column when table has .hide-actions */
+    table.hide-actions thead th:first-child,
+    table.hide-actions tbody td:first-child {
+      display: none;
     }
   </style>
 </head>
@@ -50,6 +65,7 @@
     <input id="weekNumberInput" type="number" min="1" step="1" style="width: 72px;" />
     <button id="nextWeekBtn" title="Next week">▶</button>
     <button id="addRowBtn" title="Добави нов ред">+ Ред</button>
+    <button id="toggleActionsBtn" title="Покажи/скрий колоната с действия">Покажи действия</button>
   </div>
 
   <h2 style="margin-top:16px; font-size:18px;">Библиотека уроци</h2>
@@ -78,7 +94,44 @@
     const nextWeekBtn = document.getElementById('nextWeekBtn');
     const weekNumberInput = document.getElementById('weekNumberInput');
     const addRowBtn = document.getElementById('addRowBtn');
+    const toggleActionsBtn = document.getElementById('toggleActionsBtn');
+    const resultsTable = document.getElementById('resultsTable');
     let currentWeek = 1;
+
+    // Helper: HTTP helpers
+    async function apiShiftDate(id, days){
+      const res = await fetch(`/lessons-calendar/generatedyearplan/${id}/shift-date`, {
+        method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ days })
+      });
+      if(!res.ok) throw new Error('shift-date failed');
+      return res.json();
+    }
+    async function apiShiftSequence(id, dir){
+      const res = await fetch(`/lessons-calendar/generatedyearplan/${id}/shift-sequence`, {
+        method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ dir })
+      });
+      if(!res.ok) throw new Error('shift-sequence failed');
+      return res.json();
+    }
+    async function apiDeleteRow(id){
+      const res = await fetch(`/generatedyearplan/${id}`, { method: 'DELETE' });
+      if(!res.ok) throw new Error('delete failed');
+      return res.json();
+    }
+    async function apiMergeRows(sourceId, targetId, strategy){
+      const res = await fetch('/lessons-calendar/generatedyearplan/merge', {
+        method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ sourceId, targetId, strategy })
+      });
+      if(!res.ok) throw new Error('merge failed');
+      return res.json();
+    }
+    async function apiCreateRow(payload){
+      const res = await fetch('/generatedyearplan', {
+        method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(payload)
+      });
+      if(!res.ok) throw new Error('create failed');
+      return res.json();
+    }
 
 
     // Helper to send PATCH for cell update
@@ -134,6 +187,10 @@
 
       // Build header using ordered columns
       const trh = document.createElement('tr');
+      // actions column header
+      const thAct = document.createElement('th');
+      thAct.textContent = '✦';
+      trh.appendChild(thAct);
       displayColsOrdered.forEach(c => {
         const th = document.createElement('th');
         th.textContent = c;
@@ -152,11 +209,68 @@
       for(const r of rows){
         const tr = document.createElement('tr');
         if (r.id != null) tr.dataset.id = String(r.id);
+        // Actions cell
+        const tdAct = document.createElement('td');
+        tdAct.style.whiteSpace = 'nowrap';
+        tdAct.style.userSelect = 'none';
+        tdAct.innerHTML = `
+          <button class="btn-move-left"  title="Move back one day">⟵</button>
+          <button class="btn-move-right" title="Move forward one day">⟶</button>
+          <button class="btn-merge"      title="Merge into…">⇄</button>
+          <button class="btn-duplicate"  title="Duplicate as new row">＋</button>
+          <button class="btn-delete"     title="Delete row">🗑️</button>
+        `;
+        // Wire actions
+        tdAct.querySelector('.btn-move-left').addEventListener('click', async ()=>{
+          try{ await apiShiftSequence(r.id, 'prev'); flashSaved(tdAct); loadData(currentWeek); }
+          catch(e){ console.error(e); alert('No previous date to shift to'); }
+        });
+        tdAct.querySelector('.btn-move-right').addEventListener('click', async ()=>{
+          try{ await apiShiftSequence(r.id, 'next'); flashSaved(tdAct); loadData(currentWeek); }
+          catch(e){ console.error(e); alert('No next date to shift to'); }
+        });
+        tdAct.querySelector('.btn-delete').addEventListener('click', async ()=>{
+          if(!confirm('Delete this lesson?')) return;
+          try{ await apiDeleteRow(r.id); loadData(currentWeek); }catch(e){ console.error(e); }
+        });
+        tdAct.querySelector('.btn-merge').addEventListener('click', async ()=>{
+          const target = prompt('Merge INTO target row id:');
+          if(!target) return;
+          const tid = parseInt(target,10);
+          if(!Number.isInteger(tid)) return alert('Invalid id');
+          try{ await apiMergeRows(r.id, tid, 'append-notes'); flashSaved(tdAct); loadData(currentWeek); }catch(e){ console.error(e); alert('Merge failed'); }
+        });
+        tdAct.querySelector('.btn-duplicate').addEventListener('click', async ()=>{
+          try{
+            const payload = {
+              week_number: r.week_number || currentWeek,
+              date: r.date || null,
+              weekday: r.weekday || null,
+              start_time: r.start_time || null,
+              end_time: r.end_time || null,
+              subject: r.subject || null,
+              unit: r.unit || null,
+              // sectioninfo removed for duplication
+              unitetype: r.unitetype || null,
+              notes: r.notes || null,
+              duration: r.duration || null,
+              is_module: r.is_module || null,
+              term: r.term || null,
+              lessonCreated: r.lessonCreated || null,
+              lessonCode: r.lessonCode || null
+            };
+            await apiCreateRow(payload);
+            loadData(currentWeek);
+          }catch(e){ console.error(e); alert('Create failed'); }
+        });
+        tr.appendChild(tdAct);
         displayColsOrdered.forEach(c => {
           const td = document.createElement('td');
           let v = r[c];
-          if(c === 'date' && v){
-            try { v = new Date(v).toISOString().slice(0,10); } catch {}
+          if (c === 'date' && v) {
+            // Keep as YYYY-MM-DD if present; avoid Date() timezone shifts
+            const m = String(v).match(/^(\d{4}-\d{2}-\d{2})/);
+            v = m ? m[1] : String(v);
           }
           if (c === 'lessonCreated') {
             const setDisplay = (val) => {
@@ -195,9 +309,7 @@
             });
           } else {
             td.textContent = v == null ? '' : v;
-            if (c === 'notes') {
-              td.style.whiteSpace = 'pre-wrap';
-            }
+            td.title = v == null ? '' : String(v);
           }
 
           if (c === 'notes') {
@@ -226,9 +338,6 @@
                 const resp = await updateCell(td.dataset.id, td.dataset.col, wants);
                 const saved = (resp && typeof resp.value !== 'undefined') ? resp.value : wants;
                 td.textContent = saved == null ? '' : saved;
-                if (td.dataset.col === 'notes') {
-                  td.style.whiteSpace = 'pre-wrap';
-                }
                 flashSaved(td);
                 statusEl.textContent = 'Saved';
               }catch{}
@@ -276,9 +385,33 @@
       if (!Number.isNaN(val) && val > 0) loadData(val);
     });
 
+    // Default: collapse actions column and set toggle label
+    if (resultsTable && !resultsTable.classList.contains('hide-actions')) {
+      resultsTable.classList.add('hide-actions');
+    }
+    if (toggleActionsBtn) {
+      const updateToggleLabel = () => {
+        toggleActionsBtn.textContent = resultsTable.classList.contains('hide-actions')
+          ? 'Покажи действия'
+          : 'Скрий действия';
+      };
+      updateToggleLabel();
+      toggleActionsBtn.addEventListener('click', () => {
+        resultsTable.classList.toggle('hide-actions');
+        updateToggleLabel();
+      });
+    }
+
     // Initial loads
     if (weekNumberInput) weekNumberInput.value = String(currentWeek);
     loadData(currentWeek);
+
+    if (addRowBtn) addRowBtn.addEventListener('click', async ()=>{
+      try{
+        await apiCreateRow({ week_number: currentWeek, notes: '', lessonCreated: false });
+        loadData(currentWeek);
+      }catch(e){ console.error(e); alert('Failed to add row'); }
+    });
   </script>
   <script src="/lesCal_tableMod.js" defer></script>
 </body>
