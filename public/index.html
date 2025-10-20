@@ -20,7 +20,7 @@
             gap: 40px;
         }
 
-            a {
+        a {
             padding: 12px 20px;
             min-width: 160px;
             text-align: center;
@@ -33,15 +33,29 @@
             transition: background-color 0.2s;
         }
 
-            a:hover {
-                background-color: #a8d7ff;
-            }
-            .link-container .row {
-                display: flex;
-                justify-content: center;
-                gap: 20px;
-                margin: 20px 0; /* разстояние над и под всеки ред */
-            }
+        a:hover {
+            background-color: #a8d7ff;
+        }
+        .link-container .row {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin: 20px 0; /* разстояние над и под всеки ред */
+        }
+        .toggle-btn {
+            border: 1px solid #888;
+            background: #fff;
+            color: #000;
+            border-radius: 8px;
+            width: 40px;
+            height: 40px;
+            font-weight: bold;
+            cursor: pointer;
+            line-height: 38px;
+        }
+        .toggle-btn:hover { background: #f2f2f2; }
+        /* Ensure hidden rows actually override flex display */
+        .row.hidden { display: none !important; }
     </style>
 </head>
     <body>
@@ -52,26 +66,42 @@
             <div class="row">
                 <!-- <a href="activity-form.html">Активност</a> -->
                 <a href="homework_form.html">Д.Р</a>
-                <a href="exe_solutions.html">Управление на упражненията</a>
+                <a href="exe_solutions.html">Качване на задачи</a>
+                <a href="lessonsCenter.html">Уроци</a>
             </div>
 
             <!-- Втори ред (3 бутона) -->
             <div class="row">
-                <a href="lessonsLibrary.html">Уроци</a>
-                <a href="lessonsCalendar.html">Урочен График</a>
+                <a href="lessonsLibrary.html">Библиотека</a>
+                <a href="lessonsCalendar.html">График</a>
                 <a href="whatHaveILearned.html">Активност</a>
             </div>  
-            
-            <!-- Трети ред (2 бутона) -->
+        
+            <!-- Трети ред (1 бутон) -->
             <div class="row">
+                <a href="-form.html">Доклади</a>
+            </div>
+            <div class="row">
+                <button id="toggleAdvancedBtn" class="toggle-btn" title="Още">+</button>
+            </div>
+            <!-- Четвърти ред (2 бутона, hidden/toggle) -->
+            <div id="advancedRow" class="row hidden" aria-hidden="true">
                 <a href="yearPlanner.html">Генератор Програма</a>
                 <a href="schedule_form.html">Съб-Генератор Програма</a>
             </div>
-            
-            <!-- Четвърти ред (1 бутон) -->
-            <div class="row">
-                <a href="-form.html">Репорти</a>
-            </div>
         </div>
-    </body>
+</body>
+        <script>
+          (function(){
+            const btn = document.getElementById('toggleAdvancedBtn');
+            const adv = document.getElementById('advancedRow');
+            if(btn && adv){
+              btn.addEventListener('click', ()=>{
+                const isHidden = adv.classList.toggle('hidden');
+                adv.setAttribute('aria-hidden', isHidden ? 'true' : 'false');
+                btn.textContent = isHidden ? '+' : '−';
+              });
+            }
+          })();
+        </script>
 </html>

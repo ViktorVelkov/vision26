@@ -1,0 +1,185 @@
+
+
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Уроци — добавяне</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif; padding: 24px; }
+    h1 { text-align: center; }
+    .wrap { max-width: 900px; margin: 0 auto; }
+    fieldset { border: 1px solid #ddd; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+    legend { padding: 0 8px; color: #333; }
+    label { display: block; margin: 8px 0 4px; font-weight: 600; }
+    input[type="text"], input[type="url"], input[type="number"], textarea { width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 8px; }
+    textarea { min-height: 90px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+    .btn { display: inline-block; padding: 8px 14px; border-radius: 8px; border: 1px solid #c3d2e5; background: #e9f1ff; cursor: pointer; font-weight: 600; }
+    .btn:disabled { opacity: .6; cursor: not-allowed; }
+    .btn-plain { background: #fff; }
+    .list { margin-top: 8px; }
+    .list .item { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .list .item input { flex: 1; }
+    .item .rem { border: 1px solid #999; background: #fff; width: 32px; height: 32px; border-radius: 6px; }
+    .success { border-left: 4px solid #18a957; padding: 8px 12px; background: #eaf9f0; border-radius: 8px; }
+    .error { border-left: 4px solid #c62828; padding: 8px 12px; background: #fde8e8; border-radius: 8px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 24px; }
+    th, td { border-bottom: 1px solid #eee; padding: 8px 10px; text-align: left; }
+    th { background: #fafafa; }
+
+    /* Small button variant */
+    .btn-small { padding: 4px 10px; font-size: 12px; border-radius: 6px; }
+
+    /* Flash highlight for autofilled fields */
+    @keyframes flashFill {
+      0%   { background-color: #e6f9ed; }
+      70%  { background-color: #f2fcf6; }
+      100% { background-color: transparent; }
+    }
+    .flash-fill {
+      animation: flashFill 900ms ease-out 1;
+    }
+
+    /* Badge for edit/new mode */
+    .mode-badge { font-size: 12px; padding: 4px 8px; border-radius: 999px; border: 1px solid #cbd5e1; background:#f8fafc; color:#0f172a; display:inline-block; }
+    .mode-badge.edit { background:#fff7ed; border-color:#fdba74; color:#9a3412; }
+
+    /* Bottom table: one-line rows with horizontal scroll in cells */
+    #recentTable { table-layout: fixed; }
+    #recentTable th, #recentTable td { white-space: nowrap; overflow-x: auto; overflow-y: hidden; }
+    #recentTable th { position: sticky; top: 0; z-index: 1; }
+    /* Narrower, fixed widths via colgroup */
+    #recentTable col.id    { width: 70px; }
+    #recentTable col.stat  { width: 110px; }
+    #recentTable col.trip  { width: 160px; }
+    #recentTable col.desc  { width: 320px; }
+    #recentTable col.cls   { width: 80px; }
+    #recentTable col.upd   { width: 140px; }
+    /* Status tags */
+    .status-tag { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; border:1px solid #cbd5e1; background:#f8fafc; color:#0f172a; }
+    .status-tag.new { background:#e6f9ed; border-color:#86efac; color:#166534; }
+    .status-tag.updated { background:#eef2ff; border-color:#93c5fd; color:#1e3a8a; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Добавяне на урок</h1>
+
+    <fieldset style="margin-top:10px;">
+      <legend>Търсене по снипет (ID)</legend>
+      <div class="row">
+        <div>
+          <label for="snippetSearch">Въведи ID на снипет (може и частично)</label>
+          <input id="snippetSearch" type="text" placeholder="напр. 27001 или 27001001" />
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <button id="snippetSearchBtn" class="btn" type="button">Търси</button>
+            <button id="loadBySearchBtn" class="btn btn-small" type="button">Зареди</button>
+          </div>
+        </div>
+      </div>
+      <div id="snippetResults" class="row">
+        <div>
+          <strong>Възможни завършеци</strong>
+          <ul id="snippetCompletions" style="margin-top:6px; padding-left:18px;"></ul>
+        </div>
+        <div>
+          <strong>Намерени уроци</strong>
+          <div id="snippetLessonsWrap" style="max-height:220px; overflow:auto; border:1px solid #eee; border-radius:8px; padding:6px;">
+            <table style="width:100%; border-collapse:collapse;">
+              <thead>
+                <tr><th>ID</th><th>Триплет</th><th>Описание</th><th>Клас</th></tr>
+              </thead>
+              <tbody id="snippetLessons"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </fieldset>
+
+    <form id="lessonForm" autocomplete="off">
+      <fieldset>
+        <legend>Основни</legend>
+        <div class="row">
+          <div>
+            <label for="tripplet_id">Триплет (текст)</label>
+            <input id="tripplet_id" type="text" placeholder="напр. 027001001 или 027.001.001" />
+          </div>
+          <div>
+            <label for="class">Клас (число)</label>
+            <input id="class" type="number" min="1" max="12" placeholder="напр. 9" />
+          </div>
+        </div>
+        <label for="description">Описание</label>
+        <textarea id="description" placeholder="Кратко описание на урока"></textarea>
+        <div class="row">
+          <div>
+            <label for="url">URL</label>
+            <input id="url" type="url" placeholder="https://..." />
+          </div>
+          <div>
+            <label for="filepath">Файл (път)</label>
+            <input id="filepath" type="text" placeholder="/Users/.../file.pdf" />
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Под-списъци</legend>
+        <div class="row">
+          <div>
+            <label>Теория — snippets (integer[])</label>
+            <div id="theory_list" class="list"></div>
+            <button type="button" class="btn btn-plain" id="addTheory">+ Добави ID</button>
+          </div>
+          <div>
+            <label>Упражнения — (text[])</label>
+            <div id="ex_list" class="list"></div>
+            <button type="button" class="btn btn-plain" id="addEx">+ Добави стойност</button>
+          </div>
+        </div>
+      </fieldset>
+
+      <div style="display:flex; justify-content:space-between; align-items:center; margin:8px 0 6px;">
+        <span id="editModeBadge" class="mode-badge">Режим: нов запис</span>
+      </div>
+      <div style="display:flex; gap:12px; justify-content:flex-end;">
+        <button id="submitBtn" class="btn" type="submit">Запази урока</button>
+        <button id="resetBtn" class="btn btn-plain" type="reset">Изчисти</button>
+      </div>
+    </form>
+
+    <div id="msg" style="margin-top:16px;"></div>
+
+    <h2>Последно добавени</h2>
+    <table id="recentTable">
+      <colgroup>
+        <col class="id" />
+        <col class="stat" />
+        <col class="trip" />
+        <col class="desc" />
+        <col class="cls" />
+        <col class="upd" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Статус</th>
+          <th>Триплет</th>
+          <th>Описание</th>
+          <th>Клас</th>
+          <th>Обновен</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <script src="./lessonsCenter.js"></script>
+</body>
+</html>

@@ -11,6 +11,24 @@ const upload = multer({ storage: multer.memoryStorage() });
 const scheduleSelectionRouter = require("./routes/scheduleSelection");
 const pool = require('./db');
 
+// Ensure lessons_actions table exists at startup
+(async function ensureLessonsActionsTable(){
+  try{
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS lessons_actions (
+        id BIGSERIAL PRIMARY KEY,
+        lesson_id INT NOT NULL REFERENCES "Lessons"(lesson_id) ON DELETE CASCADE,
+        action TEXT NOT NULL CHECK (action IN ('new','updated')),
+        at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_lactions_at ON lessons_actions(at DESC);
+      CREATE INDEX IF NOT EXISTS idx_lactions_lid ON lessons_actions(lesson_id);
+    `);
+  }catch(e){
+    console.error('ensureLessonsActionsTable failed:', e);
+  }
+})();
+
 app.use("/api", scheduleRouter);
 app.use(cors());
 app.use(express.json());
@@ -273,6 +291,193 @@ app.post('/student-assessment-skills-exercises', async (req, res) => {
   }
 });
 
+
+// === LESSONS minimal API ===
+// GET /lessons?limit=10
+app.get('/lessons', async (req, res) => {
+  const limit = Math.max(1, Math.min(parseInt(req.query.limit||'10',10)||10, 50));
+  try{
+    const { rows } = await pool.query(`
+      SELECT la.lesson_id,
+             l.tripplet_id,
+             l.description,
+             l.class,
+             TO_CHAR(l.updated_at, 'YYYY-MM-DD HH24:MI') AS updated_at,
+             la.action
+        FROM lessons_actions la
+        JOIN "Lessons" l ON l.lesson_id = la.lesson_id
+       ORDER BY la.at DESC, la.id DESC
+       LIMIT $1`, [limit]);
+    res.json(rows);
+  }catch(err){
+    console.error('GET /lessons failed:', err);
+    res.status(500).json({ error: 'DB error' });
+  }
+});
+
+// POST /lessons — create a new lesson (only provided fields)
+app.post('/lessons', async (req, res) => {
+  const body = req.body || {};
+  const fields = {
+    tripplet_id: typeof body.tripplet_id === 'string' ? body.tripplet_id.trim() : null,
+    description: typeof body.description === 'string' ? body.description.trim() : null,
+    url: typeof body.url === 'string' ? body.url.trim() : null,
+    filepath: typeof body.filepath === 'string' ? body.filepath.trim() : null,
+    class: Number.isInteger(body.class) ? body.class : (typeof body.class === 'string' && body.class.trim()!=='' ? parseInt(body.class,10) : null),
+    theory_snippets: Array.isArray(body.theory_snippets) ? body.theory_snippets.filter(n=>Number.isInteger(n)) : [],
+    exercises_ids: Array.isArray(body.exercises_ids) ? body.exercises_ids.map(String) : []
+  };
+
+  // Dynamic insert: include only keys that have non-null / non-empty values
+  const cols = [];
+  const params = [];
+  const placeholders = [];
+  const casts = { theory_snippets:'integer[]', exercises_ids:'text[]' };
+
+  Object.entries(fields).forEach(([k,v])=>{
+    if (v === null) return;
+    if (Array.isArray(v) && v.length === 0) return;
+    cols.push(`"${k}"`);
+    params.push(v);
+    const cast = casts[k] ? `::${casts[k]}` : '';
+    placeholders.push(`$${params.length}${cast}`);
+  });
+
+  if (cols.length === 0) {
+    return res.status(400).json({ error: 'No fields provided' });
+  }
+
+  const sql = `INSERT INTO "Lessons" (${cols.join(',')}) VALUES (${placeholders.join(',')}) RETURNING lesson_id`;
+
+  try{
+    const r = await pool.query(sql, params);
+    const newId = r.rows[0].lesson_id;
+    try{ await pool.query('INSERT INTO lessons_actions(lesson_id, action) VALUES ($1, $2)', [newId, 'new']); }catch(_e){ console.error('log insert failed (new):', _e); }
+    res.status(201).json({ ok:true, lesson_id: newId });
+  }catch(err){
+    console.error('POST /lessons failed:', err);
+    res.status(500).json({ error: 'DB error' });
+  }
+});
+
+// PATCH /lessons/:id — update provided fields only
+app.patch('/lessons/:id', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
+
+  const body = req.body || {};
+  const fields = {
+    tripplet_id: typeof body.tripplet_id === 'string' ? body.tripplet_id.trim() : null,
+    description: typeof body.description === 'string' ? body.description.trim() : null,
+    url: typeof body.url === 'string' ? body.url.trim() : null,
+    filepath: typeof body.filepath === 'string' ? body.filepath.trim() : null,
+    class: Number.isInteger(body.class) ? body.class : (typeof body.class === 'string' && body.class.trim()!=='' ? parseInt(body.class,10) : null),
+    theory_snippets: Array.isArray(body.theory_snippets) ? body.theory_snippets.filter(n=>Number.isInteger(n)) : undefined,
+    exercises_ids: Array.isArray(body.exercises_ids) ? body.exercises_ids.map(String) : undefined
+  };
+
+  const sets = [];
+  const params = [];
+  const casts = { theory_snippets:'integer[]', exercises_ids:'text[]' };
+
+  for (const [k,v] of Object.entries(fields)){
+    if (typeof v === 'undefined') continue; // skip not provided arrays
+    if (v === null) { sets.push(`"${k}" = NULL`); continue; }
+    params.push(v);
+    const cast = casts[k] ? `::${casts[k]}` : '';
+    sets.push(`"${k}" = $${params.length}${cast}`);
+  }
+
+  if (sets.length === 0) return res.status(400).json({ error: 'No fields provided' });
+
+  try{
+    const sql = `UPDATE "Lessons" SET ${sets.join(', ')} WHERE lesson_id = $${params.length+1} RETURNING lesson_id`;
+    params.push(id);
+    const r = await pool.query(sql, params);
+    if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' });
+    try{ await pool.query('INSERT INTO lessons_actions(lesson_id, action) VALUES ($1, $2)', [id, 'updated']); }catch(_e){ console.error('log insert failed (updated):', _e); }
+    res.json({ ok:true, lesson_id: id });
+  }catch(err){
+    console.error('PATCH /lessons/:id failed:', err);
+    res.status(500).json({ error: 'DB error' });
+  }
+});
+
+// GET /lessons/by-search?q=... — search lesson by source token prefix or tripplet prefix
+app.get('/lessons/by-search', async (req, res) => {
+  const qRaw = (req.query.q || '').trim();
+  if (!qRaw) return res.status(400).json({ error: 'Missing q' });
+  const digits = qRaw.replace(/\D+/g,'');
+  const tripPref = qRaw;
+  try{
+    // Try source_token prefix first if we have digits
+    if (digits) {
+      const { rows } = await pool.query(`
+        SELECT lesson_id, tripplet_id, description, class, url, filepath,
+               theory_snippets, exercises_ids
+          FROM "Lessons"
+         WHERE CAST(source_token AS text) LIKE $1 || '%'
+         ORDER BY updated_at DESC NULLS LAST, lesson_id DESC
+         LIMIT 1`, [digits]);
+      if (rows.length) return res.json(rows[0]);
+    }
+    // Fallback: tripplet_id prefix
+    const { rows } = await pool.query(`
+      SELECT lesson_id, tripplet_id, description, class, url, filepath,
+             theory_snippets, exercises_ids
+        FROM "Lessons"
+       WHERE tripplet_id ILIKE $1 || '%'
+       ORDER BY updated_at DESC NULLS LAST, lesson_id DESC
+       LIMIT 1`, [tripPref]);
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json(rows[0]);
+  }catch(err){
+    console.error('GET /lessons/by-search failed:', err);
+    res.status(500).json({ error: 'DB error' });
+  }
+});
+
+// GET /lessons/search-by-snippet?q=27001
+// Returns { completions:[{id,name}], lessons:[{lesson_id,tripplet_id,description,class}] }
+app.get('/lessons/search-by-snippet', async (req, res) => {
+  const qRaw = (req.query.q || '').trim();
+  if (!qRaw) return res.json({ completions: [], lessons: [] });
+
+  try {
+    const params = [];
+    const whereParts = [];
+    const srcPrefix = qRaw.replace(/\D+/g, '');
+    if (srcPrefix) { params.push(srcPrefix + '%'); whereParts.push(`CAST(l.source_token AS text) LIKE $${params.length}`); }
+    if (qRaw) { params.push(qRaw + '%'); whereParts.push(`l.tripplet_id ILIKE $${params.length}`); }
+
+    let completions = [];
+    if (whereParts.length) {
+      const sql = `
+        SELECT DISTINCT l.tripplet_id AS id,
+               COALESCE(l.description,'')   AS name
+          FROM "Lessons" l
+         WHERE ${whereParts.join(' OR ')}
+         ORDER BY l.tripplet_id
+         LIMIT 20`;
+      const { rows } = await pool.query(sql, params);
+      completions = rows;
+    }
+
+    const { rows: lessons } = await pool.query(
+      `SELECT l.lesson_id, l.tripplet_id, l.description, l.class
+         FROM "Lessons" l
+        WHERE (${whereParts.length ? whereParts.join(' OR ') : 'TRUE'})
+        ORDER BY l.updated_at DESC NULLS LAST, l.lesson_id DESC
+        LIMIT 200`,
+      params
+    );
+
+    res.json({ completions, lessons });
+  } catch (err) {
+    console.error('search-by-snippet (by source/tripplet) failed:', err);
+    res.status(500).json({ error: 'DB error' });
+  }
+});
 
 // Настройка на връзката към PostgreSQL
 
