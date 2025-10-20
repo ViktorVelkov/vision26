@@ -50,6 +50,20 @@
     table.hide-actions tbody td:first-child {
       display: none;
     }
+
+    /* Legend styles */
+    .legend {
+      margin: 12px auto 16px; /* center horizontally */
+      padding: 10px 12px;
+      border: 1px dashed #cfd6df;
+      border-radius: 6px;
+      font-size: 13px;
+      background: #f8fafc;
+      max-width: 900px;       /* keep it compact */
+      width: 100%;
+    }
+    .legend .row { display: grid; grid-template-columns: max-content 1fr; gap: 8px 12px; align-items: center; }
+    .legend kbd { border: 1px solid #cbd5e1; padding: 2px 6px; border-radius: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background:#fff; }
   </style>
 </head>
 <body>
@@ -64,7 +78,6 @@
     <label for="weekNumberInput">Week</label>
     <input id="weekNumberInput" type="number" min="1" step="1" style="width: 72px;" />
     <button id="nextWeekBtn" title="Next week">▶</button>
-    <button id="addRowBtn" title="Добави нов ред">+ Ред</button>
     <button id="toggleActionsBtn" title="Покажи/скрий колоната с действия">Покажи действия</button>
   </div>
 
@@ -75,6 +88,15 @@
       display:inline-block; background:#2563eb; color:#fff; text-decoration:none; padding:8px 14px; border-radius:8px; font-weight:600;">
       Отиди към Lessons Library →
     </a>
+  </div>
+  <div id="actionsLegend" class="legend hidden" aria-live="polite">
+    <div class="row">
+      <kbd>⟵</kbd><div>Изтегля следващия урок назад в текущата клетка (без промяна на датите). При вече записан урок в текущата клетка пита за сливане.</div>
+      <kbd>⟶</kbd><div>Премества към следващата дата в последователността (преместване по график).</div>
+      <kbd>⟵м</kbd><div>Слива текущия с предишния (две теми в една клетка); текущият ред остава, но се изпразва.</div>
+      <kbd>⟶м</kbd><div>Слива текущия със следващия (две теми в една клетка); текущият ред се изпразва.</div>
+      <kbd>🗑️</kbd><div>Изтрива реда.</div>
+    </div>
   </div>
  
 
@@ -93,7 +115,6 @@
     const prevWeekBtn = document.getElementById('prevWeekBtn');
     const nextWeekBtn = document.getElementById('nextWeekBtn');
     const weekNumberInput = document.getElementById('weekNumberInput');
-    const addRowBtn = document.getElementById('addRowBtn');
     const toggleActionsBtn = document.getElementById('toggleActionsBtn');
     const resultsTable = document.getElementById('resultsTable');
     let currentWeek = 1;
@@ -118,21 +139,6 @@
       if(!res.ok) throw new Error('delete failed');
       return res.json();
     }
-    async function apiMergeRows(sourceId, targetId, strategy){
-      const res = await fetch('/lessons-calendar/generatedyearplan/merge', {
-        method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ sourceId, targetId, strategy })
-      });
-      if(!res.ok) throw new Error('merge failed');
-      return res.json();
-    }
-    async function apiCreateRow(payload){
-      const res = await fetch('/generatedyearplan', {
-        method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(payload)
-      });
-      if(!res.ok) throw new Error('create failed');
-      return res.json();
-    }
-
 
     // Helper to send PATCH for cell update
     async function updateCell(id, column, value){
@@ -167,22 +173,66 @@
       const hiddenCols = ['id', 'term'];
       const displayCols = cols.filter(c => !hiddenCols.includes(c));
 
-      // Reorder 'duration' to appear immediately after 'end_time'
-      // and move 'notes' to be the last column
       const displayColsOrdered = (() => {
         const arr = [...displayCols];
+
+        // Helper to move a column to a target index if present
+        const moveCol = (name, toIndex) => {
+          const from = arr.indexOf(name);
+          if (from !== -1 && from !== toIndex) {
+            arr.splice(from, 1);
+            arr.splice(Math.min(Math.max(toIndex, 0), arr.length), 0, name);
+          }
+        };
+        // Helper to move a column right before another column
+        const moveBefore = (name, beforeName) => {
+          const from = arr.indexOf(name);
+          const to = arr.indexOf(beforeName);
+          if (from !== -1 && to !== -1 && from !== to - 1) {
+            arr.splice(from, 1);
+            const idx = arr.indexOf(beforeName);
+            arr.splice(idx, 0, name);
+          }
+        };
+
+        // 1) Ensure notes is last (do this first to have a stable anchor)
+        const ni0 = arr.indexOf('notes');
+        if (ni0 !== -1) {
+          arr.splice(ni0, 1);
+        }
+
+        // 2) Move week_number to the very front
+        moveCol('week_number', 0);
+
+        // 3) Place duration immediately after end_time
         const di = arr.indexOf('duration');
         const ei = arr.indexOf('end_time');
-        if (di !== -1 && ei !== -1 && di !== ei + 1) {
+        if (di !== -1 && ei !== -1) {
           arr.splice(di, 1);
           arr.splice(ei + 1, 0, 'duration');
         }
-        const ni = arr.indexOf('notes');
-        if (ni !== -1 && ni !== arr.length - 1) {
-          arr.splice(ni, 1);
-          arr.push('notes');
+
+        // 4) Place lessonCreated and lessonCode right before notes, in this order
+        // First ensure lessonCreated exists before lessonCode if both present
+        if (arr.includes('lessonCode') && arr.includes('lessonCreated')) {
+          const lcIdx = arr.indexOf('lessonCode');
+          const lcrIdx = arr.indexOf('lessonCreated');
+          if (lcIdx < lcrIdx) {
+            arr.splice(lcIdx, 1);
+            const newLcrIdx = arr.indexOf('lessonCreated');
+            arr.splice(newLcrIdx + 1, 0, 'lessonCode');
+          }
         }
-        return arr;
+
+        // Finally, push notes at the end and move the two columns before it
+        arr.push('notes');
+        moveBefore('lessonCode', 'notes');
+        moveBefore('lessonCreated', 'lessonCode');
+
+        // Remove any potential duplicates while preserving order
+        const seen = new Set();
+        const dedup = arr.filter(c => (seen.has(c) ? false : (seen.add(c), true)));
+        return dedup;
       })();
 
       // Build header using ordered columns
@@ -214,54 +264,103 @@
         tdAct.style.whiteSpace = 'nowrap';
         tdAct.style.userSelect = 'none';
         tdAct.innerHTML = `
-          <button class="btn-move-left"  title="Move back one day">⟵</button>
-          <button class="btn-move-right" title="Move forward one day">⟶</button>
-          <button class="btn-merge"      title="Merge into…">⇄</button>
-          <button class="btn-duplicate"  title="Duplicate as new row">＋</button>
-          <button class="btn-delete"     title="Delete row">🗑️</button>
+          <button class="btn-move-left"   title="Изтегли следващия урок назад (без промяна на датите)">⟵</button>
+          <button class="btn-move-right"  title="Измести урока напред (без промяна на датите)">⟶</button>
+          <button class="btn-merge-prev"  title="Слей с предишния (две теми в една клетка)">⟵м</button>
+          <button class="btn-merge-next"  title="Слей със следващия (две теми в една клетка)">⟶м</button>
+          <button class="btn-delete"      title="Delete row">🗑️</button>
         `;
-        // Wire actions
+        // LEFT ARROW: pull next lesson back into this slot (no date change). If current has content, ask to merge.
         tdAct.querySelector('.btn-move-left').addEventListener('click', async ()=>{
-          try{ await apiShiftSequence(r.id, 'prev'); flashSaved(tdAct); loadData(currentWeek); }
-          catch(e){ console.error(e); alert('No previous date to shift to'); }
+          try {
+            let res = await fetch(`/lessons-calendar/generatedyearplan/${r.id}/pull-next`, {
+              method: 'POST',
+              headers: { 'Content-Type':'application/json' }
+            });
+            if (res.status === 409) {
+              const data = await res.json();
+              const msg = `В текущата клетка има урок.\n\nТекущ: ${data.current.unit || '(без тема)'}\nВлизащ: ${data.incoming.unit || '(без тема)'}\n\nДа слея ли двата урока?`;
+              if (confirm(msg)) {
+                res = await fetch(`/lessons-calendar/generatedyearplan/${r.id}/pull-next`, {
+                  method: 'POST',
+                  headers: { 'Content-Type':'application/json' },
+                  body: JSON.stringify({ mergeIfConflict: true })
+                });
+              } else {
+                return; // cancel
+              }
+            }
+            if (!res.ok) throw new Error('pull-next failed');
+            await res.json();
+            flashSaved(tdAct);
+            loadData(currentWeek);
+          } catch (e) {
+            console.error(e);
+            alert('Няма следващ урок или операцията беше отказана.');
+          }
         });
+
+        // RIGHT ARROW: push current lesson's content one slot forward (no date change)
         tdAct.querySelector('.btn-move-right').addEventListener('click', async ()=>{
-          try{ await apiShiftSequence(r.id, 'next'); flashSaved(tdAct); loadData(currentWeek); }
-          catch(e){ console.error(e); alert('No next date to shift to'); }
+          try {
+            const res = await fetch(`/lessons-calendar/generatedyearplan/${r.id}/push-next`, {
+              method: 'POST',
+              headers: { 'Content-Type':'application/json' }
+            });
+            if (!res.ok) throw new Error('push-next failed');
+            await res.json();
+            flashSaved(tdAct);
+            loadData(currentWeek);
+          } catch (e) {
+            console.error(e);
+            alert('Няма следващ урок за изместване или операцията не можа да се изпълни.');
+          }
+        });
+
+        // New dedicated MERGE-PREV button: two topics in previous slot; do NOT delete the source row
+        tdAct.querySelector('.btn-merge-prev').addEventListener('click', async ()=>{
+          try {
+            const res = await fetch(`/lessons-calendar/generatedyearplan/${r.id}/merge-prev`, {
+              method: 'POST',
+              headers: { 'Content-Type':'application/json' }
+            });
+            if (!res.ok) throw new Error('merge-prev failed');
+            await res.json();
+            flashSaved(tdAct);
+            loadData(currentWeek);
+          } catch (e) {
+            console.error(e);
+            alert('Няма предишен урок по този предмет, в който да слеем.');
+          }
+        });
+        tdAct.querySelector('.btn-merge-next').addEventListener('click', async ()=>{
+          try {
+            let res = await fetch(`/lessons-calendar/generatedyearplan/${r.id}/merge-next-keep`, {
+              method: 'POST',
+              headers: { 'Content-Type':'application/json' }
+            });
+            if (res.status === 409) {
+              const data = await res.json();
+              const msg = `Следващият слот не е празен.\n\nТекущ: ${data.current.unit || '(без тема)'}\nСледващ: ${data.incoming.unit || '(без тема)'}\n\nДа слея ли двата урока в следващата клетка?`;
+              if (!confirm(msg)) return; // отказ
+              res = await fetch(`/lessons-calendar/generatedyearplan/${r.id}/merge-next-keep`, {
+                method: 'POST',
+                headers: { 'Content-Type':'application/json' },
+                body: JSON.stringify({ mergeIfConflict: true })
+              });
+            }
+            if (!res.ok) throw new Error('merge-next-keep failed');
+            await res.json();
+            flashSaved(tdAct);
+            loadData(currentWeek);
+          } catch (e) {
+            console.error(e);
+            alert('Няма следващ урок или операцията беше отказана.');
+          }
         });
         tdAct.querySelector('.btn-delete').addEventListener('click', async ()=>{
           if(!confirm('Delete this lesson?')) return;
           try{ await apiDeleteRow(r.id); loadData(currentWeek); }catch(e){ console.error(e); }
-        });
-        tdAct.querySelector('.btn-merge').addEventListener('click', async ()=>{
-          const target = prompt('Merge INTO target row id:');
-          if(!target) return;
-          const tid = parseInt(target,10);
-          if(!Number.isInteger(tid)) return alert('Invalid id');
-          try{ await apiMergeRows(r.id, tid, 'append-notes'); flashSaved(tdAct); loadData(currentWeek); }catch(e){ console.error(e); alert('Merge failed'); }
-        });
-        tdAct.querySelector('.btn-duplicate').addEventListener('click', async ()=>{
-          try{
-            const payload = {
-              week_number: r.week_number || currentWeek,
-              date: r.date || null,
-              weekday: r.weekday || null,
-              start_time: r.start_time || null,
-              end_time: r.end_time || null,
-              subject: r.subject || null,
-              unit: r.unit || null,
-              // sectioninfo removed for duplication
-              unitetype: r.unitetype || null,
-              notes: r.notes || null,
-              duration: r.duration || null,
-              is_module: r.is_module || null,
-              term: r.term || null,
-              lessonCreated: r.lessonCreated || null,
-              lessonCode: r.lessonCode || null
-            };
-            await apiCreateRow(payload);
-            loadData(currentWeek);
-          }catch(e){ console.error(e); alert('Create failed'); }
         });
         tr.appendChild(tdAct);
         displayColsOrdered.forEach(c => {
@@ -390,15 +489,16 @@
       resultsTable.classList.add('hide-actions');
     }
     if (toggleActionsBtn) {
-      const updateToggleLabel = () => {
-        toggleActionsBtn.textContent = resultsTable.classList.contains('hide-actions')
-          ? 'Покажи действия'
-          : 'Скрий действия';
+      const legendEl = document.getElementById('actionsLegend');
+      const syncLegend = () => {
+        const hidden = resultsTable.classList.contains('hide-actions');
+        toggleActionsBtn.textContent = hidden ? 'Покажи действия' : 'Скрий действия';
+        if (legendEl) legendEl.classList.toggle('hidden', hidden);
       };
-      updateToggleLabel();
+      syncLegend();
       toggleActionsBtn.addEventListener('click', () => {
         resultsTable.classList.toggle('hide-actions');
-        updateToggleLabel();
+        syncLegend();
       });
     }
 
@@ -406,12 +506,7 @@
     if (weekNumberInput) weekNumberInput.value = String(currentWeek);
     loadData(currentWeek);
 
-    if (addRowBtn) addRowBtn.addEventListener('click', async ()=>{
-      try{
-        await apiCreateRow({ week_number: currentWeek, notes: '', lessonCreated: false });
-        loadData(currentWeek);
-      }catch(e){ console.error(e); alert('Failed to add row'); }
-    });
+   
   </script>
   <script src="/lesCal_tableMod.js" defer></script>
 </body>

@@ -578,7 +578,8 @@ function createDraftSkillRow(){
     if (col.key === 'id') { td.textContent = '—'; td.classList.add('muted'); draft.appendChild(td); continue; }
     const inp = document.createElement('input');
     inp.type = 'text';
-    if (col.key === 'lessons_in_tripplets') inp.value = currentSkillsTriplet; // will be parsed to array
+    inp.placeholder = col.label;
+    if (col.key === 'lessons_in_tripplets') inp.value = currentSkillsTriplet || '';
     td.appendChild(inp); inputs[col.key] = {el: inp, type: col.type};
     draft.appendChild(td);
   }
@@ -593,17 +594,47 @@ function createDraftSkillRow(){
 
   btnCancel.addEventListener('click', ()=>{ actionsRow.remove(); draft.remove(); });
   btnSave.addEventListener('click', async ()=>{
+    // Build payload with sensible defaults and coercions
     const payload = { triplet: currentSkillsTriplet };
-    for (const [k, obj] of Object.entries(inputs)){
-      const v = obj.el.value;
-      payload[k] = fromDisplay(v, obj.type);
-    }
-    try{
-      const r = await fetch('/lesson-skills', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
-      if (!r.ok) throw new Error('HTTP '+r.status);
+    try {
+      // Name is the only hard requirement
+      const nameVal = inputs.name && inputs.name.el ? String(inputs.name.el.value||'').trim() : '';
+      if (!nameVal){ alert('Моля, въведете име на умението.'); return; }
+      payload.name = nameVal;
+
+      // Arrays / ints via fromDisplay
+      payload.keyWords = fromDisplay(inputs.keyWords?.el.value || '', 'arrayText');
+      payload.order = fromDisplay(inputs.order?.el.value || '', 'int');
+      payload.relatedTopic = fromDisplay(inputs.relatedTopic?.el.value || '', 'arrayText');
+      // Ensure lessons_in_tripplets always contains current triplet if empty
+      const litRaw = inputs.lessons_in_tripplets?.el.value || currentSkillsTriplet || '';
+      payload.lessons_in_tripplets = fromDisplay(litRaw, 'arrayText');
+      payload.associatedSnippets = fromDisplay(inputs.associatedSnippets?.el.value || '', 'arrayInt');
+      payload.uslovie = String(inputs.uslovie?.el.value || '').trim() || null;
+
+      // Class: if empty, take numeric part from selected class (e.g. "9 Ж" -> 9)
+      const classRaw = inputs.class?.el.value || '';
+      if (classRaw){
+        payload.class = fromDisplay(classRaw, 'int');
+      } else {
+        const m = (selectEl && selectEl.value ? String(selectEl.value) : '').match(/\d+/);
+        payload.class = m ? parseInt(m[0], 10) : null;
+      }
+
+      // POST
+      const r = await fetch('/lesson-skills', {
+        method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(payload)
+      });
+      if (!r.ok){
+        const txt = await r.text().catch(()=> '');
+        throw new Error('HTTP '+r.status + (txt? (' — '+txt):''));
+      }
       const j = await r.json();
+
+      // Remove draft
       actionsRow.remove(); draft.remove();
 
+      // Render the created row
       const tr = document.createElement('tr');
       for (const col of SKILLS_COLS){
         const td = document.createElement('td');
@@ -611,15 +642,23 @@ function createDraftSkillRow(){
         else {
           td.contentEditable='true';
           td.textContent = toDisplay(j.row[col.key], col.type);
+          td.addEventListener('keydown', ev => { if (ev.key==='Enter'){ ev.preventDefault(); td.blur(); }});
           td.addEventListener('blur', async ()=>{
             const newVal = fromDisplay(td.textContent, col.type);
-            try{ const u = await fetch(`/lesson-skills/${j.row.id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ [col.key]: newVal }) }); if (!u.ok) throw new Error(); td.classList.add('flash-success'); }catch(_){ td.classList.add('flash-error'); }
+            try{
+              const u = await fetch(`/lesson-skills/${encodeURIComponent(j.row.id)}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ [col.key]: newVal }) });
+              if (!u.ok) throw new Error('HTTP '+u.status);
+              await u.json(); td.classList.remove('flash-error'); void td.offsetWidth; td.classList.add('flash-success');
+            }catch(e){ console.error('Update skill failed:', e); td.classList.remove('flash-success'); void td.offsetWidth; td.classList.add('flash-error'); }
           });
         }
         tr.appendChild(td);
       }
       tbody.prepend(tr);
-    }catch(e){ console.error('Create skill failed:', e); alert('Неуспешно добавяне на умение.'); }
+    } catch(e){
+      console.error('Create skill failed:', e);
+      alert('Неуспешно добавяне на умение. ' + (e && e.message ? e.message : ''));
+    }
   });
 }
 

@@ -276,84 +276,6 @@ router.post('/generatedyearplan/merge', async (req, res) => {
 });
 
 
-// Shift a lesson along its subject's chronological sequence,
-// moving the current lesson to the previous/next existing date,
-// and shifting all subsequent lessons by the same delta to preserve order.
-// POST /lessons-calendar/generatedyearplan/:id/shift-sequence
-// Body: { dir: 'next' | 'prev' }
-router.post('/generatedyearplan/:id/shift-sequence', async (req, res) => {
-  const { id } = req.params;
-  const dir = (req.body && String(req.body.dir || '').toLowerCase()) === 'prev' ? 'prev' : 'next';
-
-  if (!id) return res.status(400).json({ error: 'Missing id' });
-
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-
-    // 1) Lock the target row
-    const { rows: targetRows } = await client.query(
-      'SELECT id, subject, date::date AS date FROM "generatedyearplan" WHERE id = $1 FOR UPDATE',
-      [id]
-    );
-    if (!targetRows.length) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'Row not found' });
-    }
-    const t = targetRows[0];
-    if (!t.date) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'Cannot shift: row has NULL date' });
-    }
-    const subj = t.subject || '';
-
-    // 2) Find neighbor date in the same subject sequence
-    const neighborSql = dir === 'next'
-      ? `SELECT date::date AS d FROM "generatedyearplan"
-         WHERE subject IS NOT DISTINCT FROM $1 AND date::date > $2
-         ORDER BY date::date ASC, start_time ASC NULLS LAST, id ASC
-         LIMIT 1`
-      : `SELECT date::date AS d FROM "generatedyearplan"
-         WHERE subject IS NOT DISTINCT FROM $1 AND date::date < $2
-         ORDER BY date::date DESC, start_time DESC NULLS LAST, id DESC
-         LIMIT 1`;
-    const { rows: neigh } = await client.query(neighborSql, [subj, t.date]);
-
-    if (!neigh.length) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: `No ${dir === 'next' ? 'next' : 'previous'} date in sequence for this subject` });
-    }
-    const neighborDate = neigh[0].d; // date
-
-    // 3) Compute integer day delta
-    const { rows: deltaRows } = await client.query('SELECT ($1::date - $2::date) AS dd', [neighborDate, t.date]);
-    const deltaDays = parseInt(deltaRows[0].dd, 10);
-    if (!Number.isInteger(deltaDays) || deltaDays === 0) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'Computed delta is zero or invalid' });
-    }
-
-    // 4) Shift the tail (current + all subsequent in chronological order)
-    const updateSql = `
-      UPDATE "generatedyearplan"
-      SET "date" = ("date"::date + ($3 * INTERVAL '1 day'))
-      WHERE subject IS NOT DISTINCT FROM $1
-        AND "date" IS NOT NULL
-        AND "date"::date >= $2::date
-      RETURNING id, TO_CHAR("date", 'YYYY-MM-DD') AS date;
-    `;
-    const { rows: updated } = await client.query(updateSql, [subj, t.date, deltaDays]);
-
-    await client.query('COMMIT');
-    res.json({ ok: true, shifted: updated.length, deltaDays, dir, subject: subj });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    console.error('shift-sequence failed:', err);
-    res.status(500).json({ error: 'DB error' });
-  } finally {
-    client.release();
-  }
-});
 
 // Merge current row with the NEXT lesson of the same subject, then
 // shift the remaining tail BACK by the date gap so there is no empty slot.
@@ -468,6 +390,424 @@ router.post('/generatedyearplan/:id/merge-next', async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('merge-next failed:', err);
+    res.status(500).json({ error: 'DB error' });
+  } finally {
+    client.release();
+  }
+});
+
+// Merge current row with the PREVIOUS lesson of the same subject (no shifting, no deletion)
+// POST /lessons-calendar/generatedyearplan/:id/merge-prev
+router.post('/generatedyearplan/:id/merge-prev', async (req, res) => {
+  const { id } = req.params;
+  if (!id) return res.status(400).json({ error: 'Missing id' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1) Lock current row (source)
+    const { rows: srcRows } = await client.query(
+      'SELECT * FROM "generatedyearplan" WHERE id = $1 FOR UPDATE', [id]
+    );
+    if (!srcRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Source row not found' });
+    }
+    const src = srcRows[0];
+    if (!src.date) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Cannot merge: source has NULL date' });
+    }
+
+    // 2) Find PREVIOUS row in the same subject sequence, lock it
+    const prevSql = `
+      SELECT * FROM "generatedyearplan"
+       WHERE subject IS NOT DISTINCT FROM $1
+         AND (
+               (date::date <  $2::date)
+            OR (date::date =  $2::date AND COALESCE(start_time, '00:00') < COALESCE($3::time, '00:00'))
+            OR (date::date =  $2::date AND COALESCE(start_time, '00:00') = COALESCE($3::time, '00:00') AND id < $4)
+         )
+       ORDER BY date::date DESC, start_time DESC NULLS LAST, id DESC
+       LIMIT 1
+       FOR UPDATE`;
+    const { rows: prevRows } = await client.query(prevSql, [src.subject || '', src.date, src.start_time || null, src.id]);
+    if (!prevRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'No previous lesson to merge into for this subject' });
+    }
+    const tgt = prevRows[0];
+
+    // 3) Two topics in one cell: concatenate unit with '; ' and append notes
+    const sep = '; ';
+    const newUnit = [tgt.unit || '', src.unit || ''].map(s => String(s).trim()).filter(Boolean).join(sep);
+    const newNotes = [tgt.notes || '', src.notes || ''].filter(Boolean).join('\n\n');
+
+    await client.query(
+      `UPDATE "generatedyearplan"
+         SET "unit" = $1,
+             "notes" = $2
+       WHERE id = $3`,
+      [newUnit, newNotes, tgt.id]
+    );
+
+    // 4) Do NOT delete source — just clear its topic fields to leave the row in place
+    await client.query(
+      `UPDATE "generatedyearplan"
+          SET "unit" = NULL,
+              "unitetype" = NULL,
+              "notes" = NULL
+        WHERE id = $1`,
+      [src.id]
+    );
+
+    await client.query('COMMIT');
+    res.json({ ok: true, mergedIntoId: tgt.id, clearedId: src.id });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('merge-prev failed:', err);
+    res.status(500).json({ error: 'DB error' });
+  } finally {
+    client.release();
+  }
+});
+
+// Pull NEXT lesson's content into the current timeslot (no date change),
+// then shift the rest back by one, leaving the last slot empty.
+// If the current slot already has content and mergeIfConflict !== true, respond 409 with needsMerge=true.
+// POST /lessons-calendar/generatedyearplan/:id/pull-next  { mergeIfConflict?: boolean }
+router.post('/generatedyearplan/:id/pull-next', async (req, res) => {
+  const { id } = req.params;
+  const mergeIfConflict = !!(req.body && req.body.mergeIfConflict);
+  if (!id) return res.status(400).json({ error: 'Missing id' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1) Load and lock the current row
+    const { rows: curRows } = await client.query(
+      'SELECT id, subject, date::date AS date, COALESCE(start_time,\'00:00\') AS start_time, unit, unitetype, notes, duration, is_module, "lessonCode" FROM "generatedyearplan" WHERE id = $1 FOR UPDATE',
+      [id]
+    );
+    if (!curRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Row not found' });
+    }
+    const cur = curRows[0];
+    if (!cur.date) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Current row has NULL date' });
+    }
+    const subj = cur.subject || '';
+
+    // 2) Load and lock the tail (rows after current in chronological order)
+    const tailSql = `
+      SELECT id, date::date AS date, COALESCE(start_time,'00:00') AS start_time,
+             unit, unitetype, notes, duration, is_module, "lessonCode"
+      FROM "generatedyearplan"
+      WHERE subject IS NOT DISTINCT FROM $1
+        AND (
+              (date::date >  $2::date)
+           OR (date::date =  $2::date AND COALESCE(start_time,'00:00') > COALESCE($3::time,'00:00'))
+           OR (date::date =  $2::date AND COALESCE(start_time,'00:00') = COALESCE($3::time,'00:00') AND id > $4)
+        )
+      ORDER BY date::date ASC, start_time ASC NULLS LAST, id ASC
+      FOR UPDATE`;
+    const { rows: nextRows } = await client.query(tailSql, [subj, cur.date, cur.start_time, cur.id]);
+    if (!nextRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'No next lesson in sequence for this subject' });
+    }
+
+    const firstNext = nextRows[0];
+
+    const hasCurContent = (
+      (cur.unit && String(cur.unit).trim() !== '') ||
+      (cur.notes && String(cur.notes).trim() !== '') ||
+      (cur.unitetype && String(cur.unitetype).trim() !== '')
+    );
+
+    if (hasCurContent && !mergeIfConflict) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        needsMerge: true,
+        current: { id: cur.id, unit: cur.unit || '', notes: cur.notes || '' },
+        incoming: { id: firstNext.id, unit: firstNext.unit || '', notes: firstNext.notes || '' }
+      });
+    }
+
+    // 3) Build the shifted content array [cur, ...nextRows]
+    const items = [cur, ...nextRows];
+
+    // Helper to pick merged values for current slot when merging
+    const sep = '; ';
+    const mergeUnits = (a, b) => {
+      const A = (a || '').trim();
+      const B = (b || '').trim();
+      return [A, B].filter(Boolean).join(sep);
+    };
+    const mergeNotes = (a, b) => {
+      const A = (a || '').trim();
+      const B = (b || '').trim();
+      return [A, B].filter(Boolean).join('\n\n');
+    };
+
+    // Extract only the content fields we will rotate
+    const takeContent = (r) => ({
+      unit: r.unit || null,
+      unitetype: r.unitetype || null,
+      notes: r.notes || null,
+      duration: r.duration == null ? null : r.duration,
+      is_module: typeof r.is_module === 'boolean' ? r.is_module : null,
+      lessonCode: r["lessonCode"] || null
+    });
+    const setContentSql = `UPDATE "generatedyearplan" SET
+        "unit" = $1,
+        "unitetype" = $2,
+        "notes" = $3,
+        "duration" = $4,
+        "is_module" = $5,
+        "lessonCode" = $6
+      WHERE id = $7`;
+
+    const contents = items.map(takeContent);
+
+    if (hasCurContent && mergeIfConflict) {
+      // Merge firstNext into current, then shift the rest one step back
+      contents[0] = {
+        unit: mergeUnits(contents[0].unit, contents[1].unit),
+        unitetype: contents[0].unitetype || contents[1].unitetype,
+        notes: mergeNotes(contents[0].notes, contents[1].notes),
+        duration: contents[0].duration != null ? contents[0].duration : contents[1].duration,
+        is_module: contents[0].is_module != null ? contents[0].is_module : contents[1].is_module,
+        lessonCode: contents[0].lessonCode || contents[1].lessonCode
+      };
+      // shift [1..n-2] <- [2..n-1]
+      for (let i = 1; i < contents.length - 1; i++) contents[i] = contents[i + 1];
+      // clear last
+      contents[contents.length - 1] = { unit: null, unitetype: null, notes: null, duration: null, is_module: null, lessonCode: null };
+    } else {
+      // No conflict (current empty): pull next into current, shift tail, clear last
+      for (let i = 0; i < contents.length - 1; i++) contents[i] = contents[i + 1];
+      contents[contents.length - 1] = { unit: null, unitetype: null, notes: null, duration: null, is_module: null, lessonCode: null };
+    }
+
+    // 4) Persist updates
+    for (let i = 0; i < items.length; i++) {
+      const row = items[i];
+      const c = contents[i];
+      await client.query(setContentSql, [c.unit, c.unitetype, c.notes, c.duration, c.is_module, c.lessonCode, row.id]);
+    }
+
+    await client.query('COMMIT');
+    res.json({ ok: true, shifted: items.length - 1 });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('pull-next failed:', err);
+    res.status(500).json({ error: 'DB error' });
+  } finally {
+    client.release();
+  }
+});
+
+// Push CURRENT lesson's content one slot FORWARD (no date change),
+// shifting the tail forward as well, and clearing the CURRENT cell.
+// POST /lessons-calendar/generatedyearplan/:id/push-next
+router.post('/generatedyearplan/:id/push-next', async (req, res) => {
+  const { id } = req.params;
+  if (!id) return res.status(400).json({ error: 'Missing id' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1) Load and lock the current row
+    const { rows: curRows } = await client.query(
+      'SELECT id, subject, date::date AS date, COALESCE(start_time,\'00:00\') AS start_time, unit, unitetype, notes, duration, is_module, "lessonCode" FROM "generatedyearplan" WHERE id = $1 FOR UPDATE',
+      [id]
+    );
+    if (!curRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Row not found' });
+    }
+    const cur = curRows[0];
+    if (!cur.date) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Current row has NULL date' });
+    }
+    const subj = cur.subject || '';
+
+    // 2) Load and lock the tail (rows after current in chronological order)
+    const tailSql = `
+      SELECT id, date::date AS date, COALESCE(start_time,'00:00') AS start_time,
+             unit, unitetype, notes, duration, is_module, "lessonCode"
+      FROM "generatedyearplan"
+      WHERE subject IS NOT DISTINCT FROM $1
+        AND (
+              (date::date >  $2::date)
+           OR (date::date =  $2::date AND COALESCE(start_time,'00:00') > COALESCE($3::time,'00:00'))
+           OR (date::date =  $2::date AND COALESCE(start_time,'00:00') = COALESCE($3::time,'00:00') AND id > $4)
+        )
+      ORDER BY date::date ASC, start_time ASC NULLS LAST, id ASC
+      FOR UPDATE`;
+    const { rows: nextRows } = await client.query(tailSql, [subj, cur.date, cur.start_time, cur.id]);
+    if (!nextRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'No next lesson in sequence for this subject' });
+    }
+
+    // 3) Build array of rows we will update [cur, ...nextRows]
+    const items = [cur, ...nextRows];
+
+    // Extract only the content fields we will rotate
+    const takeContent = (r) => ({
+      unit: r.unit || null,
+      unitetype: r.unitetype || null,
+      notes: r.notes || null,
+      duration: r.duration == null ? null : r.duration,
+      is_module: typeof r.is_module === 'boolean' ? r.is_module : null,
+      lessonCode: r["lessonCode"] || null
+    });
+    const setContentSql = `UPDATE "generatedyearplan" SET
+        "unit" = $1,
+        "unitetype" = $2,
+        "notes" = $3,
+        "duration" = $4,
+        "is_module" = $5,
+        "lessonCode" = $6
+      WHERE id = $7`;
+
+    const contents = items.map(takeContent);
+
+    // Shift FORWARD by one:
+    // new[i] = old[i-1], new[0] = empty
+    const empty = { unit: null, unitetype: null, notes: null, duration: null, is_module: null, lessonCode: null };
+    const newContents = new Array(contents.length);
+    newContents[0] = empty; // current cell becomes empty
+    for (let i = contents.length - 1; i >= 1; i--) {
+      newContents[i] = contents[i - 1];
+    }
+
+    // 4) Persist updates in the same order
+    for (let i = 0; i < items.length; i++) {
+      const row = items[i];
+      const c = newContents[i];
+      await client.query(setContentSql, [c.unit, c.unitetype, c.notes, c.duration, c.is_module, c.lessonCode, row.id]);
+    }
+
+    await client.query('COMMIT');
+    res.json({ ok: true, shifted: items.length - 1 });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('push-next failed:', err);
+    res.status(500).json({ error: 'DB error' });
+  } finally {
+    client.release();
+  }
+});
+
+
+// Merge current row into the NEXT row (same subject), no date change, do NOT delete source.
+// If next slot has content and mergeIfConflict !== true, return 409 to ask for confirmation.
+// POST /lessons-calendar/generatedyearplan/:id/merge-next-keep  { mergeIfConflict?: boolean }
+router.post('/generatedyearplan/:id/merge-next-keep', async (req, res) => {
+  const { id } = req.params;
+  const mergeIfConflict = !!(req.body && req.body.mergeIfConflict);
+  if (!id) return res.status(400).json({ error: 'Missing id' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1) Load and lock current row (source)
+    const { rows: srcRows } = await client.query(
+      'SELECT id, subject, date::date AS date, COALESCE(start_time,\'00:00\') AS start_time, unit, unitetype, notes, duration, is_module, "lessonCode" FROM "generatedyearplan" WHERE id = $1 FOR UPDATE',
+      [id]
+    );
+    if (!srcRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Source row not found' });
+    }
+    const src = srcRows[0];
+    if (!src.date) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Cannot merge: source has NULL date' });
+    }
+
+    // 2) NEXT row in same subject sequence
+    const nextSql = `
+      SELECT id, date::date AS date, COALESCE(start_time,'00:00') AS start_time,
+             unit, unitetype, notes, duration, is_module, "lessonCode"
+      FROM "generatedyearplan"
+      WHERE subject IS NOT DISTINCT FROM $1
+        AND (
+              (date::date >  $2::date)
+           OR (date::date =  $2::date AND COALESCE(start_time,'00:00') > COALESCE($3::time,'00:00'))
+           OR (date::date =  $2::date AND COALESCE(start_time,'00:00') = COALESCE($3::time,'00:00') AND id > $4)
+        )
+      ORDER BY date::date ASC, start_time ASC NULLS LAST, id ASC
+      LIMIT 1
+      FOR UPDATE`;
+    const { rows: nxtRows } = await client.query(nextSql, [src.subject || '', src.date, src.start_time, src.id]);
+    if (!nxtRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'No next lesson to merge into for this subject' });
+    }
+    const tgt = nxtRows[0];
+
+    // 3) If next has content and we don't have confirmation, return 409
+    const nextHasContent =
+      (tgt.unit && String(tgt.unit).trim() !== '') ||
+      (tgt.notes && String(tgt.notes).trim() !== '') ||
+      (tgt.unitetype && String(tgt.unitetype).trim() !== '');
+    if (nextHasContent && !mergeIfConflict) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        needsMerge: true,
+        current:  { id: src.id, unit: src.unit || '', notes: src.notes || '' },
+        incoming: { id: tgt.id, unit: tgt.unit || '', notes: tgt.notes || '' }
+      });
+    }
+
+    // 4) Merge into NEXT (order: current first, then existing next), then clear CURRENT
+    const sep = '; ';
+    const mergedUnit  = [src.unit || '', tgt.unit || ''].map(s => String(s).trim()).filter(Boolean).join(sep);
+    const mergedNotes = [src.notes || '', tgt.notes || ''].filter(Boolean).join('\n\n');
+
+    await client.query(
+      `UPDATE "generatedyearplan"
+         SET "unit" = $1,
+             "unitetype" = COALESCE("unitetype", $2),
+             "notes" = $3,
+             "duration" = COALESCE("duration", $4),
+             "is_module" = COALESCE("is_module", $5),
+             "lessonCode" = COALESCE("lessonCode", $6)
+       WHERE id = $7`,
+      [mergedUnit,
+       src.unitetype || null,
+       mergedNotes,
+       src.duration == null ? null : src.duration,
+       (typeof src.is_module === 'boolean' ? src.is_module : null),
+       src["lessonCode"] || null,
+       tgt.id]
+    );
+
+    await client.query(
+      `UPDATE "generatedyearplan"
+          SET "unit" = NULL,
+              "unitetype" = NULL,
+              "notes" = NULL
+        WHERE id = $1`,
+      [src.id]
+    );
+
+    await client.query('COMMIT');
+    res.json({ ok: true, mergedIntoId: tgt.id, clearedId: src.id });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('merge-next-keep failed:', err);
     res.status(500).json({ error: 'DB error' });
   } finally {
     client.release();
