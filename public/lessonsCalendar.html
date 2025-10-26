@@ -145,7 +145,7 @@
       try{
         const body = {};
         body[column] = value;   // instead of { column, value }
-        const res = await fetch(`/generatedyearplan/${id}`, {
+        const res = await fetch(`/lessons-calendar/generatedyearplan/${id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body)
@@ -395,16 +395,32 @@
             td.dataset.col = c;
             td.dataset.id = r.id;
             td.title = 'Click to toggle: empty → ✔️ → ✖️';
-            td.addEventListener('click', async ()=>{
+            // Optimistic UI version with guard against spamming
+            td.addEventListener('click', ()=>{
+              if (td.dataset.busy === '1') return; // guard against spamming
+              td.dataset.busy = '1';
+
               const current = (td.textContent === '✔️') ? true : (td.textContent === '✖️') ? false : null;
               const next = (current === null) ? true : (current === true) ? false : null;
+
+              // Optimistic UI: show new state immediately
+              setDisplay(next);
+              flashSaved(td);
               statusEl.textContent = 'Saving...';
-              try{
-                await updateCell(td.dataset.id, 'lessonCreated', next);
-                setDisplay(next);
-                flashSaved(td);
-                statusEl.textContent = 'Saved';
-              }catch(e){ }
+
+              updateCell(td.dataset.id, 'lessonCreated', next)
+                .then(() => {
+                  statusEl.textContent = 'Saved';
+                })
+                .catch((e) => {
+                  // Revert on failure
+                  console.error('Update failed:', e);
+                  setDisplay(current);
+                  statusEl.textContent = 'Update failed';
+                })
+                .finally(() => {
+                  delete td.dataset.busy;
+                });
             });
           } else {
             td.textContent = v == null ? '' : v;
@@ -509,5 +525,10 @@
    
   </script>
   <script src="/lesCal_tableMod.js" defer></script>
+  <!-- Sticky Notes for Lessons Center (right side by default) -->
+<script>
+  window.YSN_KEY = 'lessonsCenter';
+</script>
+<script src="/yellowStickyNotes.js"></script>
 </body>
 </html>

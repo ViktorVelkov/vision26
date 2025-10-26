@@ -1,0 +1,63 @@
+<style id="ysn-style">
+  :root{ --ysn-size: 320px; }
+  .ysn-root{position:fixed; right:16px; bottom:16px; z-index:9999; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;}
+  .ysn-toggle{border:0; border-radius:999px; width:44px; height:44px; box-shadow:0 4px 12px rgba(0,0,0,.15); cursor:pointer; background:#ffde59;}
+  .ysn-toggle:hover{filter:brightness(1.05)}
+  .ysn-panel{position:absolute; right:0; bottom:54px; width:var(--ysn-size); max-height:60vh; display:none; background:transparent; border:none; border-radius:14px; box-shadow:none;}
+  .ysn-panel.open{display:flex; flex-direction:column;}
+  .ysn-header{display:flex; align-items:center; justify-content:space-between; padding:8px 10px; border-bottom:1px solid transparent; background:transparent; border-top-left-radius:14px; border-top-right-radius:14px;}
+  .ysn-title{font-weight:600}
+  .ysn-close{border:0; background:transparent; font-size:16px; cursor:pointer}
+  /* Single sticky image-based pad */
+  .ysn-single{padding:0 2px 10px 2px;}
+  .ysn-pad-img{
+    position:relative;
+    width:var(--ysn-size);
+    height:var(--ysn-size);
+    aspect-ratio:1/1;
+    background-image:url('./yellow-sticky-note.jpg');
+    background-position:center;
+    background-repeat:no-repeat;
+    background-size:contain; /* keep original PNG look */
+    background-color:transparent; /* no fill behind the PNG */
+    border-radius:0;              /* remove rounded container edges */
+    box-shadow:none;              /* remove shadow frame */
+    overflow:visible;             /* allow PNG edge to render naturally */
+  }
+  .ysn-editor{
+    position:absolute;
+    top:11%;
+    left:12%;
+    right:12%;
+    bottom:16%;
+    overflow:auto;
+    background:transparent;
+    outline:0; border:0;
+    padding:0 0 0 6px;
+    font-size:15px; line-height:1.35;
+    word-break:break-word;
+  }
+  /* Checklist visuals (real checkbox + text) */
+  .ysn-text{ flex:1 1 auto; min-height:1.2em; outline:none; white-space:pre-wrap; word-break:break-word; transform: translateY(2px); }
+  .ysn-item:first-child{ padding-top: 14px; }
+  .ysn-list{ list-style:none; margin:0; padding:0; }
+  .ysn-item{ margin-left:0; }
+  .ysn-item{ display:flex; align-items:flex-start; gap:.55em; margin:0; padding:.12em 0; }
+  .ysn-check{ flex:0 0 auto; display:flex; align-items:flex-start; transform: translate(-8px, 2px); }
+  .ysn-list > .ysn-item:first-child .ysn-check{
+    transform: translate(-8px, 2px);
+  }
+  .ysn-check input{ width:1.05em; height:1.05em; cursor:pointer; }
+  .ysn-item.removing{ opacity:0; transform:translateX(6px); transition:opacity .18s ease, transform .18s ease; }
+</style>
+<div class="ysn-root" id="ysn-root">
+  <button class="ysn-toggle" title="Бележки">🗒️</button>
+  <div class="ysn-panel" id="ysn-panel">
+   
+    <div class="ysn-single">
+      <div class="ysn-pad-img">
+        <div class="ysn-editor" id="ysn-editor" contenteditable="true" data-placeholder="Пиши тук..."></div>
+      </div>
+    </div>
+  </div>
+</div>

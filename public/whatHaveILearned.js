@@ -74,6 +74,19 @@
   }
   
   const yearPlanWrap = document.getElementById('yearPlanWrap');
+  const toggleYearPlanBtn = document.getElementById('toggleYearPlanBtn');
+  if (toggleYearPlanBtn) {
+    toggleYearPlanBtn.addEventListener('click', ()=>{
+      if (!yearPlanWrap) return;
+      if (yearPlanWrap.hasAttribute('hidden')) {
+        yearPlanWrap.removeAttribute('hidden');
+        toggleYearPlanBtn.textContent = '−';
+      } else {
+        yearPlanWrap.setAttribute('hidden','');
+        toggleYearPlanBtn.textContent = '+';
+      }
+    });
+  }
   const addSkillBtn = document.getElementById('addSkillRowBtn');
   const openAssessBtn = document.getElementById('openAssessBtn');
   let currentSkillsTriplet = null; // remembers which triplet is loaded
@@ -134,7 +147,7 @@ function renderLogRows(rows){
   async function loadYearPlan(cls){
     if (!yearPlanWrap || !yearPlanBody) return;
     yearPlanBody.innerHTML = '';
-    yearPlanWrap.hidden = true;
+    // keep current visibility; do not auto-toggle here
     try {
       const resp = await fetch(`/generatedyearplan?className=${encodeURIComponent(cls)}`);
       if (!resp.ok) throw new Error('HTTP '+resp.status);
@@ -211,7 +224,7 @@ function renderLogRows(rows){
         tr.append(tdDate, tdWeekday, tdUnit, tdUnitType, tdCreated, tdCode);
         yearPlanBody.appendChild(tr);
       }
-      yearPlanWrap.hidden = data.length === 0;
+      // do not change visibility here; user controls it via the + button
     } catch(e){
       console.error('loadYearPlan failed:', e);
       yearPlanWrap.hidden = true;
@@ -372,101 +385,27 @@ if (addBtn){
       resultsBody.innerHTML = '';
       resultsWrap.hidden = true;
 
-      const res = await fetch(`/lessons-taken?className=${encodeURIComponent(cls)}`);
+      const res = await fetch(`/lessons/by-grade?className=${encodeURIComponent(cls)}`);
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const rows = await res.json();
 
       for (const r of rows){
         const tr = document.createElement('tr');
-        const tdId = document.createElement('td'); tdId.textContent = r.id ?? '';
+        // map to the existing headers: ID, Class, Name, Date, Associated Lesson
+        const tdId = document.createElement('td'); tdId.textContent = r.lesson_id ?? '';
         const tdClass = document.createElement('td'); tdClass.textContent = r.class ?? '';
 
-        // Helper to flash a cell with success/error animation
-        const flashCell = (el, ok = true) => {
-          el.classList.remove('flash-success', 'flash-error');
-          void el.offsetWidth; // force reflow to restart animation
-          el.classList.add(ok ? 'flash-success' : 'flash-error');
-        };
+        const tdName = document.createElement('td'); tdName.textContent = r.description ?? '';
 
-        // Helper to save a single field via PATCH and flash result
-        const saveField = async (rowId, field, value, cellEl) => {
-          try {
-            cellEl.classList.remove('error');
-            const resUpd = await fetch(`/lessons-taken/${encodeURIComponent(rowId)}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ [field]: value })
-            });
-            if (!resUpd.ok) throw new Error('HTTP ' + resUpd.status);
-            await resUpd.json();
-            flashCell(cellEl, true);
-          } catch (e) {
-            console.error('Save failed:', e);
-            flashCell(cellEl, false);
-          }
-        };
+        const tdDate = document.createElement('td'); tdDate.textContent = r.updated_at ?? '';
 
-        // Name: contenteditable live
-        const tdName = document.createElement('td');
-        tdName.contentEditable = 'true';
-        tdName.textContent = r.name ?? '';
-        tdName.addEventListener('keydown', (ev) => {
-          if (ev.key === 'Enter') { ev.preventDefault(); tdName.blur(); }
-        });
-        tdName.addEventListener('blur', () => {
-          const v = tdName.textContent.trim();
-          if ((r.name ?? '') !== v) {
-            saveField(r.id, 'name', v, tdName);
-            r.name = v;
-          }
-        });
-
-        // Date: input type=date if empty, else contenteditable text which on double-click toggles to date input
-        const tdDate = document.createElement('td');
-        const renderDateEditor = (initial) => {
-          const inp = document.createElement('input');
-          inp.type = 'date';
-          if (initial) inp.value = initial;
-          inp.addEventListener('change', () => {
-            const v = inp.value;
-            if (!v) return;
-            saveField(r.id, 'date', v, tdDate);
-            r.date = v;
-            tdDate.textContent = v;
-            tdDate.classList.remove('muted');
-            flashCell(tdDate, true);
-          });
-          return inp;
-        };
-        if (!r.date) {
-          tdDate.appendChild(renderDateEditor(''));
-        } else {
-          tdDate.textContent = r.date;
-          tdDate.title = 'Double-click to edit date';
-          tdDate.addEventListener('dblclick', () => {
-            tdDate.innerHTML = '';
-            tdDate.appendChild(renderDateEditor(r.date));
-          });
-        }
-
-        // Associated lesson: contenteditable live
         const tdAssoc = document.createElement('td');
-        tdAssoc.contentEditable = 'true';
-        tdAssoc.textContent = r.associatedLesson ?? '';
-        tdAssoc.addEventListener('keydown', (ev) => {
-          if (ev.key === 'Enter') { ev.preventDefault(); tdAssoc.blur(); }
-        });
-        tdAssoc.addEventListener('blur', () => {
-          const v = tdAssoc.textContent.trim();
-          if ((r.associatedLesson ?? '') !== v) {
-            saveField(r.id, 'associatedLesson', v, tdAssoc);
-            r.associatedLesson = v;
-            if (v) { currentLessonName = (r.name || '').trim() || currentLessonName; loadLessonSkills(v); }
-          }
-        });
+        tdAssoc.textContent = r.tripplet_id ?? '';
+        tdAssoc.title = 'Клик за умения по триплет';
+        tdAssoc.style.cursor = 'pointer';
         tdAssoc.addEventListener('click', () => {
-          const v = tdAssoc.textContent.trim();
-          if (v) { currentLessonName = (r.name || '').trim() || currentLessonName; loadLessonSkills(v); }
+          const v = (r.tripplet_id || '').toString().trim();
+          if (v) { currentLessonName = (r.description || '').trim() || currentLessonName; loadLessonSkills(v); }
         });
 
         tr.append(tdId, tdClass, tdName, tdDate, tdAssoc);
@@ -529,7 +468,7 @@ async function loadLessonSkills(triplet){
   if (toolbarTh) toolbarTh.colSpan = SKILLS_COLS.length;
 
   try {
-    const resp = await fetch(`/lesson-skills?triplet=${encodeURIComponent(triplet)}`);
+    const resp = await fetch(`/lesson-skills-merged?triplet=${encodeURIComponent(triplet)}`);
     if (!resp.ok) throw new Error('HTTP '+resp.status);
     const data = await resp.json();
 

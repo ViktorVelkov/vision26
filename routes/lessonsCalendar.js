@@ -149,7 +149,29 @@ router.patch('/generatedyearplan/:id', async (req, res) => {
   let { column, value } = req.body || {};
 
   if (!id) return res.status(400).json({ error: 'Missing id' });
+
+  // Be tolerant: allow either {column, value} or a single-key payload like { lessonCreated: true }
+  if (!column) {
+    const keys = Object.keys(req.body || {}).filter(k => !['id'].includes(k));
+    if (keys.length === 1) {
+      column = keys[0];
+      value = req.body[keys[0]];
+    }
+  }
   if (!column) return res.status(400).json({ error: 'Missing column' });
+
+  // Normalize values: empty string → NULL; 'true'/'false' strings → booleans
+  const normalize = (col, val) => {
+    if (val === '') return null;
+    if (typeof val === 'string') {
+      const t = val.trim().toLowerCase();
+      if (t === 'null') return null;
+      if (t === 'true') return true;
+      if (t === 'false') return false;
+    }
+    return val;
+  };
+  value = normalize(column, value);
 
   try {
     const editableCols = await getEditableColumns();

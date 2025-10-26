@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Version Control — Ученици</title>
+  <link rel="stylesheet" href="/lessonsCenter.css" />
+  <style>
+    body{font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;}
+    .container{max-width: 1100px; margin: 24px auto;}
+    .row{display:grid; grid-template-columns: 2fr 1fr; gap:12px; align-items:end;}
+    .btn{padding:8px 12px; border-radius:6px; border:1px solid #cbd5e1; background:#f8fafc; cursor:pointer}
+    .btn.primary{background:#2563eb; color:#fff; border-color:#1d4ed8}
+    .table{width:100%; border-collapse:collapse}
+    .table th,.table td{
+      padding:8px 10px;
+      border-bottom:1px solid #e5e7eb;
+      white-space:nowrap;
+      max-width:220px;
+      overflow-x:auto;
+      text-align: center;
+      vertical-align: middle;
+    }
+    .table, .table th, .table td {
+      border: 1px solid #ccc;
+      border-collapse: collapse;
+    }
+    .table th {
+      background-color: #f8f9fa;
+    }
+    .pill{display:inline-block; padding:2px 6px; border-radius:999px; font-size:12px; border:1px solid #cbd5e1; background:#eef2ff}
+    #resultsWrap{margin-top:16px}
+    #studentPick li{padding:6px 8px; border:1px solid #e5e7eb; border-radius:6px; margin:4px 0; cursor:pointer}
+    #studentPick li:hover{background:#f1f5f9}
+    .muted{color:#6b7280}
+    .small{font-size:12px}
+    .form-grid{display:grid; grid-template-columns: repeat(6, 1fr); gap:8px; align-items:end;}
+    .form-grid input[type="text"], .form-grid input[type="number"], .form-grid textarea{width:100%; padding:6px 8px; border:1px solid #cbd5e1; border-radius:6px}
+    textarea{min-height:38px}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Версии / Нишки за ученик</h1>
+    <div id="searchRow" class="row">
+      <div>
+        <label for="studentSearch">Търси ученик по име</label>
+        <input id="studentSearch" type="text" placeholder="например: Мария" />
+      </div>
+      <div>
+        <button id="findStudentBtn" class="btn">Търси</button>
+      </div>
+    </div>
+
+    <ul id="studentPick"></ul>
+
+    <div id="studentArea" hidden>
+    <div id="meta" class="muted small" hidden></div>
+
+    <h3 id="unthreadedHeader" hidden>Без нишка</h3>
+<div id="unthreadedWrap" hidden>
+  <table class="table" id="unthreadedTable">
+    <thead>
+      <tr>
+        <th>Дата</th>
+        <th>Triplet</th>
+        <th>Тип</th>
+        <th>Компонент</th>
+        <th>Оценка</th>
+        <th>Бележка</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+<h3 id="threadsHeader" hidden>Нишки</h3>
+<div id="threadsWrap" hidden>
+  <table class="table" id="threadSummaryTable">
+    <thead>
+      <tr>
+        <th>Thread</th>
+        <th>Брой записи</th>
+        <th>Последно</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</div>
+<h3 id="threadDetailHeader" hidden>
+    История на нишка: <span id="threadDetailId"></span>
+    <button id="closeThreadDetailBtn" class="btn" style="margin-left: 12px;">✖</button>
+  </h3>
+<div id="threadDetailWrap" hidden>
+    <table class="table" id="threadDetailTable">
+      <thead>
+        <tr>
+          <th>Време</th>
+          <th>Triplet</th>
+          <th>Тип</th>
+          <th>Компонент</th>
+          <th>Оценка</th>
+          <th>Бележка</th>
+          <th>Follow-up</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+    <h3 id="newActionHeader" hidden>Ново действие</h3>
+    <div class="form-grid" id="newActionForm" hidden>
+      <div>
+        <label>Triplet</label>
+        <input id="f_triplet" type="text" placeholder="001001001" />
+      </div>
+      <div>
+        <label>Snippet?</label>
+        <input id="f_isSnippet" type="checkbox" />
+      </div>
+      <div>
+        <label>Компонент ID</label>
+        <input id="f_component" type="number" />
+      </div>
+      <div>
+        <label>Оценка</label>
+        <input id="f_assessment" type="number" />
+      </div>
+      <div>
+        <label>Нишка (ID)</label>
+        <input id="f_thread" type="text" />
+      </div>
+      <div>
+        <label>Follow‑up на (ID)</label>
+        <input id="f_followup_id" type="number" />
+      </div>
+      <div style="grid-column: 1 / -1;">
+        <label>Follow‑up бележка</label>
+        <textarea id="f_followup_exp" placeholder="Как продължавам нишката?"></textarea>
+      </div>
+      <div style="grid-column: 1 / -1; text-align:right;">
+        <button id="saveActionBtn" class="btn primary">Запази</button>
+      </div>
+    </div>
+
+    <div id="historyToggleRow" class="row" style="margin-top:24px; align-items:center;" hidden>
+      <button id="toggleHistoryBtn" class="btn" type="button">Покажи хронология</button>
+    </div>
+
+    <div id="resultsWrap" hidden>
+      <h3>Хронология</h3>
+      <table class="table" id="historyTable">
+        <thead>
+          <tr>
+            <th>Време</th>
+            <th>Triplet</th>
+            <th>Тип</th>
+            <th>Компонент</th>
+            <th>Оценка</th>
+            <th>Бележка</th>
+            <th>Нишка</th>
+            <th>Follow‑up</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    </div>
+  </div>
+<script src="/threadHistory.js"></script>
+<script src="/versionControl.js"></script>
+
+<!-- Sticky Notes: set file key for this page (can be overridden via ?ysn= in URL) -->
+<script>
+  window.YSN_KEY = 'versionControl';
+</script>
+<script src="/yellowStickyNotes.js"></script>
+</body>
+
+</html>

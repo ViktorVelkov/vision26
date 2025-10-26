@@ -5,6 +5,8 @@
     <title>File Upload Panel</title>
     <link rel="stylesheet" href="styles.css" />
 <style>
+.ysn-root { right:auto !important; left:16px !important; }
+.ysn-root .ysn-panel{ left:0 !important; right:auto !important; }
     body {
         background-color: #F5FFFA;
     }
@@ -249,7 +251,11 @@
                         <label for="dateLastSolved">Последно решаван на:</label>
                         <input type="date" id="dateLastSolved" />
                     </div>
-
+</style>
+<style>
+  /* Page-specific override: place sticky notes on the left for exe_solutions */
+  .ysn-root{ right:auto !important; left:16px !important; }
+</style>
                     <div class="form-group">
                         <label for="dateForRevision">Дата за преговор:</label>
                         <input type="date" id="dateForRevision" />
@@ -358,6 +364,10 @@
     </div>
    
     <script src="exe_solutions.js"></script>
+    <script>
+  window.YSN_KEY = 'exe_solutions';
+</script>
+<script src="/yellowStickyNotes.js"></script>
 </body>
 
 </html>

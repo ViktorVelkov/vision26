@@ -2,9 +2,48 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 const app = express();
+// === Sticky Notes file storage ===
+const STICKY_DIR = path.join(__dirname, 'sticky-notes');
+try { fs.mkdirSync(STICKY_DIR, { recursive: true }); } catch(e) { console.warn('sticky dir mkdir failed:', e && e.message ? e.message : e); }
+function stickyFileFromKey(key){
+  const safe = (String(key||'default')).replace(/[^a-z0-9_-]+/gi,'-').slice(0,60) || 'default';
+  return path.join(STICKY_DIR, safe + '.json');
+}
+// === Sticky Notes API: read/write checklist as a JSON file (no DB) ===
+// GET /sticky-notes?key=<slug>  -> { items:[{text,done}] }
+app.get('/sticky-notes', async (req, res) => {
+  const key = req.query.key || 'default';
+  const file = stickyFileFromKey(key);
+  try {
+    if (!fs.existsSync(file)) return res.json({ items: [] });
+    const raw = fs.readFileSync(file, 'utf8');
+    const data = JSON.parse(raw);
+    if (!data || !Array.isArray(data.items)) return res.json({ items: [] });
+    res.json({ items: data.items.map(x => ({ text: String(x.text||''), done: !!x.done })) });
+  } catch (e) {
+    console.error('GET /sticky-notes failed:', e);
+    res.status(500).json({ error: 'Failed to read notes' });
+  }
+});
+
+// POST /sticky-notes  body: { key, items:[{text,done}] }
+app.post('/sticky-notes', async (req, res) => {
+  const key = (req.body && req.body.key) || 'default';
+  const items = (req.body && req.body.items) || [];
+  if (!Array.isArray(items)) return res.status(400).json({ error: 'items must be an array' });
+  const norm = items.map(x => ({ text: String((x && x.text) || ''), done: !!(x && x.done) }));
+  const file = stickyFileFromKey(key);
+  try {
+    fs.writeFileSync(file, JSON.stringify({ items: norm }, null, 2), 'utf8');
+    res.json({ ok: true, saved: norm.length });
+  } catch (e) {
+    console.error('POST /sticky-notes failed:', e);
+    res.status(500).json({ error: 'Failed to save notes' });
+  }
+});
 const multer = require("multer");
-const fs = require("fs");
 const scheduleRouter = require("./public/schedule");
 const holidayRouter = require("./routes/holidays");
 const upload = multer({ storage: multer.memoryStorage() });
@@ -33,6 +72,36 @@ app.use("/api", scheduleRouter);
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// === Sticky Notes: append checked items to a per-key JSON lines log ===
+// POST /sticky-notes/done-append  { key, text, at? }
+app.post('/sticky-notes/done-append', (req, res) => {
+  try {
+    const key = (req.body && req.body.key ? String(req.body.key) : 'default')
+      .replace(/[^a-z0-9_-]+/gi,'-')
+      .slice(0,60) || 'default';
+    const text = (req.body && typeof req.body.text === 'string') ? req.body.text.trim() : '';
+    const atIn = (req.body && req.body.at ? String(req.body.at) : null);
+    if (!text) return res.status(400).json({ error: 'Missing text' });
+
+    // Format timestamp as DD.MM.YYYY HH:MM (24h)
+    const d = atIn ? new Date(atIn) : new Date();
+    const dd = String(d.getDate()).padStart(2,'0');
+    const mo = String(d.getMonth() + 1).padStart(2,'0');
+    const yyyy = d.getFullYear();
+    const hh = String(d.getHours()).padStart(2,'0');
+    const mi = String(d.getMinutes()).padStart(2,'0');
+    const stamp = `${dd}.${mo}.${yyyy} ${hh}:${mi}`;
+
+    const file = path.join(STICKY_DIR, `${key}.done.jsonl`); // JSON Lines per entry
+    const obj = { at: stamp, text };
+    fs.appendFileSync(file, JSON.stringify(obj) + "\n", 'utf8');
+    return res.json({ ok: true, file, saved: obj });
+  } catch (e) {
+    console.error('POST /sticky-notes/done-append failed:', e);
+    return res.status(500).json({ error: 'Failed to append' });
+  }
+});
 app.use('/files', express.static('/Users/viktorvelkov/Documents'));
 app.use("/holidays", holidayRouter);
 app.use("/", scheduleSelectionRouter);
@@ -68,6 +137,77 @@ app.get('/lesson-skills', async (req, res) => {
     res.json(rows);
   } catch (err) {
     console.error('Error querying table Snippets:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /lesson-skills-merged?triplet=001001001
+ * Returns Snippets for the given triplet, **union** with any Snippets whose IDs appear
+ * in the "Lessons".theory_snippets for the lesson with this tripplet_id.
+ * This version validates that theory_snippets IDs exist in Snippets and only returns existing ones.
+ */
+app.get('/lesson-skills-merged', async (req, res) => {
+  const triplet = req.query.triplet;
+  if (!triplet) return res.status(400).json({ error: 'Missing triplet parameter' });
+  try {
+    // 1) Load theory_snippets for the lesson (if any) and coerce to ints
+    let theoryIds = [];
+    try {
+      const t = await pool.query(`SELECT theory_snippets FROM "Lessons" WHERE tripplet_id = $1 LIMIT 1`, [triplet]);
+      if (t.rows && t.rows[0] && Array.isArray(t.rows[0].theory_snippets)) {
+        theoryIds = t.rows[0].theory_snippets.map(n => parseInt(n, 10)).filter(n => Number.isInteger(n));
+      }
+    } catch (e) {
+      console.warn('lesson-skills-merged: theory_snippets query failed', e && e.message ? e.message : e);
+    }
+
+    // 2) Fail-safe: keep only IDs that exist in Snippets
+    let validIds = [];
+    if (theoryIds.length > 0) {
+      try {
+        const chk = await pool.query(`SELECT id FROM "Snippets" WHERE id = ANY($1::int[])`, [theoryIds]);
+        validIds = chk.rows.map(r => r.id).filter(n => Number.isInteger(n));
+      } catch (e) {
+        console.warn('lesson-skills-merged: validate snippet ids failed', e && e.message ? e.message : e);
+      }
+    }
+
+    // 3) Fetch Snippets by triplet match OR id in validated list
+    const params = [triplet];
+    const hasValid = validIds.length > 0;
+    if (hasValid) params.push(validIds);
+
+    const sql = `
+      SELECT
+         s."id",
+         s."name",
+         COALESCE(TO_JSON(s."keyWords"), '[]'::json)             AS "keyWords",
+         s."order",
+         COALESCE(TO_JSON(s."relatedTopic"), '[]'::json)         AS "relatedTopic",
+         COALESCE(TO_JSON(s."lessons_in_tripplets"), '[]'::json) AS "lessons_in_tripplets",
+         COALESCE(TO_JSON(s."associatedSnippets"), '[]'::json)   AS "associatedSnippets",
+         s."uslovie",
+         s."class"
+      FROM "Snippets" s
+      WHERE (s."tripplet_lesson" = $1::text OR $1::text = ANY (s."lessons_in_tripplets"))
+         ${hasValid ? ' OR s."id" = ANY($2::int[])' : ''}
+      ORDER BY s."id" ASC`;
+
+    const { rows } = await pool.query(sql, params);
+
+    // 4) Deduplicate by id (in case of overlap)
+    const seen = new Set();
+    const merged = [];
+    for (const r of rows) {
+      if (seen.has(r.id)) continue;
+      seen.add(r.id);
+      merged.push(r);
+    }
+
+    res.json(merged);
+  } catch (err) {
+    console.error('Error in /lesson-skills-merged:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -191,7 +331,27 @@ app.post('/lesson-skills', async (req, res) => {
                          "uslovie","class"`;
   try {
     const r = await pool.query(sql, params);
-    res.status(201).json({ ok:true, row: r.rows[0] });
+    const created = r.rows[0];
+
+    // If the snippet is tied to a triplet, append its ID to Lessons.theory_snippets for that triplet
+    if (triplet && created && Number.isInteger(created.id)) {
+      try {
+        await pool.query(
+          `UPDATE "Lessons"
+              SET theory_snippets = CASE
+                    WHEN theory_snippets IS NULL THEN ARRAY[$1]::int[]
+                    WHEN NOT ($1 = ANY(theory_snippets)) THEN theory_snippets || $1
+                    ELSE theory_snippets
+                  END
+            WHERE tripplet_id = $2`,
+          [created.id, triplet]
+        );
+      } catch (e) {
+        console.warn('⚠️ Failed to append snippet to Lessons.theory_snippets:', e && e.message ? e.message : e);
+      }
+    }
+
+    res.status(201).json({ ok:true, row: created });
   } catch (err) {
     console.error('Error inserting into Snippets:', err);
     res.status(500).json({ error: 'Internal server error' });
@@ -200,7 +360,7 @@ app.post('/lesson-skills', async (req, res) => {
 
 
 // POST /student-assessment-skills-exercises — save detailed assessment rows
-// Expects: { rows: [ {lessonTriplet,isSnippet,componentID,assessment,comment,studentID,threadID} ] }
+// Expects: { rows: [ {lessonTriplet,isSnippet,componentID,assessment,comment,studentID,threadID,followup_id,followup_exp} ] }
 app.post('/student-assessment-skills-exercises', async (req, res) => {
   const { rows } = req.body || {};
   if (!Array.isArray(rows) || rows.length === 0) {
@@ -211,35 +371,37 @@ app.post('/student-assessment-skills-exercises', async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // More explicit JSONB-based parsing and casting (accepts string numbers/booleans)
-    const sql = `
-      WITH src AS (
-        SELECT 
-          COALESCE(NULLIF(TRIM(x->>'lessonTriplet'), ''), '')::text                AS "lessonTriplet",
-          CASE 
-            WHEN (x ? 'isSnippet') THEN 
-              CASE LOWER(NULLIF(TRIM(x->>'isSnippet'), ''))
-                WHEN 'true'  THEN TRUE
-                WHEN '1'     THEN TRUE
-                WHEN 'false' THEN FALSE
-                WHEN '0'     THEN FALSE
-                ELSE (x->>'isSnippet')::boolean
-              END
-            ELSE NULL
-          END                                                             AS "isSnippet",
-          NULLIF(TRIM(x->>'componentID'), '')::int                         AS "componentID",
-          NULLIF(TRIM(x->>'assessment'),  '')::int                         AS "assessment",
-          COALESCE(x->>'comment','')::text                                 AS "comment",
-          NULLIF(TRIM(x->>'studentID'),  '')::int                          AS "studentID"
-        FROM jsonb_array_elements($1::jsonb) AS x
-      )
-      INSERT INTO "student_assessment_skills_exercises"
-        ("lessonTriplet","isSnippet","componentID","assessment","comment","studentID","entryTime")
-      SELECT "lessonTriplet","isSnippet","componentID","assessment","comment","studentID", NOW()
-      FROM src
-      RETURNING id,
-                "lessonTriplet","isSnippet","componentID","assessment","comment","studentID","entryTime";
-    `;
+    // Enhanced SQL to support follow-up, thread, and follow-up explanation columns
+ const sql = `
+WITH src AS (
+  SELECT 
+    COALESCE(NULLIF(TRIM(x->>'lessonTriplet'), ''), '')::text                AS "lessonTriplet",
+    CASE 
+      WHEN (x ? 'isSnippet') THEN 
+        CASE LOWER(NULLIF(TRIM(x->>'isSnippet'), ''))
+          WHEN 'true'  THEN TRUE
+          WHEN '1'     THEN TRUE
+          WHEN 'false' THEN FALSE
+          WHEN '0'     THEN FALSE
+          ELSE (x->>'isSnippet')::boolean
+        END
+      ELSE NULL
+    END                                                             AS "isSnippet",
+    NULLIF(TRIM(x->>'componentID'), '')::int                         AS "componentID",
+    NULLIF(TRIM(x->>'assessment'),  '')::int                         AS "assessment",
+    COALESCE(x->>'comment','')::text                                 AS "comment",
+    NULLIF(TRIM(x->>'studentID'),  '')::int                          AS "studentID",
+    COALESCE(NULLIF(TRIM(x->>'followup_exp'), ''), '')::text         AS "followup_exp",
+    NULLIF(TRIM(x->>'followup_id'), '')::int                         AS "followup_id",
+    NULLIF(TRIM(x->>'threadID'), '')::text                           AS "threadID"
+  FROM jsonb_array_elements($1::jsonb) AS x
+)
+INSERT INTO "student_assessment_skills_exercises"
+  ("lessonTriplet","isSnippet","componentID","assessment","comment","studentID","followup_exp","followup_id","threadID","entryTime")
+SELECT "lessonTriplet","isSnippet","componentID","assessment","comment","studentID","followup_exp","followup_id","threadID", NOW()
+FROM src
+RETURNING id,"lessonTriplet","isSnippet","componentID","assessment","comment","studentID","followup_exp","followup_id","threadID","entryTime";
+`;
 
     // Normalize keys coming from client so fields have expected names and types
     const normRows = rows.map(function (r) {
@@ -259,15 +421,18 @@ app.post('/student-assessment-skills-exercises', async (req, res) => {
       var studentID = (r.studentID != null ? r.studentID
                      : (r.studentId != null ? r.studentId
                      : (r.student_id != null ? r.student_id : null)));
-
+      // Add followup_exp, followup_id, threadID normalization
       return {
         lessonTriplet: lessonTriplet != null ? String(lessonTriplet) : "",
         isSnippet: isSnippet,
         componentID: componentID == null ? null : componentID,
         assessment: assessment == null ? null : assessment,
         comment: comment || "",
-        studentID: studentID == null ? null : studentID
-      };
+        studentID: studentID == null ? null : studentID,
+        followup_exp: (typeof r.followup_exp === 'string' ? r.followup_exp : ''),
+        followup_id:  (r.followup_id != null ? parseInt(r.followup_id,10) : (r.parentId != null ? parseInt(r.parentId,10) : null)),
+        threadID:     (typeof r.threadID === 'string' ? r.threadID: (typeof r.thread_id === 'string' ? r.thread_id : null))
+        };
     });
 
     console.log("POST /student-assessment-skills-exercises sample row:",
@@ -291,6 +456,54 @@ app.post('/student-assessment-skills-exercises', async (req, res) => {
   }
 });
 
+// GET /student-assessment-skills-exercises?studentID=123
+app.get('/student-assessment-skills-exercises', async (req, res) => {
+  const sid = parseInt(req.query.studentID, 10);
+  if (!Number.isInteger(sid)) return res.json([]);
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, "lessonTriplet","isSnippet","componentID","assessment","comment",
+              "studentID","followup_exp","followup_id","threadID",
+              TO_CHAR("entryTime", 'YYYY-MM-DD HH24:MI') AS entryTime
+         FROM "student_assessment_skills_exercises"
+        WHERE "studentID" = $1
+        ORDER BY "entryTime" DESC, id DESC
+        LIMIT 500`,
+      [sid]
+    );
+    res.json(rows);
+  } catch (e) {
+    console.error('GET student-assessment-skills-exercises failed:', e);
+    res.status(500).json({ error: 'DB error' });
+  }
+});
+
+
+// GET /lessons/by-grade?className=9 Ж  -> returns all Lessons for grade 9 (ignores division)
+app.get('/lessons/by-grade', async (req, res) => {
+  const className = (req.query.className || '').trim();
+  if (!className) return res.status(400).json({ error: 'Missing className' });
+  const grade = parseInt(className, 10);
+  if (!Number.isInteger(grade)) return res.status(400).json({ error: 'Invalid className' });
+  try {
+    const { rows } = await pool.query(
+      `SELECT lesson_id,
+              tripplet_id,
+              description,
+              class,
+              TO_CHAR(updated_at, 'YYYY-MM-DD HH24:MI') AS updated_at
+         FROM "Lessons"
+        WHERE class = $1
+        ORDER BY updated_at DESC NULLS LAST, lesson_id DESC
+        LIMIT 500`,
+      [grade]
+    );
+    res.json(rows);
+  } catch (e) {
+    console.error('GET /lessons/by-grade failed:', e);
+    res.status(500).json({ error: 'DB error' });
+  }
+});
 
 // === LESSONS minimal API ===
 // GET /lessons?limit=10
@@ -1643,4 +1856,38 @@ app.post('/schedule/apply-distribution-smart', async (req, res) => {
     console.error('apply-distribution-smart error:', err);
     res.status(500).json({ error: 'Server error' });
   }
+});
+
+
+// GET /student-threads?studentID=123  -> списък с налични нишки за ученика
+app.get('/student-threads', async (req, res) => {
+  const sid = parseInt(req.query.studentID, 10);
+  if (!Number.isInteger(sid)) return res.json([]);
+  try {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT "threadID"
+         FROM "student_assessment_skills_exercises"
+        WHERE "studentID" = $1 AND "threadID" IS NOT NULL AND "threadID" <> ''
+        ORDER BY "threadID" ASC
+        LIMIT 500`,
+      [sid]
+    );
+    res.json(rows.map(r => r.threadid || r.threadID));
+  } catch (e) {
+    console.error('GET /student-threads failed:', e);
+    res.status(500).json({ error: 'DB error' });
+  }
+});
+
+// POST /student-threads/new { studentID } -> генерира нов thread: <ID>-<10 знака>
+app.post('/student-threads/new', express.json(), async (req, res) => {
+  const sid = parseInt((req.body||{}).studentID, 10);
+  if (!Number.isInteger(sid)) return res.status(400).json({ error: 'Invalid studentID' });
+  const rand = [...Array(10)].map(() => {
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    return chars[Math.floor(Math.random()*chars.length)];
+  }).join('');
+  const thread = `${sid}-${rand}`;
+  // няма нужда от запис в БД – нишката ще „живее“ когато се използва за първи път
+  res.json({ thread });
 });
