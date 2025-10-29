@@ -59,11 +59,16 @@
 
     <h3 id="unthreadedHeader" hidden>Без нишка</h3>
 <div id="unthreadedWrap" hidden>
+  <div style="margin:6px 0; display:flex; gap:8px; align-items:center;">
+    <button id="makeThreadBtn" class="btn">Обедини в нишка</button>
+    <span class="muted small">(избери един или повече реда по‑долу)</span>
+  </div>
   <table class="table" id="unthreadedTable">
     <thead>
       <tr>
+        <th style="width:36px;">✔</th>
         <th>Дата</th>
-        <th>Triplet</th>
+        <th>Умение ID</th>
         <th>Тип</th>
         <th>Компонент</th>
         <th>Оценка</th>
@@ -114,7 +119,7 @@
         <input id="f_triplet" type="text" placeholder="001001001" />
       </div>
       <div>
-        <label>Snippet?</label>
+        <label>умение?</label>
         <input id="f_isSnippet" type="checkbox" />
       </div>
       <div>

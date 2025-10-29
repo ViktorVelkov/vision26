@@ -1,3 +1,5 @@
+// POST /threads/create { studentID:number, baseIds:number[], threadID?:string }
+
 // index.js
 const express = require('express');
 const cors = require('cors');
@@ -138,6 +140,77 @@ app.get('/lesson-skills', async (req, res) => {
   } catch (err) {
     console.error('Error querying table Snippets:', err);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * Lightweight Snippets endpoints used by versionControl.js to resolve componentID labels.
+ * - GET /snippets/:id          -> single snippet {id,name,uslovie}
+ * - GET /snippets/bulk?ids=1,2 -> array of {id,name,uslovie}
+ * - GET /snippets?ids=1,2      -> same as bulk (fallback)
+ */
+app.get('/snippets/:id', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
+  try {
+    const { rows } = await pool.query(
+      `SELECT "id","name","uslovie" FROM "Snippets" WHERE "id" = $1 LIMIT 1`,
+      [id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    return res.json(rows[0]);
+  } catch (e) {
+    console.error('GET /snippets/:id failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  }
+});
+
+function parseIdsParam(q) {
+  if (!q) return [];
+  return String(q)
+    .split(/[\s,;]+/)
+    .map(s => parseInt(s, 10))
+    .filter(n => Number.isInteger(n));
+}
+
+async function fetchSnippetsByIds(ids, res) {
+  if (!ids.length) return res.json([]);
+  try {
+    const { rows } = await pool.query(
+      `SELECT "id","name","uslovie" FROM "Snippets" WHERE "id" = ANY($1::int[]) ORDER BY "id" ASC`,
+      [ids]
+    );
+    return res.json(rows);
+  } catch (e) {
+    console.error('GET /snippets bulk failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  }
+}
+
+app.get('/snippets/bulk', async (req, res) => {
+  const ids = parseIdsParam(req.query.ids);
+  return fetchSnippetsByIds(ids, res);
+});
+
+// Fallback alias used by the frontend
+app.get('/snippets', async (req, res) => {
+  const ids = parseIdsParam(req.query.ids);
+  return fetchSnippetsByIds(ids, res);
+});
+
+// Return tuple_key for Exercises by IDs – used when rendering Task rows in version control
+app.get('/exercises/tuple-keys', async (req, res) => {
+  const ids = parseIdsParam(req.query.ids);
+  if (!ids.length) return res.json([]);
+  try {
+    const { rows } = await pool.query(
+      `SELECT "ID" AS id, "tuple_key" FROM "Exercises" WHERE "ID" = ANY($1::int[]) ORDER BY "ID" ASC`,
+      [ids]
+    );
+    return res.json(rows);
+  } catch (e) {
+    console.error('GET /exercises/tuple-keys failed:', e);
+    return res.status(500).json({ error: 'DB error' });
   }
 });
 
@@ -1890,4 +1963,54 @@ app.post('/student-threads/new', express.json(), async (req, res) => {
   const thread = `${sid}-${rand}`;
   // няма нужда от запис в БД – нишката ще „живее“ когато се използва за първи път
   res.json({ thread });
+});
+
+// POST /threads/create { studentID:number, baseIds:number[], threadID?:string }
+app.post('/threads/create', async (req, res) => {
+  const { studentID, baseIds, threadID } = req.body || {};
+  const sid = parseInt(studentID, 10);
+  const ids = Array.isArray(baseIds) ? baseIds.map(n=>parseInt(n,10)).filter(Number.isInteger) : [];
+  if (!Number.isInteger(sid) || ids.length === 0) {
+    return res.status(400).json({ error: 'Missing studentID or baseIds' });
+  }
+  // Generate thread id if missing: <studentID>-<10alnum>
+  function randomKey(len){
+    const abc = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    let s=''; for(let i=0;i<len;i++) s += abc[Math.floor(Math.random()*abc.length)];
+    return s;
+  }
+  const tid = (typeof threadID === 'string' && threadID.trim() !== ''
+              ? threadID.trim()
+              : `${sid}-${randomKey(10)}`);
+
+  // recursive closure of follow-ups chain restricted to this student
+  const client = await pool.connect();
+  try{
+    await client.query('BEGIN');
+    const sql = `
+      WITH RECURSIVE chain AS (
+        SELECT id, "followup_id"
+          FROM "student_assessment_skills_exercises"
+         WHERE "studentID" = $1 AND id = ANY($2::int[])
+        UNION ALL
+        SELECT s.id, s."followup_id"
+          FROM "student_assessment_skills_exercises" s
+          JOIN chain c ON s."followup_id" = c.id
+         WHERE s."studentID" = $1
+      )
+      UPDATE "student_assessment_skills_exercises" AS t
+         SET "threadID" = $3
+        FROM (SELECT id FROM chain) u
+       WHERE t.id = u.id
+       RETURNING t.id;`;
+    const r = await client.query(sql, [sid, ids, tid]);
+    await client.query('COMMIT');
+    return res.json({ ok:true, threadID: tid, updatedIds: r.rows.map(x=>x.id) });
+  }catch(e){
+    await client.query('ROLLBACK');
+    console.error('threads/create failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  }finally{
+    client.release();
+  }
 });
