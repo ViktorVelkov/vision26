@@ -9,6 +9,10 @@
     body{font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;}
     .container{max-width: 1100px; margin: 24px auto;}
     .row{display:grid; grid-template-columns: 2fr 1fr; gap:12px; align-items:end;}
+    /* Make the search bar stretch up to the button */
+    #searchRow{ grid-template-columns: 1fr auto; align-items:center; }
+    #searchRow > div:first-child{ display:flex; align-items:center; gap:12px; }
+    #studentSearch{ flex:1; min-width:0; width:100%; }
     .btn{padding:8px 12px; border-radius:6px; border:1px solid #cbd5e1; background:#f8fafc; cursor:pointer}
     .btn.primary{background:#2563eb; color:#fff; border-color:#1d4ed8}
     .table{width:100%; border-collapse:collapse}
@@ -21,6 +25,33 @@
       text-align: center;
       vertical-align: middle;
     }
+
+    /* Unthreaded grouping visuals */
+    #unthreadedTable tr.group-root { background: #ffffff; }
+    #unthreadedTable tr.group-root.has-children { background: #fff8d1; } /* default yellow, overridden by .gc* */
+    #unthreadedTable tr.group-child { background: #fff8d1; } /* default yellow, overridden by .gc* */
+    #unthreadedTable tr.group-child td:nth-child(3){ /* Умение ID column gets an arrow */
+      position: relative;
+      padding-left: 22px;
+    }
+    #unthreadedTable tr.group-child td:nth-child(3)::before{
+      content: '↳';
+      position: absolute;
+      left: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #a16207; /* amber-700 */
+      font-weight: 600;
+    }
+
+    /* Per-group color palette (root + children get the same shade)
+       Use high specificity + !important so it overrides group-root/child defaults. */
+    #unthreadedTable tr.gc0 { background: #fff8d1 !important; }  /* amber */
+    #unthreadedTable tr.gc1 { background: #e7f5ff !important; }  /* light blue */
+    #unthreadedTable tr.gc2 { background: #eaf7e6 !important; }  /* light green */
+    #unthreadedTable tr.gc3 { background: #fce8f3 !important; }  /* light pink */
+    #unthreadedTable tr.gc4 { background: #f5f3ff !important; }  /* lavender */
+    #unthreadedTable tr.gc5 { background: #fdf2f8 !important; }  /* rose */
     .table, .table th, .table td {
       border: 1px solid #ccc;
       border-collapse: collapse;
@@ -37,123 +68,93 @@
     .form-grid{display:grid; grid-template-columns: repeat(6, 1fr); gap:8px; align-items:end;}
     .form-grid input[type="text"], .form-grid input[type="number"], .form-grid textarea{width:100%; padding:6px 8px; border:1px solid #cbd5e1; border-radius:6px}
     textarea{min-height:38px}
+    /* Align the 'умение?' checkbox nicely */
+    .form-grid .checkbox-cell{
+      display:flex;
+      align-items:center;           /* vertical center */
+      gap:8px;
+      padding-left:12px;            /* add a little spacing from Triplet field */
+    }
+    .form-grid .checkbox-cell label{
+      margin:0;
+      white-space:nowrap;
+    }
+    .form-grid .checkbox-cell input[type="checkbox"]{
+      margin:0 0 0 2px;             /* tiny left margin so it never kisses the border */
+      position:relative;
+      top:2px;                      /* subtle vertical nudge instead of transform */
+    }
+    .tabbar{display:flex; justify-content:center; gap:10px; margin:6px 0 14px}
+    .tab-btn{padding:8px 14px; border-radius:999px; border:1px solid #cbd5e1; background:#f8fafc; cursor:pointer}
+    .tab-btn.active{background:#2563eb; color:#fff; border-color:#1d4ed8}
+    .group-placeholder{padding:32px; text-align:center; color:#64748b; border:1px dashed #cbd5e1; border-radius:8px}
   </style>
 </head>
 <body>
+  <br>
   <div class="container">
-    <h1>Версии / Нишки за ученик</h1>
-    <div id="searchRow" class="row">
-      <div>
-        <label for="studentSearch">Търси ученик по име</label>
-        <input id="studentSearch" type="text" placeholder="например: Мария" />
-      </div>
-      <div>
-        <button id="findStudentBtn" class="btn">Търси</button>
-      </div>
+    <div class="tabbar">
+      <button id="tabIndividual" class="tab-btn active">Индивидуално</button>
+      <button id="tabGroup" class="tab-btn">Групово</button>
     </div>
 
-    <ul id="studentPick"></ul>
+    <div id="pageIndividual">
+      <div id="searchRow" class="row">
+        <div>
+          <label for="studentSearch">Търси по име:</label>
+          <input id="studentSearch" type="text" placeholder="например: Мария" />
+        </div>
+        <div>
+          <button id="findStudentBtn" class="btn">Търси</button>
+        </div>
+      </div>
 
-    <div id="studentArea" hidden>
-    <div id="meta" class="muted small" hidden></div>
+      <ul id="studentPick"></ul>
 
-    <h3 id="unthreadedHeader" hidden>Без нишка</h3>
-<div id="unthreadedWrap" hidden>
-  <div style="margin:6px 0; display:flex; gap:8px; align-items:center;">
-    <button id="makeThreadBtn" class="btn">Обедини в нишка</button>
-    <span class="muted small">(избери един или повече реда по‑долу)</span>
-  </div>
-  <table class="table" id="unthreadedTable">
-    <thead>
-      <tr>
-        <th style="width:36px;">✔</th>
-        <th>Дата</th>
-        <th>Умение ID</th>
-        <th>Тип</th>
-        <th>Компонент</th>
-        <th>Оценка</th>
-        <th>Бележка</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
-</div>
+      <div id="studentArea" hidden>
+      <div id="meta" class="muted small" hidden></div>
 
-<h3 id="threadsHeader" hidden>Нишки</h3>
-<div id="threadsWrap" hidden>
-  <table class="table" id="threadSummaryTable">
-    <thead>
-      <tr>
-        <th>Thread</th>
-        <th>Брой записи</th>
-        <th>Последно</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
-</div>
-<h3 id="threadDetailHeader" hidden>
-    История на нишка: <span id="threadDetailId"></span>
-    <button id="closeThreadDetailBtn" class="btn" style="margin-left: 12px;">✖</button>
-  </h3>
-<div id="threadDetailWrap" hidden>
-    <table class="table" id="threadDetailTable">
+      <h3 id="unthreadedHeader" hidden>Без нишка</h3>
+  <div id="unthreadedWrap" hidden>
+    <div style="margin:6px 0; display:flex; gap:8px; align-items:center;">
+      <button id="makeThreadBtn" class="btn">Обедини в нишка</button>
+      <span class="muted small">(избери един или повече реда по‑долу)</span>
+    </div>
+    <table class="table" id="unthreadedTable">
       <thead>
         <tr>
-          <th>Време</th>
-          <th>Triplet</th>
+          <th style="width:36px;">✔</th>
+          <th>Дата</th>
+          <th>Умение ID</th>
           <th>Тип</th>
           <th>Компонент</th>
           <th>Оценка</th>
           <th>Бележка</th>
-          <th>Follow-up</th>
         </tr>
       </thead>
       <tbody></tbody>
     </table>
   </div>
-    <h3 id="newActionHeader" hidden>Ново действие</h3>
-    <div class="form-grid" id="newActionForm" hidden>
-      <div>
-        <label>Triplet</label>
-        <input id="f_triplet" type="text" placeholder="001001001" />
-      </div>
-      <div>
-        <label>умение?</label>
-        <input id="f_isSnippet" type="checkbox" />
-      </div>
-      <div>
-        <label>Компонент ID</label>
-        <input id="f_component" type="number" />
-      </div>
-      <div>
-        <label>Оценка</label>
-        <input id="f_assessment" type="number" />
-      </div>
-      <div>
-        <label>Нишка (ID)</label>
-        <input id="f_thread" type="text" />
-      </div>
-      <div>
-        <label>Follow‑up на (ID)</label>
-        <input id="f_followup_id" type="number" />
-      </div>
-      <div style="grid-column: 1 / -1;">
-        <label>Follow‑up бележка</label>
-        <textarea id="f_followup_exp" placeholder="Как продължавам нишката?"></textarea>
-      </div>
-      <div style="grid-column: 1 / -1; text-align:right;">
-        <button id="saveActionBtn" class="btn primary">Запази</button>
-      </div>
-    </div>
 
-    <div id="historyToggleRow" class="row" style="margin-top:24px; align-items:center;" hidden>
-      <button id="toggleHistoryBtn" class="btn" type="button">Покажи хронология</button>
-    </div>
-
-    <div id="resultsWrap" hidden>
-      <h3>Хронология</h3>
-      <table class="table" id="historyTable">
+  <h3 id="threadsHeader" hidden>Нишки</h3>
+  <div id="threadsWrap" hidden>
+    <table class="table" id="threadSummaryTable">
+      <thead>
+        <tr>
+          <th>Thread</th>
+          <th>Брой записи</th>
+          <th>Последно</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <h3 id="threadDetailHeader" hidden>
+      История на нишка: <span id="threadDetailId"></span>
+      <button id="closeThreadDetailBtn" class="btn" style="margin-left: 12px;">✖</button>
+    </h3>
+  <div id="threadDetailWrap" hidden>
+      <table class="table" id="threadDetailTable">
         <thead>
           <tr>
             <th>Време</th>
@@ -162,13 +163,74 @@
             <th>Компонент</th>
             <th>Оценка</th>
             <th>Бележка</th>
-            <th>Нишка</th>
-            <th>Follow‑up</th>
+            <th>Follow-up</th>
           </tr>
         </thead>
         <tbody></tbody>
       </table>
     </div>
+      <h3 id="newActionHeader" hidden>Ново действие</h3>
+      <div class="form-grid" id="newActionForm" hidden>
+        <div>
+          <label>Triplet</label>
+          <input id="f_triplet" type="text" placeholder="001001001" />
+        </div>
+        <div class="checkbox-cell">
+          <label>умение?</label>
+          <input id="f_isSnippet" type="checkbox" />
+        </div>
+        <div>
+          <label>Компонент ID</label>
+          <input id="f_component" type="number" />
+        </div>
+        <div>
+          <label>Оценка</label>
+          <input id="f_assessment" type="number" />
+        </div>
+        <div>
+          <label>Нишка (ID)</label>
+          <input id="f_thread" type="text" />
+        </div>
+        <div>
+          <label>Follow‑up на (ID)</label>
+          <input id="f_followup_id" type="number" />
+        </div>
+        <div style="grid-column: 1 / -1;">
+          <label>Бележка(наблюдения)</label>
+          <textarea id="f_followup_exp" placeholder="Какво има да се свърши/оценка с думи?"></textarea>
+        </div>
+        <div style="grid-column: 1 / -1; text-align:right;">
+          <button id="saveActionBtn" class="btn primary">Запази</button>
+        </div>
+      </div>
+
+      <div id="historyToggleRow" class="row" style="margin-top:24px; align-items:center;" hidden>
+        <button id="toggleHistoryBtn" class="btn" type="button">Покажи хронология</button>
+      </div>
+
+      <div id="resultsWrap" hidden>
+        <h3>Хронология</h3>
+        <table class="table" id="historyTable">
+          <thead>
+            <tr>
+              <th>Време</th>
+              <th>Triplet</th>
+              <th>Тип</th>
+              <th>Компонент</th>
+              <th>Оценка</th>
+              <th>Бележка</th>
+              <th>Нишка</th>
+              <th>Follow‑up</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      </div>
+    </div> <!-- end #pageIndividual -->
+
+    <div id="pageGroup" hidden>
+      <div class="group-placeholder">Групово — форма в разработка.</div>
     </div>
   </div>
 <script src="/threadHistory.js"></script>

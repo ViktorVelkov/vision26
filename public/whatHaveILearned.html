@@ -168,6 +168,18 @@
   </table>
 </aside>
 
-
+<!-- Yellow Sticky Notes (per-page persistent key) -->
+<script>
+  (function(){
+    try{
+      const p = new URLSearchParams(location.search);
+      // URL overrides: ?ysn=… или ?sticky=… или ?key=…
+      window.YSN_KEY = p.get('ysn') || p.get('sticky') || p.get('key') || 'what-have-i-learned';
+    }catch(_e){
+      window.YSN_KEY = 'what-have-i-learned';
+    }
+  })();
+</script>
+<script src="/yellowStickyNotes.js"></script>
 </body>
 </html>

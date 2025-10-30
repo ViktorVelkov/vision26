@@ -1,28 +1,45 @@
-// public/yellowStickyNotes.js — checklist UI (no persistence)
+// public/yellowStickyNotes.js — checklist UI with persistence via /sticky-notes
 (function(){
+  const SAVE_DEBOUNCE = 500; // ms
+  let saveTimer = null;
+  let currentKey = 'default';
+
   function makeItem(text="", done=false){
     const li = document.createElement('li');
     li.className = 'ysn-item';
+
     const box = document.createElement('label');
     box.className = 'ysn-check';
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.checked = !!done;
     box.appendChild(input);
+
     const span = document.createElement('span');
     span.className = 'ysn-text';
     span.contentEditable = 'true';
     span.spellcheck = true;
     span.dataset.placeholder = 'Пиши тук…';
     if (text) span.textContent = text;
+
     li.appendChild(box);
     li.appendChild(span);
+
+    // listeners that should trigger save
+    input.addEventListener('change', onCheckboxChange);
+    span.addEventListener('input', scheduleSave);
+
     return li;
   }
 
   function ensureList(editor){
     let ul = editor.querySelector(':scope > ul.ysn-list');
-    if (!ul){ ul = document.createElement('ul'); ul.className = 'ysn-list'; editor.innerHTML=''; editor.appendChild(ul); }
+    if (!ul){
+      ul = document.createElement('ul');
+      ul.className = 'ysn-list';
+      editor.innerHTML='';
+      editor.appendChild(ul);
+    }
     if (!ul.children.length){ ul.appendChild(makeItem('')); }
     return ul;
   }
@@ -45,6 +62,86 @@
     }catch(_e){ return 'default'; }
   }
 
+  function collectItems(ul){
+    const out = [];
+    ul.querySelectorAll(':scope > li.ysn-item').forEach(li=>{
+      const span = li.querySelector('.ysn-text');
+      const chk  = li.querySelector('input[type="checkbox"]');
+      const text = (span && span.textContent ? span.textContent : '').trim();
+      // keep empty lines only if NOT last one
+      if (text.length || chk.checked){
+        out.push({ text, done: !!(chk && chk.checked) });
+      }
+    });
+    return out;
+  }
+
+  function scheduleSave(){
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(doSaveNow, SAVE_DEBOUNCE);
+  }
+
+  async function doSaveNow(){
+    saveTimer = null;
+    try{
+      const editor = document.getElementById('ysn-editor');
+      if (!editor) return;
+      const ul = editor.querySelector(':scope > ul.ysn-list');
+      if (!ul) return;
+      const items = collectItems(ul);
+      await fetch('/sticky-notes', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ key: currentKey, items })
+      });
+    }catch(_e){ /* ignore network issues */ }
+  }
+
+  function onCheckboxChange(e){
+    e.stopPropagation();
+    const input = e.target.closest('input[type="checkbox"]');
+    if (!input) return;
+    const li = input.closest('li.ysn-item');
+    if (!li) return;
+    if (input.checked){
+      // Persist checked item into done log (server file)
+      try{
+        const span = li.querySelector('.ysn-text');
+        const text = (span && span.textContent) ? span.textContent.trim() : '';
+        if (text){
+          fetch('/sticky-notes/done-append', {
+            method:'POST',
+            headers:{ 'Content-Type':'application/json' },
+            body: JSON.stringify({ key: currentKey, text, at: new Date().toISOString() })
+          }).catch(()=>{});
+        }
+      }catch(_e){}
+      // remove visually then save
+      li.classList.add('removing');
+      setTimeout(()=>{
+        const ul = li.parentNode; li.remove();
+        if (!ul.querySelector('li')) ul.appendChild(makeItem(''));
+        scheduleSave();
+      }, 180);
+    } else {
+      scheduleSave();
+    }
+  }
+
+  async function loadExistingInto(ul){
+    try{
+      const res = await fetch('/sticky-notes?key=' + encodeURIComponent(currentKey), { cache: 'no-store' });
+      const data = await res.json();
+      const items = Array.isArray(data.items) ? data.items : [];
+      ul.innerHTML = '';
+      if (!items.length) {
+        ul.appendChild(makeItem(''));
+      } else {
+        for (const it of items){ ul.appendChild(makeItem(String(it.text||''), !!it.done)); }
+      }
+    }catch(_e){ /* if failing, just keep a single empty item */ }
+  }
+
   async function mount(){
     try{
       const res = await fetch('/yellowStickyNotes.html', { cache:'no-store' });
@@ -62,10 +159,15 @@
       const editor = root.querySelector('#ysn-editor');
       editor.setAttribute('contenteditable','false');
 
-      // panel.classList.add('open');
+      // key used for persistence (file name on server side)
+      currentKey = getStickyKey();
+
       toggle.addEventListener('click', ()=> panel.classList.toggle('open'));
       if (close) close.addEventListener('click', ()=> panel.classList.remove('open'));
+
       const ul = ensureList(editor);
+      // Load from server (creates file on first POST later)
+      await loadExistingInto(ul);
 
       // Enter -> нов ред; Shift+Enter -> мек ред, only inside .ysn-text
       editor.addEventListener('keydown', (e)=>{
@@ -83,6 +185,7 @@
           const nextSpan = next.querySelector('.ysn-text');
           nextSpan.focus();
           caretToEnd(nextSpan);
+          scheduleSave();
         }
       });
 
@@ -103,35 +206,10 @@
         let cur = li;
         for (const ln of lines){ const n = makeItem(ln); cur.insertAdjacentElement('afterend', n); cur = n; }
         const lastSpan = cur.querySelector('.ysn-text'); lastSpan.focus(); caretToEnd(lastSpan);
+        scheduleSave();
       });
 
-      // Клик по checkbox -> махни реда с малка анимация
-      editor.addEventListener('change', (e)=>{
-        const input = e.target.closest('input[type="checkbox"]');
-        if (!input) return;
-        const li = input.closest('li.ysn-item');
-        if (!li) return;
-        if (input.checked){
-          // Persist checked item into done log (server file)
-          try{
-            const key = getStickyKey();
-            const span = li.querySelector('.ysn-text');
-            const text = (span && span.textContent) ? span.textContent.trim() : '';
-            if (text){
-              fetch('/sticky-notes/done-append', {
-                method:'POST',
-                headers:{ 'Content-Type':'application/json' },
-                body: JSON.stringify({ key, text, at: new Date().toISOString() })
-              }).catch(()=>{});
-            }
-          }catch(_e){}
-          li.classList.add('removing');
-          setTimeout(()=>{
-            const ul = li.parentNode; li.remove();
-            if (!ul.querySelector('li')) ul.appendChild(makeItem(''));
-          }, 180);
-        }
-      });
+      // Клик по checkbox -> remove handled in onCheckboxChange (already schedules save)
 
       // Клик върху фон → фокус върху последната точка или съответния текст
       editor.addEventListener('click', (e)=>{
@@ -150,6 +228,10 @@
           sp.focus(); caretToEnd(sp);
         }
       });
+
+      // Save when panel is closed or before page unload
+      if (close) close.addEventListener('click', doSaveNow);
+      window.addEventListener('beforeunload', doSaveNow);
 
     }catch(e){ console.warn('yellowStickyNotes mount failed:', e); }
   }

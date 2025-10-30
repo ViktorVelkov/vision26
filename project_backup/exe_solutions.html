@@ -331,6 +331,24 @@
     </div>
    
     <script src="exe_solutions.js"></script>
+    <!-- Yellow Sticky Notes: bind a per-page key and load the component -->
+<style>
+  /* За тази страница искаме бележката вляво долу */
+  .ysn-root{ right:auto !important; left:16px !important; }
+</style>
+<script>
+  // Избираме ключ (име на файловете). URL параметър може да го override-не.
+  (function(){
+    try{
+      const p = new URLSearchParams(location.search);
+      // приоритет: ?ysn=… или ?sticky=… или ?key=…
+      window.YSN_KEY = p.get('ysn') || p.get('sticky') || p.get('key') || 'exe-solutions';
+    }catch(_e){
+      window.YSN_KEY = 'exe-solutions';
+    }
+  })();
+</script>
+<script src="/yellowStickyNotes.js"></script>
 </body>
 
 </html>
