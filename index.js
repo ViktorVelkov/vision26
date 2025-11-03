@@ -16,6 +16,25 @@ function stickyFileFromKey(key){
   const safe = (String(key||'default')).replace(/[^a-z0-9_-]+/gi,'-').slice(0,60) || 'default';
   return path.join(STICKY_DIR, safe + '.json');
 }
+
+// === Upload state (onlineUploaded, uploadCode) stored as local JSON under public ===
+const UPLOAD_STATE_DIR = path.join(__dirname, 'public', 'lesson-upload-state');
+try { fs.mkdirSync(UPLOAD_STATE_DIR, { recursive: true }); } catch(e) { console.warn('upload-state dir mkdir failed:', e && e.message ? e.message : e); }
+const UPLOAD_STATE_FILE = path.join(UPLOAD_STATE_DIR, 'state.json');
+function readUploadState(){
+  try{
+    if (!fs.existsSync(UPLOAD_STATE_FILE)) return {};
+    const raw = fs.readFileSync(UPLOAD_STATE_FILE, 'utf8');
+    const obj = JSON.parse(raw);
+    return (obj && typeof obj === 'object') ? obj : {};
+  }catch(e){ console.warn('readUploadState failed:', e && e.message ? e.message : e); return {}; }
+}
+function writeUploadState(obj){
+  try{
+    fs.writeFileSync(UPLOAD_STATE_FILE, JSON.stringify(obj, null, 2), 'utf8');
+    return true;
+  }catch(e){ console.error('writeUploadState failed:', e); return false; }
+}
 // === Sticky Notes API: read/write checklist as a JSON file (no DB) ===
 // GET /sticky-notes?key=<slug>  -> { items:[{text,done}] }
 app.get('/sticky-notes', async (req, res) => {
@@ -31,6 +50,40 @@ app.get('/sticky-notes', async (req, res) => {
     console.error('GET /sticky-notes failed:', e);
     res.status(500).json({ error: 'Failed to read notes' });
   }
+});
+
+// === Upload state API ===
+// GET /upload-state  -> returns a map: { [rowId]: { onlineUploaded: null|true|false, uploadCode: string } }
+app.get('/upload-state', (req, res) => {
+  const data = readUploadState();
+  res.json(data);
+});
+
+// PATCH /upload-state/:id  body: { onlineUploaded?, uploadCode? }
+app.patch('/upload-state/:id', (req, res) => {
+  const id = String(req.params.id||'').trim();
+  if (!id) return res.status(400).json({ error: 'Missing id' });
+  const body = req.body || {};
+  const data = readUploadState();
+  const cur = (data[id] && typeof data[id] === 'object') ? data[id] : {};
+
+  if (Object.prototype.hasOwnProperty.call(body, 'onlineUploaded')) {
+    let v = body.onlineUploaded;
+    if (typeof v === 'string') {
+      const s = v.trim().toLowerCase();
+      if (s === 'true' || s === '1') v = true; else if (s === 'false' || s === '0') v = false; else v = null;
+    } else if (typeof v !== 'boolean') {
+      v = null; // normalize to tri-state
+    }
+    cur.onlineUploaded = v;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'uploadCode')) {
+    cur.uploadCode = (typeof body.uploadCode === 'string') ? body.uploadCode : (body.uploadCode==null? '' : String(body.uploadCode));
+  }
+
+  data[id] = cur;
+  if (!writeUploadState(data)) return res.status(500).json({ error: 'Failed to write state' });
+  res.json({ ok:true, id, state: cur });
 });
 
 // POST /sticky-notes  body: { key, items:[{text,done}] }
@@ -192,6 +245,188 @@ app.use("/holidays", holidayRouter);
 app.use("/", scheduleSelectionRouter);
 app.use('/lessons-calendar', require('./routes/lessonsCalendar'));
 app.use('/lessons-library', require('./public/lessonsLibrary'));
+
+// === LESSONS CALENDAR: pull-next and merge-prev backend actions ===
+// These routes must come after the main router so they are always reachable.
+const { Pool } = require('pg');
+// pool is already required above
+
+// Helper: extract only the relevant payload fields from a generatedyearplan row
+function extractPayload(row) {
+  return {
+    unit: (row.unit || '').trim(),
+    unitetype: (row.unitetype || '').trim(),
+    sectioninfo: (row.sectioninfo || '').trim(),
+    notes: (row.notes || '').trim(),
+    lessonCode: (row.lessonCode || '').trim()
+  };
+}
+
+// Helper: check if any payload field is non-empty
+function hasAnyContent(payload) {
+  return !!(payload.unit || payload.unitetype || payload.sectioninfo || payload.notes || payload.lessonCode);
+}
+
+// Helper: merge two payloads for pull/merge actions
+function mergePayloads(cur, next) {
+  // unit: join non-empty with ' / '
+  const units = [cur.unit, next.unit].map(s => (s || '').trim()).filter(Boolean);
+  const mergedUnit = units.join(' / ');
+  // sectioninfo: join with \n
+  const sections = [cur.sectioninfo, next.sectioninfo].map(s => (s || '').trim()).filter(Boolean);
+  const mergedSectioninfo = sections.join('\n');
+  // notes: join with \n
+  const notes = [cur.notes, next.notes].map(s => (s || '').trim()).filter(Boolean);
+  const mergedNotes = notes.join('\n');
+  // unitetype: prefer cur, else next
+  const mergedUnitetype = cur.unitetype || next.unitetype || '';
+  // lessonCode: join unique, non-empty, comma+space
+  const codes = [cur.lessonCode, next.lessonCode]
+    .map(s => (s || '').trim())
+    .filter(Boolean)
+    .flatMap(s => s.split(',').map(x => x.trim()))
+    .filter(Boolean);
+  const uniqueCodes = [...new Set(codes)];
+  const mergedLessonCode = uniqueCodes.join(', ');
+  return {
+    unit: mergedUnit,
+    unitetype: mergedUnitetype,
+    sectioninfo: mergedSectioninfo,
+    notes: mergedNotes,
+    lessonCode: mergedLessonCode
+  };
+}
+
+// POST /lessons-calendar/generatedyearplan/:id/pull-next
+app.post('/lessons-calendar/generatedyearplan/:id/pull-next', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
+  const mergeIfConflict = req.body && req.body.mergeIfConflict === true;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // Load current row
+    const { rows: curRows } = await client.query(
+      `SELECT * FROM "generatedyearplan" WHERE id = $1`, [id]
+    );
+    if (!curRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Current row not found' });
+    }
+    const cur = curRows[0];
+    // Find next row with same subject and id > currentId
+    const { rows: nextRows } = await client.query(
+      `SELECT * FROM "generatedyearplan"
+        WHERE "subject" = $1 AND id > $2
+        ORDER BY id ASC LIMIT 1`,
+      [cur.subject, cur.id]
+    );
+    if (!nextRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'No next row found' });
+    }
+    const next = nextRows[0];
+    // Extract payloads
+    const curPayload = extractPayload(cur);
+    const nextPayload = extractPayload(next);
+    const curHasContent = hasAnyContent(curPayload);
+    const nextHasContent = hasAnyContent(nextPayload);
+    // If both have content and not mergeIfConflict, return 409
+    if (curHasContent && nextHasContent && !mergeIfConflict) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ current: curPayload, incoming: nextPayload });
+    }
+    // Compute new content for current row
+    let finalPayload;
+    if (!curHasContent || !nextHasContent) {
+      // No conflict, just copy next into current
+      finalPayload = { ...nextPayload };
+    } else if (mergeIfConflict) {
+      // Merge fields
+      finalPayload = mergePayloads(curPayload, nextPayload);
+    }
+    // Update current row with finalPayload
+    await client.query(
+      `UPDATE "generatedyearplan"
+         SET unit = $1, unitetype = $2, sectioninfo = $3, notes = $4, "lessonCode" = $5
+       WHERE id = $6`,
+      [finalPayload.unit, finalPayload.unitetype, finalPayload.sectioninfo, finalPayload.notes, finalPayload.lessonCode, cur.id]
+    );
+    // Clear next row's content
+    await client.query(
+      `UPDATE "generatedyearplan"
+         SET unit = '', unitetype = '', sectioninfo = '', notes = '', "lessonCode" = ''
+       WHERE id = $1`,
+      [next.id]
+    );
+    await client.query('COMMIT');
+    return res.json({ ok: true, id: cur.id, movedFrom: next.id });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('pull-next failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  } finally {
+    client.release();
+  }
+});
+
+// POST /lessons-calendar/generatedyearplan/:id/merge-prev
+app.post('/lessons-calendar/generatedyearplan/:id/merge-prev', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // Load current row
+    const { rows: curRows } = await client.query(
+      `SELECT * FROM "generatedyearplan" WHERE id = $1`, [id]
+    );
+    if (!curRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Current row not found' });
+    }
+    const cur = curRows[0];
+    // Find previous row with same subject and id < currentId
+    const { rows: prevRows } = await client.query(
+      `SELECT * FROM "generatedyearplan"
+        WHERE "subject" = $1 AND id < $2
+        ORDER BY id DESC LIMIT 1`,
+      [cur.subject, cur.id]
+    );
+    if (!prevRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'No previous row found' });
+    }
+    const prev = prevRows[0];
+    // Extract payloads
+    const curPayload = extractPayload(cur);
+    const prevPayload = extractPayload(prev);
+    // Always merge current into previous
+    const mergedPayload = mergePayloads(prevPayload, curPayload);
+    // Update previous row
+    await client.query(
+      `UPDATE "generatedyearplan"
+         SET unit = $1, unitetype = $2, sectioninfo = $3, notes = $4, "lessonCode" = $5
+       WHERE id = $6`,
+      [mergedPayload.unit, mergedPayload.unitetype, mergedPayload.sectioninfo, mergedPayload.notes, mergedPayload.lessonCode, prev.id]
+    );
+    // Clear current row's content
+    await client.query(
+      `UPDATE "generatedyearplan"
+         SET unit = '', unitetype = '', sectioninfo = '', notes = '', "lessonCode" = ''
+       WHERE id = $1`,
+      [cur.id]
+    );
+    await client.query('COMMIT');
+    return res.json({ ok: true, id: cur.id, mergedInto: prev.id });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('merge-prev failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  } finally {
+    client.release();
+  }
+});
 
 /**
  * GET /lesson-skills?triplet=001001001
@@ -878,7 +1113,58 @@ app.get('/lessons/search-by-snippet', async (req, res) => {
   }
 });
 
-// Настройка на връзката към PostgreSQL
+
+// GET /assessments/by-lesson-skill?triplet=001001001&componentID=27001&className=11%20А
+// Returns latest assessment per student for that lesson+skill, for the given class/division.
+app.get('/assessments/by-lesson-skill', async (req, res) => {
+  const triplet = (req.query.triplet||'').trim();
+  const componentID = parseInt(req.query.componentID, 10);
+  const className = (req.query.className||'').trim();
+  if (!triplet || !Number.isInteger(componentID) || !className) {
+    return res.status(400).json({ error: 'Missing triplet, componentID or className' });
+  }
+  // Parse class/division
+  const cls = parseInt(className, 10);
+  const div = className.includes(' ') ? className.substring(className.indexOf(' ')+1).trim() : '';
+  if (!Number.isInteger(cls)) return res.status(400).json({ error: 'Invalid className' });
+  try {
+    // Students of the class
+    const { rows: students } = await pool.query(
+      `SELECT "ID" AS id, ("First_Name" || ' ' || "Sirname") AS name
+         FROM "Students"
+        WHERE "Grade" = $1 AND "Division" = $2
+        ORDER BY "First_Name", "Sirname"`,
+      [cls, div]
+    );
+
+    // Latest assessment per student for this triplet+componentID
+    const { rows: asses } = await pool.query(
+      `SELECT DISTINCT ON (s."studentID")
+              s."studentID" AS id,
+              s."assessment",
+              TO_CHAR(s."entryTime", 'YYYY-MM-DD HH24:MI') AS entryTime
+         FROM "student_assessment_skills_exercises" s
+        WHERE s."lessonTriplet" = $1
+          AND s."componentID" = $2
+        ORDER BY s."studentID", s."entryTime" DESC, s.id DESC`,
+      [triplet, componentID]
+    );
+    const byId = new Map(asses.map(r => [parseInt(r.id,10), r]));
+    const out = students.map(st => {
+      const hit = byId.get(parseInt(st.id,10));
+      return {
+        studentID: st.id,
+        name: st.name,
+        assessment: hit ? (hit.assessment==null? null : parseInt(hit.assessment,10)) : null,
+        entryTime: hit ? hit.entryTime : null
+      };
+    });
+    res.json(out);
+  } catch (e) {
+    console.error('GET /assessments/by-lesson-skill failed:', e);
+    res.status(500).json({ error: 'DB error' });
+  }
+});
 
 const PORT = 3001;
 app.listen(PORT, () => {

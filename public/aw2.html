@@ -404,4 +404,57 @@
   });
 })();
 </script>
+<script>
+// Guard submit: do not allow submission if nothing is assessed
+(function(){
+  // exposed flag so the close logic knows whether to close
+  window.__ASSESS_CAN_CLOSE__ = false;
+
+  function hasAnyAssessment(){
+    // any selected rating pill
+    if (document.querySelector('.pill.is-active')) return true;
+    // any task ratings (if such UI exists)
+    if (document.querySelector('.task-rating .pill.is-active')) return true;
+    return false;
+  }
+
+  function guardSubmit(e){
+    // If nothing is chosen, cancel the submit flow entirely
+    if (!hasAnyAssessment()){
+      e.preventDefault();
+      if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+      if (e.stopPropagation) e.stopPropagation();
+      window.__ASSESS_CAN_CLOSE__ = false;
+      alert('Няма въведени оценки. Нищо няма да бъде записано.');
+      return false;
+    }
+    // allow other handlers (submitAsmt.js) to run
+    window.__ASSESS_CAN_CLOSE__ = true;
+    return true;
+  }
+
+  document.addEventListener('DOMContentLoaded', function(){
+    var btn = document.getElementById('submitAssessBtn');
+    if (btn){
+      // Use capture so we intercept before other listeners
+      btn.addEventListener('click', guardSubmit, {capture:true});
+    }
+  });
+})();
+</script>
+<script>
+// Close the popup window after submitting (only if guard allowed)
+(function(){
+  function closeAfterSubmit(){
+    if (!window.__ASSESS_CAN_CLOSE__) return; // do not close when blocked
+    setTimeout(function(){
+      try { window.close(); } catch(e) {}
+    }, 700);
+  }
+  document.addEventListener('DOMContentLoaded', function(){
+    var btn = document.getElementById('submitAssessBtn');
+    if (btn) btn.addEventListener('click', closeAfterSubmit, { capture:false });
+  });
+})();
+</script>
 </html>

@@ -6,88 +6,169 @@
   <title>Version Control — Ученици</title>
   <link rel="stylesheet" href="/lessonsCenter.css" />
   <style>
-    body{font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;}
-    .container{max-width: 1100px; margin: 24px auto;}
+    :root{
+      --bg:#ffffff;
+      --bg-alt:#f7faff;
+      --text:#0f172a;
+      --muted:#64748b;
+      --border:#e2e8f0;
+      --blue:#2563eb;
+      --blue-600:#1d4ed8;
+      --blue-50:#eff6ff;
+      --green-50:#ecfdf5;
+      --amber-50:#fff8d1;
+      --shadow: 0 1px 2px rgba(15,23,42,.06), 0 6px 24px rgba(2,6,23,.06);
+      --radius:12px;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color:var(--text);
+      background:var(--bg-alt);
+      margin:0;
+    }
+    .container{max-width: 1160px; margin: 20px auto 48px; padding:0 16px;}
+
+    /* Headings */
+    h3{margin:18px 0 10px;}
+    h4{margin:8px 0 8px; color:var(--muted); font-weight:600}
+
+    /* Row grids */
     .row{display:grid; grid-template-columns: 2fr 1fr; gap:12px; align-items:end;}
-    /* Make the search bar stretch up to the button */
     #searchRow{ grid-template-columns: 1fr auto; align-items:center; }
     #searchRow > div:first-child{ display:flex; align-items:center; gap:12px; }
     #studentSearch{ flex:1; min-width:0; width:100%; }
-    .btn{padding:8px 12px; border-radius:6px; border:1px solid #cbd5e1; background:#f8fafc; cursor:pointer}
-    .btn.primary{background:#2563eb; color:#fff; border-color:#1d4ed8}
-    .table{width:100%; border-collapse:collapse}
-    .table th,.table td{
-      padding:8px 10px;
-      border-bottom:1px solid #e5e7eb;
-      white-space:nowrap;
-      max-width:220px;
-      overflow-x:auto;
-      text-align: center;
-      vertical-align: middle;
+
+    /* Inputs */
+    input[type="text"], input[type="number"], select, textarea{
+      width:100%;
+      padding:10px 12px;
+      border:1px solid var(--border);
+      border-radius:10px;
+      background:#fff;
+      outline:none;
+      transition: box-shadow .15s ease, border-color .15s ease;
+    }
+    input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:focus{
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(37,99,235,.12);
+    }
+    textarea{min-height:38px}
+
+    /* Buttons */
+    .btn{
+      padding:10px 14px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:#fff;
+      color:var(--text);
+      cursor:pointer;
+      transition: background .15s ease, color .15s ease, border-color .15s ease, transform .03s ease;
+    }
+    .btn:hover{background:#fff; border-color:#cdd6e2}
+    .btn:active{transform: translateY(1px)}
+    .btn.primary{background:var(--blue); color:#fff; border-color:var(--blue-600)}
+    .btn.primary:hover{background:var(--blue-600)}
+    .btn.ghost{background:transparent}
+
+    /* Card/panel look around tables/forms without changing markup */
+    #unthreadedWrap, #threadsWrap, #threadDetailWrap, #newActionForm,
+    #resultsWrap, #groupActionForm, #studentArea{
+      background:var(--bg);
+      border:1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding:14px 14px 10px;
     }
 
-    /* Unthreaded grouping visuals */
+    /* Tables */
+    .table{
+      width:100%;
+      border-collapse:separate;
+      border-spacing:0;
+      background:#fff;
+      overflow:hidden;
+      border:1px solid var(--border);
+      border-radius: 10px;
+    }
+    .table th,.table td{
+      padding:10px 12px;
+      border-bottom:1px solid var(--border);
+      white-space:nowrap;
+      max-width:260px;
+      overflow-x:auto;
+      text-align:center;
+      vertical-align:middle;
+    }
+    .table th{
+      background:var(--blue-50);
+      color:#0b2a6f;
+      position:sticky; top:0; z-index:1;
+    }
+    .table tr:hover td{ background:#fafcff; }
+
+    /* Checkbox column */
+    .table th:first-child, .table td:first-child{ width:42px; }
+
+    /* Unthreaded grouping visuals (kept, but polished) */
     #unthreadedTable tr.group-root { background: #ffffff; }
-    #unthreadedTable tr.group-root.has-children { background: #fff8d1; } /* default yellow, overridden by .gc* */
-    #unthreadedTable tr.group-child { background: #fff8d1; } /* default yellow, overridden by .gc* */
-    #unthreadedTable tr.group-child td:nth-child(3){ /* Умение ID column gets an arrow */
-      position: relative;
-      padding-left: 22px;
+    #unthreadedTable tr.group-root.has-children { background: var(--amber-50); }
+    #unthreadedTable tr.group-child { background: var(--amber-50); }
+    #unthreadedTable tr.group-child td:nth-child(3){
+      position: relative; padding-left: 22px;
     }
     #unthreadedTable tr.group-child td:nth-child(3)::before{
       content: '↳';
-      position: absolute;
-      left: 8px;
-      top: 50%;
-      transform: translateY(-50%);
-      color: #a16207; /* amber-700 */
-      font-weight: 600;
+      position: absolute; left: 8px; top: 50%;
+      transform: translateY(-50%); color: #a16207; font-weight: 600;
     }
 
-    /* Per-group color palette (root + children get the same shade)
-       Use high specificity + !important so it overrides group-root/child defaults. */
+    /* Per‑group color palette (root + children share)
+       Light, muted tones that keep the clean look. */
     #unthreadedTable tr.gc0 { background: #fff8d1 !important; }  /* amber */
     #unthreadedTable tr.gc1 { background: #e7f5ff !important; }  /* light blue */
     #unthreadedTable tr.gc2 { background: #eaf7e6 !important; }  /* light green */
     #unthreadedTable tr.gc3 { background: #fce8f3 !important; }  /* light pink */
     #unthreadedTable tr.gc4 { background: #f5f3ff !important; }  /* lavender */
     #unthreadedTable tr.gc5 { background: #fdf2f8 !important; }  /* rose */
-    .table, .table th, .table td {
-      border: 1px solid #ccc;
-      border-collapse: collapse;
-    }
-    .table th {
-      background-color: #f8f9fa;
-    }
-    .pill{display:inline-block; padding:2px 6px; border-radius:999px; font-size:12px; border:1px solid #cbd5e1; background:#eef2ff}
-    #resultsWrap{margin-top:16px}
-    #studentPick li{padding:6px 8px; border:1px solid #e5e7eb; border-radius:6px; margin:4px 0; cursor:pointer}
-    #studentPick li:hover{background:#f1f5f9}
-    .muted{color:#6b7280}
+
+    /* Muted helpers */
+    .muted{color:var(--muted)}
     .small{font-size:12px}
-    .form-grid{display:grid; grid-template-columns: repeat(6, 1fr); gap:8px; align-items:end;}
-    .form-grid input[type="text"], .form-grid input[type="number"], .form-grid textarea{width:100%; padding:6px 8px; border:1px solid #cbd5e1; border-radius:6px}
-    textarea{min-height:38px}
-    /* Align the 'умение?' checkbox nicely */
+
+    /* Student picker */
+    #studentPick{list-style:none; padding:0; margin:10px 0;}
+    #studentPick li{padding:10px 12px; border:1px solid var(--border); border-radius:10px; margin:6px 0; cursor:pointer; background:#fff;}
+    #studentPick li:hover{background:#f8fbff}
+
+    /* Form grid */
+    .form-grid{
+      display:grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap:10px;
+      align-items:end;
+    }
     .form-grid .checkbox-cell{
-      display:flex;
-      align-items:center;           /* vertical center */
-      gap:8px;
-      padding-left:12px;            /* add a little spacing from Triplet field */
+      display:flex; align-items:center; gap:8px; padding-left:12px;
     }
-    .form-grid .checkbox-cell label{
-      margin:0;
-      white-space:nowrap;
-    }
-    .form-grid .checkbox-cell input[type="checkbox"]{
-      margin:0 0 0 2px;             /* tiny left margin so it never kisses the border */
-      position:relative;
-      top:2px;                      /* subtle vertical nudge instead of transform */
-    }
+    .form-grid .checkbox-cell label{ margin:0; white-space:nowrap; }
+    .form-grid .checkbox-cell input[type="checkbox"]{ margin:0 0 0 2px; position:relative; top:2px; }
+
+    /* Tabs */
     .tabbar{display:flex; justify-content:center; gap:10px; margin:6px 0 14px}
-    .tab-btn{padding:8px 14px; border-radius:999px; border:1px solid #cbd5e1; background:#f8fafc; cursor:pointer}
-    .tab-btn.active{background:#2563eb; color:#fff; border-color:#1d4ed8}
-    .group-placeholder{padding:32px; text-align:center; color:#64748b; border:1px dashed #cbd5e1; border-radius:8px}
+    .tab-btn{padding:10px 18px; border-radius:999px; border:1px solid var(--border); background:#fff; cursor:pointer}
+    .tab-btn.active{background:var(--blue); color:#fff; border-color:var(--blue-600)}
+
+    /* Pills */
+    .pill{display:inline-block; padding:2px 6px; border-radius:999px; font-size:12px; border:1px solid var(--border); background:#eef2ff}
+
+    /* Responsive */
+    @media (max-width: 920px){
+      .row{ grid-template-columns: 1fr; }
+      .form-grid{ grid-template-columns: 1fr 1fr; }
+      .table th,.table td{ white-space:normal; }
+    }
   </style>
 </head>
 <body>
@@ -230,11 +311,90 @@
     </div> <!-- end #pageIndividual -->
 
     <div id="pageGroup" hidden>
-      <div class="group-placeholder">Групово — форма в разработка.</div>
+      <div style="display:grid; grid-template-columns: 1fr; gap:12px;">
+        <div class="row" style="grid-template-columns: 1fr 1fr auto; align-items:end;">
+          <div>
+            <label>Клас</label>
+            <select id="g_class">
+              <option value="">— избери клас —</option>
+            </select>
+          </div>
+          <div>
+            <label>Урок (триплет или source)</label>
+            <input id="g_lessonSearch" type="text" placeholder="001001001 или 27001…" />
+          </div>
+          <div>
+            <button id="g_load" class="btn">Зареди</button>
+          </div>
+        </div>
+
+        <div class="row" style="grid-template-columns: 1fr 2fr; gap:12px; align-items:start;">
+          <div>
+            <h4>Умения към урока</h4>
+            <ul id="g_skills" style="list-style:none; padding:0; margin:0; max-height:260px; overflow:auto;"></ul>
+            <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+              <!-- Removed duplicate Оценка and button (use group action panel below) -->
+            </div>
+          </div>
+          <div>
+            <h4>Ученици и статус по избрано умение</h4>
+            <div style="margin:6px 0; display:flex; gap:8px; align-items:center;">
+              <label><input type="checkbox" id="g_selectAll" /> избери всички</label>
+            </div>
+            <table class="table" id="g_students">
+              <thead>
+                <tr>
+                  <th style="width:36px;">✔</th>
+                  <th>Ученик</th>
+                  <th>Оценка</th>
+                  <th>Последно</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+            <!-- Групово ново действие форма -->
+            <h3>Ново действие (групово)</h3>
+            <div class="form-grid" id="groupActionForm">
+              <div>
+                <label>Triplet</label>
+                <input id="g2_triplet" type="text" placeholder="001001001" />
+              </div>
+              <div class="checkbox-cell">
+                <label>умение?</label>
+                <input id="g2_isSnippet" type="checkbox" />
+              </div>
+              <div>
+                <label>Компонент ID</label>
+                <input id="g2_component" type="number" />
+              </div>
+              <div>
+                <label>Оценка</label>
+                <input id="g2_assessment" type="number" />
+              </div>
+              <div>
+                <label>Нишка (ID)</label>
+                <input id="g2_thread" type="text" />
+              </div>
+              <div>
+                <label>Follow‑up на (ID)</label>
+                <input id="g2_followup_id" type="number" />
+              </div>
+              <div style="grid-column: 1 / -1;">
+                <label>Бележка(наблюдения)</label>
+                <textarea id="g2_followup_exp" placeholder="Какво има да се свърши/оценка с думи?"></textarea>
+              </div>
+              <div style="grid-column: 1 / -1; text-align:right;">
+                <button id="g2_saveActionBtn" class="btn primary">Запази (групово)</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 <script src="/threadHistory.js"></script>
 <script src="/versionControl.js"></script>
+<script src="/versionControl_secondTab.js"></script>
 
 <!-- Sticky Notes: set file key for this page (can be overridden via ?ysn= in URL) -->
 <script>

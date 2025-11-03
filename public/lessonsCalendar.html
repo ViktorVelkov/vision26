@@ -119,6 +119,22 @@
     const resultsTable = document.getElementById('resultsTable');
     let currentWeek = 1;
 
+    // Upload state storage (local JSON via backend)
+    let uploadState = {}; // { [rowId]: { onlineUploaded: null|true|false, uploadCode: string } }
+    async function loadUploadState(){
+      try{ const r = await fetch('/upload-state', { cache: 'no-store' }); uploadState = await r.json(); }
+      catch(_e){ uploadState = {}; }
+    }
+    async function saveUploadState(id, patch){
+      const res = await fetch('/upload-state/' + encodeURIComponent(id), {
+        method: 'PATCH', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(patch||{})
+      });
+      if (!res.ok) throw new Error('upload-state save failed');
+      const js = await res.json();
+      uploadState[String(id)] = js.state || (patch||{});
+      return js;
+    }
+
     // Helper: HTTP helpers
     async function apiShiftDate(id, days){
       const res = await fetch(`/lessons-calendar/generatedyearplan/${id}/shift-date`, {
@@ -224,10 +240,19 @@
           }
         }
 
-        // Finally, push notes at the end and move the two columns before it
+        // Ensure custom local columns exist
+        if (!arr.includes('onlineUploaded')) arr.push('onlineUploaded');
+        if (!arr.includes('uploadCode')) arr.push('uploadCode');
+
+        // Finally, push notes at the end and arrange the columns directly before it
+        // Desired order before notes: lessonCreated -> lessonCode -> onlineUploaded -> uploadCode -> notes
         arr.push('notes');
         moveBefore('lessonCode', 'notes');
         moveBefore('lessonCreated', 'lessonCode');
+        moveBefore('onlineUploaded', 'notes');
+        moveBefore('uploadCode', 'notes');
+        // keep onlineUploaded before uploadCode
+        moveBefore('onlineUploaded', 'uploadCode');
 
         // Remove any potential duplicates while preserving order
         const seen = new Set();
@@ -371,7 +396,39 @@
             const m = String(v).match(/^(\d{4}-\d{2}-\d{2})/);
             v = m ? m[1] : String(v);
           }
-          if (c === 'lessonCreated') {
+          if (c === 'onlineUploaded') {
+            const st = (uploadState && uploadState[String(r.id)]) ? uploadState[String(r.id)] : {};
+            const setDisplay = (val) => {
+              if (val === true) { td.textContent = '✔️'; td.style.color = 'green'; td.style.backgroundColor = '#e6f4ea'; td.style.fontWeight = 'bold'; }
+              else if (val === false) { td.textContent = '✖️'; td.style.color = 'red'; td.style.backgroundColor = '#fdecea'; td.style.fontWeight = 'bold'; }
+              else { td.textContent = ''; td.style.color=''; td.style.backgroundColor=''; td.style.fontWeight=''; }
+            };
+            setDisplay(st.onlineUploaded);
+            td.style.cursor = 'pointer';
+            td.title = 'Click to toggle: empty → ✔️ → ✖️';
+            td.addEventListener('click', async ()=>{
+              if (td.dataset.busy === '1') return; td.dataset.busy = '1';
+              const cur = (td.textContent === '✔️') ? true : (td.textContent === '✖️') ? false : null;
+              const next = (cur === null) ? true : (cur === true) ? false : null;
+              setDisplay(next); flashSaved(td); statusEl.textContent = 'Saving...';
+              try{ await saveUploadState(r.id, { onlineUploaded: next }); statusEl.textContent = 'Saved'; }
+              catch(e){ console.error(e); setDisplay(cur); statusEl.textContent = 'Save failed'; }
+              finally{ delete td.dataset.busy; }
+            });
+          }
+          else if (c === 'uploadCode') {
+            const st = (uploadState && uploadState[String(r.id)]) ? uploadState[String(r.id)] : {};
+            td.textContent = st.uploadCode || '';
+            td.contentEditable = 'true';
+            td.dataset.col = c; td.dataset.id = r.id;
+            td.addEventListener('keydown', (e)=>{ if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); td.blur(); } });
+            td.addEventListener('blur', async ()=>{
+              const wants = td.textContent.trim(); statusEl.textContent = 'Saving...';
+              try{ await saveUploadState(r.id, { uploadCode: wants }); flashSaved(td); statusEl.textContent='Saved'; }
+              catch(e){ console.error(e); statusEl.textContent='Save failed'; }
+            });
+          }
+          else if (c === 'lessonCreated') {
             const setDisplay = (val) => {
               if (val === true) {
                 td.textContent = '✔️';
@@ -432,7 +489,7 @@
             td.style.minWidth = '300px';
           }
 
-          if (editableCols.includes(c) && c !== 'lessonCreated'){
+          if (editableCols.includes(c) && c !== 'lessonCreated' && c !== 'onlineUploaded' && c !== 'uploadCode'){
             td.contentEditable = 'true';
             td.dataset.col = c;
             td.dataset.id = r.id;
@@ -473,6 +530,7 @@
         const res = await fetch('/lessons-calendar/generatedyearplan' + (w ? ('?week=' + encodeURIComponent(w)) : ''));
         if(!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
+        await loadUploadState();
         renderTable(data);
         currentWeek = w;
         if (weekNumberInput) weekNumberInput.value = String(currentWeek);
