@@ -21,7 +21,8 @@
     tbody td { border-bottom: 1px solid #f0f2f5; padding: 8px; }
 
     /* Zebra striping and hover rules removed */
-
+    /* Constrain Unit column width and allow inner scrolling */
+    
     /* Force single-line display with ellipsis for all cells */
     #resultsTable th,
     #resultsTable td {
@@ -29,6 +30,7 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
+    .is-empty-unit { background: #fffbe6; }
     .status { margin-top: 8px; font-size: 12px; color: #555; }
     .hidden { display: none; }
 
@@ -37,6 +39,81 @@
     #resultsTable td.notes-col {
       min-width: 300px;
       max-width: 500px;
+    }
+    #resultsTable th.unit-col,
+    #resultsTable td.unit-col {
+      min-width: 180px;
+      max-width: 400px;
+      overflow: auto;        /* показва скролбар, когато съдържанието е по-широко */
+      white-space: nowrap;   /* държи текста в един ред, скролира хоризонтално */
+    }
+
+    /* Show full text when horizontally scrolling (unit & unitetype) */
+    #resultsTable th.unit-col,
+    #resultsTable td.unit-col,
+    #resultsTable th.type-col,
+    #resultsTable td.type-col {
+      text-overflow: clip;   /* disable ellipsis for these columns */
+      overflow-x: auto;      /* horizontal scroll only */
+      overflow-y: hidden;
+    }
+
+    #resultsTable th.week-col,
+    #resultsTable td.week-col {
+      min-width: 48px;
+      max-width: 64px;
+      width: 56px;
+      text-align: center;
+    }
+
+    /* Narrow type (unitetype) column: ~10 characters wide with horizontal scroll */
+    #resultsTable th.type-col,
+    #resultsTable td.type-col {
+      min-width: 10ch;
+      max-width: 10ch;
+      width: 10ch;
+      overflow: auto;       /* показва скролбар при по-дълъг текст */
+      white-space: nowrap;  /* не пренася — скролира хоризонтално */
+    }
+
+    /* Hide (transparent) scrollbars but keep scrolling functional */
+    .table-container {
+      /* Firefox */
+      scrollbar-width: none;        /* no visible scrollbar */
+      /* IE/Edge legacy */
+      -ms-overflow-style: none;     /* no visible scrollbar */
+    }
+    .table-container::-webkit-scrollbar { /* Chrome/Safari/Edge (Blink/WebKit) */
+      width: 0 !important;
+      height: 0 !important;
+      background: transparent !important; /* fully transparent */
+    }
+
+    /* For horizontally/vertically scrollable table cells */
+    #resultsTable th.unit-col,
+    #resultsTable td.unit-col,
+    #resultsTable th.type-col,
+    #resultsTable td.type-col,
+    #resultsTable th.notes-col,
+    #resultsTable td.notes-col,
+    #resultsTable th.sectioninfo-col,
+    #resultsTable td.sectioninfo-col {
+      /* Firefox */
+      scrollbar-width: none;
+      /* IE/Edge legacy */
+      -ms-overflow-style: none;
+    }
+    #resultsTable th.unit-col::-webkit-scrollbar,
+    #resultsTable td.unit-col::-webkit-scrollbar,
+    #resultsTable th.type-col::-webkit-scrollbar,
+    #resultsTable td.type-col::-webkit-scrollbar,
+    #resultsTable th.notes-col::-webkit-scrollbar,
+    #resultsTable td.notes-col::-webkit-scrollbar,
+    #resultsTable th.sectioninfo-col::-webkit-scrollbar,
+    #resultsTable td.sectioninfo-col::-webkit-scrollbar {
+      width: 0 !important;
+      height: 0 !important;
+      background: transparent !important;
     }
 
     /* Flash green on successful save */
@@ -94,7 +171,7 @@
       <kbd>⟵</kbd><div>Изтегля следващия урок назад в текущата клетка (без промяна на датите). При вече записан урок в текущата клетка пита за сливане.</div>
       <kbd>⟶</kbd><div>Премества към следващата дата в последователността (преместване по график).</div>
       <kbd>⟵м</kbd><div>Слива текущия с предишния (две теми в една клетка); текущият ред остава, но се изпразва.</div>
-      <kbd>⟶м</kbd><div>Слива текущия със следващия (две теми в една клетка); текущият ред се изпразва.</div>
+      <kbd>⟶м</kbd><div>Слива текущия със следващия (две теми в една клетка); текущият ред остава, но се изпразва.</div>
       <kbd>🗑️</kbd><div>Изтрива реда.</div>
     </div>
   </div>
@@ -118,6 +195,38 @@
     const toggleActionsBtn = document.getElementById('toggleActionsBtn');
     const resultsTable = document.getElementById('resultsTable');
     let currentWeek = 1;
+    // Prefer week from URL (?w= or #w=). Fallback to sessionStorage.
+    try {
+      const url = new URL(window.location.href);
+      const qW = parseInt(url.searchParams.get('w') || '', 10);
+      const hashMatch = /(?:^|[#&])w=(\d+)/.exec(window.location.hash || '');
+      const hW = hashMatch ? parseInt(hashMatch[1], 10) : NaN;
+      const savedW = parseInt(sessionStorage.getItem('lesCal.lastWeek') || '', 10);
+      if (Number.isFinite(qW) && qW > 0) currentWeek = qW;
+      else if (Number.isFinite(hW) && hW > 0) currentWeek = hW;
+      else if (Number.isFinite(savedW) && savedW > 0) currentWeek = savedW;
+
+      const savedScroll = parseInt(sessionStorage.getItem('lesCal.scrollY') || '', 10);
+      if (Number.isFinite(savedScroll)) {
+        requestAnimationFrame(() => window.scrollTo(0, savedScroll));
+      }
+    } catch (_) {}
+
+    // Persist week & scroll on navigation/reload
+    window.addEventListener('beforeunload', () => {
+      try {
+        const wStr = String(currentWeek || 1);
+        if (location.hash.indexOf('w=') === -1) {
+          location.hash = '#w=' + wStr;
+        } else {
+          location.hash = location.hash.replace(/w=\d+/, 'w=' + wStr);
+        }
+      } catch (_) {}
+      try {
+        sessionStorage.setItem('lesCal.lastWeek', String(currentWeek || 1));
+        sessionStorage.setItem('lesCal.scrollY', String(window.scrollY || 0));
+      } catch (_) {}
+    });
 
     // Upload state storage (local JSON via backend)
     let uploadState = {}; // { [rowId]: { onlineUploaded: null|true|false, uploadCode: string } }
@@ -227,7 +336,13 @@
           arr.splice(di, 1);
           arr.splice(ei + 1, 0, 'duration');
         }
-
+        // 3a) Place fixedDate immediately after duration
+        const fi = arr.indexOf('fixedDate');
+        const di2 = arr.indexOf('duration');
+        if (fi !== -1 && di2 !== -1) {
+          arr.splice(fi, 1);
+          arr.splice(di2 + 1, 0, 'fixedDate');
+        }
         // 4) Place lessonCreated and lessonCode right before notes, in this order
         // First ensure lessonCreated exists before lessonCode if both present
         if (arr.includes('lessonCode') && arr.includes('lessonCreated')) {
@@ -268,10 +383,25 @@
       trh.appendChild(thAct);
       displayColsOrdered.forEach(c => {
         const th = document.createElement('th');
+        th.setAttribute('data-field', c);
         th.textContent = c;
-        if (c === 'notes') {
-          th.classList.add('notes-col');
-          th.style.minWidth = '300px';
+        if (c === 'unit') {
+          th.classList.add('unit-col');
+          th.style.minWidth = '180px';
+          th.style.maxWidth = '400px';
+        }
+        if (c === 'unitetype') {
+          th.classList.add('type-col');
+          th.style.minWidth = '10ch';
+          th.style.maxWidth = '10ch';
+          th.style.width    = '10ch';
+        }
+        if (c === 'week_number') {
+          th.classList.add('week-col');
+          th.style.minWidth = '48px';
+          th.style.maxWidth = '64px';
+          th.style.width = '56px';
+          th.style.textAlign = 'center';
         }
         trh.appendChild(th);
       });
@@ -288,108 +418,19 @@
         const tdAct = document.createElement('td');
         tdAct.style.whiteSpace = 'nowrap';
         tdAct.style.userSelect = 'none';
-        tdAct.innerHTML = `
-          <button class="btn-move-left"   title="Изтегли следващия урок назад (без промяна на датите)">⟵</button>
-          <button class="btn-move-right"  title="Измести урока напред (без промяна на датите)">⟶</button>
-          <button class="btn-merge-prev"  title="Слей с предишния (две теми в една клетка)">⟵м</button>
-          <button class="btn-merge-next"  title="Слей със следващия (две теми в една клетка)">⟶м</button>
-          <button class="btn-delete"      title="Delete row">🗑️</button>
-        `;
-        // LEFT ARROW: pull next lesson back into this slot (no date change). If current has content, ask to merge.
-        tdAct.querySelector('.btn-move-left').addEventListener('click', async ()=>{
-          try {
-            let res = await fetch(`/lessons-calendar/generatedyearplan/${r.id}/pull-next`, {
-              method: 'POST',
-              headers: { 'Content-Type':'application/json' }
-            });
-            if (res.status === 409) {
-              const data = await res.json();
-              const msg = `В текущата клетка има урок.\n\nТекущ: ${data.current.unit || '(без тема)'}\nВлизащ: ${data.incoming.unit || '(без тема)'}\n\nДа слея ли двата урока?`;
-              if (confirm(msg)) {
-                res = await fetch(`/lessons-calendar/generatedyearplan/${r.id}/pull-next`, {
-                  method: 'POST',
-                  headers: { 'Content-Type':'application/json' },
-                  body: JSON.stringify({ mergeIfConflict: true })
-                });
-              } else {
-                return; // cancel
-              }
-            }
-            if (!res.ok) throw new Error('pull-next failed');
-            await res.json();
-            flashSaved(tdAct);
-            loadData(currentWeek);
-          } catch (e) {
-            console.error(e);
-            alert('Няма следващ урок или операцията беше отказана.');
-          }
-        });
+       tdAct.innerHTML = `
+        <button type="button" class="btn-move-left"   title="Измести всички назад, ако предишния слот е празен">⟵</button>
+        <button type="button" class="btn-move-right"  title="Измести урока напред (без промяна на датите)">⟶</button>
+        <button type="button" class="btn-merge-prev"  title="Слей с предишния (две теми в една клетка)">⟵м</button>
+        <button type="button" class="btn-merge-next"  title="Слей със следващия (две теми в една клетка)">⟶м</button>
+        <button type="button" class="btn-delete"      title="Delete row">🗑️</button>
+      `;
+       
 
-        // RIGHT ARROW: push current lesson's content one slot forward (no date change)
-        tdAct.querySelector('.btn-move-right').addEventListener('click', async ()=>{
-          try {
-            const res = await fetch(`/lessons-calendar/generatedyearplan/${r.id}/push-next`, {
-              method: 'POST',
-              headers: { 'Content-Type':'application/json' }
-            });
-            if (!res.ok) throw new Error('push-next failed');
-            await res.json();
-            flashSaved(tdAct);
-            loadData(currentWeek);
-          } catch (e) {
-            console.error(e);
-            alert('Няма следващ урок за изместване или операцията не можа да се изпълни.');
-          }
-        });
-
-        // New dedicated MERGE-PREV button: two topics in previous slot; do NOT delete the source row
-        tdAct.querySelector('.btn-merge-prev').addEventListener('click', async ()=>{
-          try {
-            const res = await fetch(`/lessons-calendar/generatedyearplan/${r.id}/merge-prev`, {
-              method: 'POST',
-              headers: { 'Content-Type':'application/json' }
-            });
-            if (!res.ok) throw new Error('merge-prev failed');
-            await res.json();
-            flashSaved(tdAct);
-            loadData(currentWeek);
-          } catch (e) {
-            console.error(e);
-            alert('Няма предишен урок по този предмет, в който да слеем.');
-          }
-        });
-        tdAct.querySelector('.btn-merge-next').addEventListener('click', async ()=>{
-          try {
-            let res = await fetch(`/lessons-calendar/generatedyearplan/${r.id}/merge-next-keep`, {
-              method: 'POST',
-              headers: { 'Content-Type':'application/json' }
-            });
-            if (res.status === 409) {
-              const data = await res.json();
-              const msg = `Следващият слот не е празен.\n\nТекущ: ${data.current.unit || '(без тема)'}\nСледващ: ${data.incoming.unit || '(без тема)'}\n\nДа слея ли двата урока в следващата клетка?`;
-              if (!confirm(msg)) return; // отказ
-              res = await fetch(`/lessons-calendar/generatedyearplan/${r.id}/merge-next-keep`, {
-                method: 'POST',
-                headers: { 'Content-Type':'application/json' },
-                body: JSON.stringify({ mergeIfConflict: true })
-              });
-            }
-            if (!res.ok) throw new Error('merge-next-keep failed');
-            await res.json();
-            flashSaved(tdAct);
-            loadData(currentWeek);
-          } catch (e) {
-            console.error(e);
-            alert('Няма следващ урок или операцията беше отказана.');
-          }
-        });
-        tdAct.querySelector('.btn-delete').addEventListener('click', async ()=>{
-          if(!confirm('Delete this lesson?')) return;
-          try{ await apiDeleteRow(r.id); loadData(currentWeek); }catch(e){ console.error(e); }
-        });
         tr.appendChild(tdAct);
         displayColsOrdered.forEach(c => {
           const td = document.createElement('td');
+          td.setAttribute('data-field', c);
           let v = r[c];
           if (c === 'date' && v) {
             // Keep as YYYY-MM-DD if present; avoid Date() timezone shifts
@@ -484,15 +525,45 @@
             td.title = v == null ? '' : String(v);
           }
 
-          if (c === 'notes') {
-            td.classList.add('notes-col');
-            td.style.minWidth = '300px';
+          if (c === 'unit') {
+            td.classList.add('unit-col');
+            td.style.minWidth = '180px';
+            td.style.maxWidth = '400px';
+            td.style.overflowX = 'auto';
+            td.style.overflowY = 'hidden';
+            td.style.whiteSpace = 'nowrap';
+            td.style.textOverflow = 'clip';
+          }
+          if (c === 'unitetype') {
+            td.classList.add('type-col');
+            td.style.minWidth   = '10ch';
+            td.style.maxWidth   = '10ch';
+            td.style.width      = '10ch';
+            td.style.overflowX  = 'auto';
+            td.style.overflowY  = 'hidden';
+            td.style.whiteSpace = 'nowrap';
+            td.style.textOverflow = 'clip';
+          }
+          if (c === 'week_number') {
+            td.classList.add('week-col');
+            td.style.minWidth = '48px';
+            td.style.maxWidth = '64px';
+            td.style.width = '56px';
+            td.style.textAlign = 'center';
           }
 
           if (editableCols.includes(c) && c !== 'lessonCreated' && c !== 'onlineUploaded' && c !== 'uploadCode'){
             td.contentEditable = 'true';
             td.dataset.col = c;
             td.dataset.id = r.id;
+            td.addEventListener('input', () => {
+              const live = td.textContent || '';
+              td.title = live;
+              if (td.dataset.col === 'unit') {
+                if (live.trim() === '') td.classList.add('is-empty-unit');
+                else td.classList.remove('is-empty-unit');
+              }
+            });
             td.addEventListener('keydown', (e)=>{
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
@@ -510,8 +581,12 @@
                 const resp = await updateCell(td.dataset.id, td.dataset.col, wants);
                 const saved = (resp && typeof resp.value !== 'undefined') ? resp.value : wants;
                 td.textContent = saved == null ? '' : saved;
+                td.title = td.textContent;
                 flashSaved(td);
                 statusEl.textContent = 'Saved';
+                if (td.dataset.col === 'unit') {
+                  try { await loadData(currentWeek); } catch (_e) {}
+                }
               }catch{}
             });
           }
@@ -534,6 +609,19 @@
         renderTable(data);
         currentWeek = w;
         if (weekNumberInput) weekNumberInput.value = String(currentWeek);
+        // Persist week in both sessionStorage and URL hash so reload always restores correctly
+        try {
+          sessionStorage.setItem('lesCal.lastWeek', String(currentWeek));
+          sessionStorage.setItem('lesCal.scrollY', String(window.scrollY || 0));
+        } catch (_) {}
+        try {
+          const wStr = String(currentWeek || 1);
+          if (location.hash.indexOf('w=') === -1) {
+            location.hash = '#w=' + wStr;
+          } else {
+            location.hash = location.hash.replace(/w=\d+/, 'w=' + wStr);
+          }
+        } catch (_) {}
       }catch(err){
         console.error(err);
         statusEl.textContent = 'Error loading data. See console.';
@@ -541,21 +629,45 @@
     }
     if (prevWeekBtn) prevWeekBtn.addEventListener('click', ()=>{
       const nextW = Math.max(1, (parseInt(weekNumberInput.value || currentWeek, 10) || 1) - 1);
+      try { sessionStorage.setItem('lesCal.lastWeek', String(nextW)); } catch(_){}
+      try {
+        const wStr = String(nextW);
+        if (location.hash.indexOf('w=') === -1) location.hash = '#w=' + wStr; else location.hash = location.hash.replace(/w=\d+/, 'w=' + wStr);
+      } catch(_){}
       loadData(nextW);
     });
     if (nextWeekBtn) nextWeekBtn.addEventListener('click', ()=>{
       const nextW = (parseInt(weekNumberInput.value || currentWeek, 10) || 1) + 1;
+      try { sessionStorage.setItem('lesCal.lastWeek', String(nextW)); } catch(_){}
+      try {
+        const wStr = String(nextW);
+        if (location.hash.indexOf('w=') === -1) location.hash = '#w=' + wStr; else location.hash = location.hash.replace(/w=\d+/, 'w=' + wStr);
+      } catch(_){}
       loadData(nextW);
     });
     if (weekNumberInput) weekNumberInput.addEventListener('keydown', (e)=>{
       if (e.key === 'Enter') {
         const val = parseInt(weekNumberInput.value, 10);
-        if (!Number.isNaN(val) && val > 0) loadData(val);
+        if (!Number.isNaN(val) && val > 0) {
+          try { sessionStorage.setItem('lesCal.lastWeek', String(val)); } catch(_){}
+          try {
+            const wStr = String(val);
+            if (location.hash.indexOf('w=') === -1) location.hash = '#w=' + wStr; else location.hash = location.hash.replace(/w=\d+/, 'w=' + wStr);
+          } catch(_){}
+          loadData(val);
+        }
       }
     });
     if (weekNumberInput) weekNumberInput.addEventListener('blur', ()=>{
       const val = parseInt(weekNumberInput.value, 10);
-      if (!Number.isNaN(val) && val > 0) loadData(val);
+      if (!Number.isNaN(val) && val > 0) {
+        try { sessionStorage.setItem('lesCal.lastWeek', String(val)); } catch(_){}
+        try {
+          const wStr = String(val);
+          if (location.hash.indexOf('w=') === -1) location.hash = '#w=' + wStr; else location.hash = location.hash.replace(/w=\d+/, 'w=' + wStr);
+        } catch(_){}
+        loadData(val);
+      }
     });
 
     // Default: collapse actions column and set toggle label
@@ -578,7 +690,16 @@
 
     // Initial loads
     if (weekNumberInput) weekNumberInput.value = String(currentWeek);
-    loadData(currentWeek);
+    loadData(currentWeek).then(() => {
+      // in case the table growth changed layout, try restoring scroll again
+      const savedScroll = parseInt(sessionStorage.getItem('lesCal.scrollY') || '', 10);
+      if (Number.isFinite(savedScroll)) window.scrollTo(0, savedScroll);
+    });
+
+    // Expose for external modules
+    window.loadData = loadData;
+    window.flashSaved = flashSaved;
+    window.currentWeek = currentWeek;
 
    
   </script>

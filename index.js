@@ -243,11 +243,8 @@ app.post('/sticky-notes/done-append', (req, res) => {
 app.use('/files', express.static('/Users/viktorvelkov/Documents'));
 app.use("/holidays", holidayRouter);
 app.use("/", scheduleSelectionRouter);
-app.use('/lessons-calendar', require('./routes/lessonsCalendar'));
-app.use('/lessons-library', require('./public/lessonsLibrary'));
-
-// === LESSONS CALENDAR: pull-next and merge-prev backend actions ===
-// These routes must come after the main router so they are always reachable.
+require('./public/lesCal_post')(app, pool);
+// All POST endpoints for calendar actions (push/merge etc.) are defined in ./public/lesCal_post.js below.
 const { Pool } = require('pg');
 // pool is already required above
 
@@ -427,6 +424,144 @@ app.post('/lessons-calendar/generatedyearplan/:id/merge-prev', async (req, res) 
     client.release();
   }
 });
+
+// PATCH /lessons-calendar/generatedyearplan/:id
+// Update one or more allowed columns. Accepts old {column,value} or new {unit:...} shape.
+app.patch('/lessons-calendar/generatedyearplan/:id', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
+
+  // Allowed, kept in a Set for fast lookup
+  const allowed = new Set([
+    'week_number','date','weekday','start_time','end_time','subject','unit','unitetype','sectioninfo','notes','duration','is_module','lessonCreated','lessonCode'
+  ]);
+
+  const body = req.body || {};
+  const sets = [];
+  const params = [];
+
+  // Backwards compatibility: old payload shape { column, value }
+  if (typeof body.column === 'string') {
+    const col = body.column.trim();
+    if (!allowed.has(col)) {
+      return res.status(400).json({
+        error: 'Column not editable',
+        allowed: Array.from(allowed)
+      });
+    }
+    params.push(body.value);
+    sets.push(`"${col}" = $${params.length}`);
+  } else {
+    // New shape: dynamic fields { unit: '...', notes: '...' }
+    for (const [k, v] of Object.entries(body)) {
+      if (!allowed.has(k)) continue;
+      params.push(v);
+      sets.push(`"${k}" = $${params.length}`);
+    }
+  }
+
+  if (sets.length === 0) return res.status(400).json({ error: 'No valid fields' });
+  params.push(id);
+
+  try {
+    const sql = `UPDATE "generatedyearplan" SET ${sets.join(', ')} WHERE id = $${params.length} RETURNING *`;
+    const r = await pool.query(sql, params);
+    if (!r.rowCount) return res.status(404).json({ error: 'Not found' });
+    return res.json({ ok: true, row: r.rows[0] });
+  } catch (e) {
+    console.error('PATCH generatedyearplan failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  }
+});
+
+
+
+// === NEW: Backward sequence operations for Lessons Calendar ===
+// Helper to load ordered rows for same subject
+async function loadSubjectRows(client, subject){
+  const { rows } = await client.query(
+    `SELECT id, unit, unitetype, sectioninfo, notes, "lessonCode", subject
+       FROM "generatedyearplan"
+      WHERE subject = $1
+      ORDER BY id ASC`,
+    [subject]
+  );
+  return rows;
+}
+
+function isEmptyPayload(p){
+  return !((p.unit||'').trim() || (p.unitetype||'').trim() || (p.sectioninfo||'').trim() || (p.notes||'').trim() || (p.lessonCode||'').trim());
+}
+
+function payloadFromRow(r){
+  return {
+    unit: (r.unit||'').trim(),
+    unitetype: (r.unitetype||'').trim(),
+    sectioninfo: (r.sectioninfo||'').trim(),
+    notes: (r.notes||'').trim(),
+    lessonCode: (r.lessonCode||'').trim()
+  };
+}
+
+async function writePayload(client, id, p){
+  await client.query(
+    `UPDATE "generatedyearplan"
+        SET unit = $1, unitetype = $2, sectioninfo = $3, notes = $4, "lessonCode" = $5
+      WHERE id = $6`,
+    [p.unit||'', p.unitetype||'', p.sectioninfo||'', p.notes||'', p.lessonCode||'', id]
+  );
+}
+
+// POST /lessons-calendar/generatedyearplan/:id/shift-back-sequence
+// "<-": shift the whole chain one step back towards earlier rows.
+// Effect: for subject group, for all rows up to current index, each row takes the content of the next row (j := j+1);
+// current row becomes empty at the end. No dates are changed.
+app.post('/lessons-calendar/generatedyearplan/:id/shift-back-sequence', async (req,res)=>{
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error:'Invalid id' });
+  const client = await pool.connect();
+  try{
+    await client.query('BEGIN');
+    const curRes = await client.query(`SELECT id, subject FROM "generatedyearplan" WHERE id = $1`, [id]);
+    if (!curRes.rows.length){ await client.query('ROLLBACK'); return res.status(404).json({ error:'Row not found' }); }
+    const subject = curRes.rows[0].subject;
+    const rows = await loadSubjectRows(client, subject);
+    const idx = rows.findIndex(r=>r.id === id);
+    if (idx < 0){ await client.query('ROLLBACK'); return res.status(404).json({ error:'Index not found' }); }
+
+    // Guard: allow only if the immediate previous slot is empty (no lesson content)
+    if (idx > 0) {
+      const prevPayload = payloadFromRow(rows[idx-1]);
+      if (!isEmptyPayload(prevPayload)) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'Previous slot is not empty',
+          reason: 'prev-not-empty',
+          prevRowId: rows[idx-1].id,
+          prevPreview: prevPayload
+        });
+      }
+    }
+
+    // Backward shift: j from idx-1 down to 0, row[j] := row[j+1]
+    for (let j = idx-1; j >= 0; j--) {
+      const src = payloadFromRow(rows[j+1]);
+      await writePayload(client, rows[j].id, src);
+    }
+    // clear current row
+    await writePayload(client, rows[idx].id, { unit:'', unitetype:'', sectioninfo:'', notes:'', lessonCode:'' });
+
+    await client.query('COMMIT');
+    return res.json({ ok:true, shiftedUntil: rows[0]?.id || null, cleared: rows[idx].id });
+  }catch(e){
+    await client.query('ROLLBACK');
+    console.error('shift-back-sequence failed:', e);
+    return res.status(500).json({ error:'DB error' });
+  }finally{ client.release(); }
+});
+
+app.use('/lessons-calendar', require('./routes/lessonsCalendar'));
+app.use('/lessons-library', require('./public/lessonsLibrary'));
 
 /**
  * GET /lesson-skills?triplet=001001001
