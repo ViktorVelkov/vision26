@@ -147,11 +147,12 @@
     return fetch(path, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body||{}) });
   }
 
-  tbody.addEventListener('click', function(e){
-    // Resolve to the actual action button even if the click lands on its text node
-    var btn = (e.target && e.target.closest) ? e.target.closest('button') : null;
-    if (e && e.preventDefault) e.preventDefault();
-    if (e && e.stopPropagation) e.stopPropagation(); 
+tbody.addEventListener('click', function(e){
+  var btn = (e.target && e.target.closest) ? e.target.closest('button') : null;
+  if (!btn || !tbody.contains(btn)) return;
+  // Едва тук блокирай default/propagation — само за истински бутон
+  if (e && e.preventDefault) e.preventDefault();
+  if (e && e.stopPropagation) e.stopPropagation();
     if (!btn || !tbody.contains(btn)) return;
     var tr = btn.closest('tr');
     var id = tr && tr.dataset && tr.dataset.id;

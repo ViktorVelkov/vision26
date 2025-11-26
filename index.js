@@ -1,5 +1,3 @@
-// POST /threads/create { studentID:number, baseIds:number[], threadID?:string }
-
 // index.js
 const express = require('express');
 const cors = require('cors');
@@ -9,6 +7,10 @@ const crypto = require('crypto');
 const app = express();
 app.use(cors());
 app.use(express.json());
+// === Sticky Notes file storage ===
+// POST /threads/create { studentID:number, baseIds:number[], threadID?:string }
+
+
 // === Sticky Notes file storage ===
 const STICKY_DIR = path.join(__dirname, 'sticky-notes');
 try { fs.mkdirSync(STICKY_DIR, { recursive: true }); } catch(e) { console.warn('sticky dir mkdir failed:', e && e.message ? e.message : e); }
@@ -107,6 +109,163 @@ const holidayRouter = require("./routes/holidays");
 const upload = multer({ storage: multer.memoryStorage() });
 const scheduleSelectionRouter = require("./routes/scheduleSelection");
 const pool = require('./db');
+
+// Safety shim: guard against accidental uses of a global `client`
+if (typeof global.client === 'undefined') {
+  global.client = {
+    query: (...args) => pool.query(...args),
+    release: () => {}
+  };
+}
+// Ensure Exercises has extra columns for topic and keyWords
+;(async function ensureExercisesExtraCols(){
+  try{
+    await pool.query(`
+      ALTER TABLE "Exercises"
+        ADD COLUMN IF NOT EXISTS "topic"   text,
+        ADD COLUMN IF NOT EXISTS "keyWords" text[] DEFAULT '{}'::text[];
+    `);
+  }catch(e){
+    console.error('ensureExercisesExtraCols failed:', e);
+  }
+})();
+/**
+ * POST /exercises
+ * Body: { number, page, resourceID, difficulty, date_last_solved, for_revision,
+ *         has_assignmentCondition, has_solution, commentsArray, text_filepath, solution_filepath }
+ * Creates (or finds) an exercise by tuple_key (Page, Number, ResourceID) and returns { id }.
+ */
+app.post('/exercises', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const Page = parseInt(b.page, 10);
+    const NumberVal = parseInt(b.number, 10);
+    const ResourceID = parseInt(b.resourceID, 10);
+    if (!Number.isInteger(Page) || !Number.isInteger(NumberVal) || !Number.isInteger(ResourceID)) {
+      return res.status(400).json({ error: 'Invalid page/number/resourceID' });
+    }
+
+    const difficulty = (b.difficulty != null ? parseInt(b.difficulty,10) : null);
+    const date_last_solved = Array.isArray(b.date_last_solved) ? b.date_last_solved : null;
+    const for_revision = Array.isArray(b.for_revision) ? b.for_revision : null;
+    const has_assignmentCondition = !!b.has_assignmentCondition;
+    const has_solution = !!b.has_solution;
+    const comments = Array.isArray(b.commentsArray) ? b.commentsArray.map(String) : null;
+    const text_filepath = b.text_filepath || null;
+    const solution_filepath = b.solution_filepath || null;
+
+    // Try to find existing by tuple_key JSONB
+    const findSql = `SELECT "ID" FROM "Exercises"
+                     WHERE (tuple_key->>'Page')::int = $1
+                       AND (tuple_key->>'Number')::int = $2
+                       AND (tuple_key->>'ResourceID')::int = $3
+                     ORDER BY "ID" DESC LIMIT 1`;
+    const found = await pool.query(findSql, [Page, NumberVal, ResourceID]);
+    if (found.rowCount > 0) {
+      return res.json({ id: found.rows[0].ID, reused: true });
+    }
+
+    const cols = [
+      '"Page"','"Number"','"ResourceID"','"difficulty"','"date_last_solved"','"for_revision"',
+      '"has_assignmentCondition"','"has_solution"','"comments"','"text_filepath"','"solution_filepath"'
+    ];
+    const params = [
+      Page,
+      NumberVal,
+      ResourceID,
+      difficulty,
+      date_last_solved,
+      for_revision,
+      has_assignmentCondition,
+      has_solution,
+      comments,
+      text_filepath,
+      solution_filepath
+    ];
+    const placeholders = params.map((_,i)=>`$${i+1}`);
+
+    const insertSql = `INSERT INTO "Exercises" (${cols.join(',')})
+                       VALUES (${placeholders.join(',')})
+                       RETURNING "ID"`;
+
+    const ins = await pool.query(insertSql, params);
+    return res.json({ id: ins.rows[0].ID, reused: false });
+  } catch (e) {
+    console.error('POST /exercises failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  }
+});
+/**
+ * PATCH /exercises/:id/extras
+ * Body: { topic?: string|null, keyWords?: string[] }
+ */
+app.patch('/exercises/:id/extras', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
+  const topic = (typeof req.body.topic === 'string') ? req.body.topic.trim() : (req.body.topic === null ? null : undefined);
+  const keyWords = Array.isArray(req.body.keyWords)
+    ? req.body.keyWords.map(s => String(s).trim()).filter(Boolean)
+    : (req.body.keyWords === null ? [] : undefined);
+
+  const sets = [];
+  const params = [];
+  if (typeof topic !== 'undefined') { params.push(topic); sets.push(`"topic" = $${params.length}`); }
+  if (typeof keyWords !== 'undefined') { params.push(keyWords); sets.push(`"keyWords" = $${params.length}::text[]`); }
+  if (sets.length === 0) return res.status(400).json({ error: 'No fields provided' });
+  params.push(id);
+
+  try{
+    const sql = `UPDATE "Exercises" SET ${sets.join(', ')} WHERE "ID" = $${params.length} RETURNING "ID", "topic", "keyWords"`;
+    const r = await pool.query(sql, params);
+    if (!r.rowCount) return res.status(404).json({ error: 'Not found' });
+    return res.json({ ok:true, row: r.rows[0] });
+  }catch(e){
+    console.error('PATCH /exercises/:id/extras failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  }
+});
+/**
+ * PATCH /exercises/extras-by-tuple
+ * Body: { resourceID:int|string, page:int|string, number:int|string, topic?:string|null, keyWords?:string[] }
+ */
+app.patch('/exercises/extras-by-tuple', async (req, res) => {
+  try {
+    const rID = parseInt(req.body.resourceID, 10);
+    const pg = parseInt(req.body.page, 10);
+    const num = parseInt(req.body.number, 10);
+    if (!Number.isInteger(rID) || !Number.isInteger(pg) || !Number.isInteger(num)) {
+      return res.status(400).json({ error: 'Invalid tuple (resourceID/page/number)' });
+    }
+
+    const topic = (typeof req.body.topic === 'string') ? req.body.topic.trim() : (req.body.topic === null ? null : undefined);
+    const keyWords = Array.isArray(req.body.keyWords)
+      ? req.body.keyWords.map(s => String(s).trim()).filter(Boolean)
+      : (req.body.keyWords === null ? [] : undefined);
+
+    const sets = [];
+    const params = [];
+    if (typeof topic !== 'undefined') { params.push(topic); sets.push(`"topic" = $${params.length}`); }
+    if (typeof keyWords !== 'undefined') { params.push(keyWords); sets.push(`"keyWords" = $${params.length}::text[]`); }
+    if (sets.length === 0) return res.status(400).json({ error: 'No fields provided' });
+
+    params.push(pg);    // $N-2 Page
+    params.push(num);   // $N-1 Number
+    params.push(rID);   // $N   ResourceID
+
+    const sql = `UPDATE "Exercises"
+                   SET ${sets.join(', ')}
+                 WHERE (tuple_key->>'Page')::int = $${params.length-2}
+                   AND (tuple_key->>'Number')::int = $${params.length-1}
+                   AND (tuple_key->>'ResourceID')::int = $${params.length}
+                 RETURNING "ID","topic","keyWords"`;
+    const r = await pool.query(sql, params);
+    if (!r.rowCount) return res.status(404).json({ error: 'No exercise matched tuple_key' });
+    return res.json({ ok:true, row: r.rows[0] });
+  } catch (e) {
+    console.error('PATCH /exercises/extras-by-tuple failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  }
+});
 
 // Ensure lessons_actions table exists at startup
 (async function ensureLessonsActionsTable(){

@@ -1,5 +1,3 @@
-
-
 // lessonsCenter.js
 (function(){
   const $ = (sel) => document.querySelector(sel);
@@ -28,7 +26,7 @@
   // Helper: fill form from a Lessons row (shared by all loaders)
   function fillFormFromRow(row){
     // Полета
-    $('#tripplet_id').value = row.tripplet_id || '';
+    $('#name').value = row.name || '';
     $('#class').value = row.class != null ? row.class : '';
     $('#description').value = row.description || '';
     $('#url').value = row.url || '';
@@ -39,7 +37,7 @@
 
     // Flash highlight recently filled fields
     const toFlash = [
-      $('#tripplet_id'), $('#class'), $('#description'), $('#url'), $('#filepath'),
+      $('#name'), $('#class'), $('#description'), $('#url'), $('#filepath'),
       document.querySelector('#theory_list'), document.querySelector('#ex_list')
     ].filter(Boolean);
     toFlash.forEach(el => {
@@ -140,7 +138,7 @@
       (data.lessons||[]).forEach(row=>{
         const tr = document.createElement('tr');
         tr.innerHTML = `<td>${row.lesson_id}</td>`+
-                       `<td>${row.tripplet_id||''}</td>`+
+                       `<td>${row.name||''}</td>`+
                        `<td>${row.description||''}</td>`+
                        `<td>${row.class??''}</td>`;
         lessonsTbody.appendChild(tr);
@@ -165,7 +163,7 @@
         const statusHtml = status ? `<span class="status-tag ${status==='new'?'new':'updated'}">${status==='new'?'Добавен':'Обновен'}</span>` : '';
         tr.innerHTML = `<td>${row.lesson_id}</td>`+
                         `<td>${statusHtml}</td>`+
-                        `<td title="${row.tripplet_id||''}">${row.tripplet_id||''}</td>`+
+                        `<td title="${row.name||''}">${row.name||''}</td>`+
                         `<td title="${row.description||''}">${row.description||''}</td>`+
                         `<td>${row.class??''}</td>`+
                         `<td>${row.updated_at||''}</td>`;
@@ -195,7 +193,7 @@
   $('#lessonForm').addEventListener('submit', async (ev)=>{
     ev.preventDefault();
     const payload = {
-      tripplet_id: $('#tripplet_id').value.trim() || null,
+      name: $('#name').value.trim() || null,
       class: $('#class').value ? parseInt($('#class').value,10) : null,
       description: $('#description').value.trim() || null,
       url: $('#url').value.trim() || null,

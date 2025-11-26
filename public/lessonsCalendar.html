@@ -5,6 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title></title>
   <style>
+    /* ---- PRINT STYLES ---- */
+    @media print {
+      body { margin: 0; }
+      .toolbar, #actionsLegend, #status, h2, #openLessonsLibraryLink { display: none !important; }
+      .table-container { overflow: visible !important; max-height: none !important; border: none !important; }
+      thead th { position: static !important; background: #fff !important; }
+      /* hide action buttons column and anything we mark as print-hidden */
+      #resultsTable thead th:first-child,
+      #resultsTable tbody td:first-child,
+      .print-hide-col { display: none !important; }
+    }
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; }
     h1 { margin: 0 0 16px; font-size: 22px; }
     .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
@@ -15,6 +26,26 @@
       overflow: auto;
       max-height: 600px;
       max-width: 100%;
+      position: relative;
+    }
+    .print-floating {
+      position: static;             /* sit in normal flow, above the table */
+      display: inline-block;
+      margin-left: auto;            /* push to the right inside toolbar */
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid #cbd5e1;
+      background: #fff;
+      cursor: pointer;
+      box-shadow: 0 1px 2px rgba(0,0,0,.06);
+    }
+    .print-floating:hover {
+      background: #f8fafc;
+    }
+    @media print {
+      .print-floating {
+        display: none !important;
+      }
     }
     table { border-collapse: collapse; width: 100%; font-size: 14px; }
     thead th { position: sticky; top: 0; background: #f4f6f8; border-bottom: 1px solid #e1e5ea; text-align: left; padding: 8px; }
@@ -141,9 +172,24 @@
     }
     .legend .row { display: grid; grid-template-columns: max-content 1fr; gap: 8px 12px; align-items: center; }
     .legend kbd { border: 1px solid #cbd5e1; padding: 2px 6px; border-radius: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background:#fff; }
+
+    /* Make the print button half-height */
+    #printBtn,
+    .btn-print,
+    button[title*="Print"],
+    button[aria-label*="Print"] {
+      /* reduce vertical padding and overall height */
+      padding-top: 3px;
+      padding-bottom: 3px;
+      line-height: 1.1;
+      height: 24px; /* adjust as needed; roughly half typical 44-48px buttons */
+    }
   </style>
 </head>
 <body>
+  <div class="toolbar" id="topToolbar" style="justify-content: flex-end; margin-bottom: 6px;">
+    <button id="printBtn" class="print-floating" title="Принтирай таблицата">🖨️ Принт</button>
+  </div>
   <div class="table-container">
     <table id="resultsTable">
       <thead id="thead"></thead>
@@ -285,6 +331,38 @@
         statusEl.textContent = 'Update failed. See console.';
         throw err;
       }
+    }
+
+    // ---- PRINT (selected columns only) ----
+    function preparePrintSelectedColumns() {
+      // columns we keep when printing (match data-field names)
+      const keep = new Set([
+        'week_number','date','weekday','unit','unitetype',
+        'subject','start_time','end_time','duration','is_module',
+        'lessonCreated','lessonCode'
+      ]);
+      const table = document.getElementById('resultsTable');
+      if (!table) return;
+
+      // mark columns not in the keep-set as .print-hide-col
+      const ths = table.querySelectorAll('thead th');
+      ths.forEach((th, idx) => {
+        if (idx === 0) return; // actions column hidden by @media print
+        const f = (th.getAttribute('data-field') || '').trim();
+        if (!keep.has(f)) th.classList.add('print-hide-col');
+      });
+      const tds = table.querySelectorAll('tbody td');
+      tds.forEach(td => {
+        const f = (td.getAttribute('data-field') || '').trim();
+        if (f && !keep.has(f)) td.classList.add('print-hide-col');
+      });
+
+      // trigger print and then cleanup
+      window.print();
+      // cleanup after a tick to allow print dialog to open
+      setTimeout(() => {
+        table.querySelectorAll('.print-hide-col').forEach(el => el.classList.remove('print-hide-col'));
+      }, 1000);
     }
 
     function renderTable(rows){
@@ -608,6 +686,7 @@
         await loadUploadState();
         renderTable(data);
         currentWeek = w;
+        window.currentWeek = currentWeek; // синхронизирай глобалната стойност за другите модули
         if (weekNumberInput) weekNumberInput.value = String(currentWeek);
         // Persist week in both sessionStorage and URL hash so reload always restores correctly
         try {
@@ -688,6 +767,19 @@
       });
     }
 
+    // Hook up print button
+    const printBtn = document.getElementById('printBtn');
+    if (printBtn) {
+      printBtn.addEventListener('click', () => {
+        // ensure we render the latest week to the screen and then print
+        try {
+          sessionStorage.setItem('lesCal.scrollY', String(window.scrollY || 0));
+          sessionStorage.setItem('lesCal.lastWeek', String(currentWeek || 1));
+        } catch(_){}
+        preparePrintSelectedColumns();
+      });
+    }
+
     // Initial loads
     if (weekNumberInput) weekNumberInput.value = String(currentWeek);
     loadData(currentWeek).then(() => {
@@ -699,8 +791,7 @@
     // Expose for external modules
     window.loadData = loadData;
     window.flashSaved = flashSaved;
-    window.currentWeek = currentWeek;
-
+    window.currentWeek = (typeof currentWeek !== 'undefined' ? currentWeek : window.currentWeek); 
    
   </script>
   <script src="/lesCal_tableMod.js" defer></script>

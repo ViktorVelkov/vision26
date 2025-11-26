@@ -164,6 +164,13 @@ async function handleUploadAndInsert(paths = {}) {
         const textFilePath = textInput || textPath || null;
         const solutionFilePath = solutionInput || solPath || null;
 
+        // NEW: read Topic (text) and KeyWords (comma-separated -> text[])
+        const topicRaw = (document.getElementById('ex_topic')?.value || '').trim();
+        const keyWordsRaw = (document.getElementById('ex_keywords')?.value || '').trim();
+        const keyWordsArr = keyWordsRaw
+            ? keyWordsRaw.split(',').map(s => s.trim()).filter(Boolean)
+            : [];
+
         const date_last_solved_array = dateLastSolvedInput ? [dateLastSolvedInput] : [];
         const for_revision_array = forRevisionInput ? [forRevisionInput] : [];
         const commentsHere = commentsHereFromHTML ? [commentsHereFromHTML] : [];
@@ -179,7 +186,10 @@ async function handleUploadAndInsert(paths = {}) {
             has_solution: !!file2,
             commentsArray: commentsHere,
             text_filepath: textFilePath,
-            solution_filepath: solutionFilePath
+            solution_filepath: solutionFilePath,
+            // NEW fields
+            topic: topicRaw || null,
+            keyWords: keyWordsArr
         };
         const res = await fetch("/exercises", {
             method: "POST",
@@ -191,7 +201,29 @@ async function handleUploadAndInsert(paths = {}) {
 
         if (!res.ok) throw new Error("Failed to insert exercise.");
         const result = await res.json();
-        alert("✅ Exercise saved successfully: ID " + result.id);
+        const newId = (result && (result.id ?? result.ID ?? result.exerciseID ?? (result.row && (result.row.id ?? result.row.ID)))) || null;
+        console.log('Insert /exercises result =', result, '=> newId =', newId);
+
+        // Try to persist extra fields (topic, keyWords) in case /exercises ignores them
+        try {
+          if (newId) {
+            const r2 = await fetch(`/exercises/${newId}/extras`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ topic: exerciseData.topic, keyWords: exerciseData.keyWords })
+            });
+            if (!r2.ok) {
+              const t = await r2.text();
+              console.warn('extras update not ok:', t);
+            }
+          } else {
+            console.warn('No newId from /exercises insert; extras not patched');
+          }
+        } catch(e) {
+          console.warn('extras update failed:', e && e.message ? e.message : e);
+        }
+
+        alert("✅ Exercise saved successfully" + (newId? (": ID "+newId):''));
     } catch (err) {
         alert("⚠️ Exercise already exists in the database.");
     }
@@ -499,6 +531,8 @@ function resetUploadForm() {
   document.getElementById("dateLastSolved").value = "";
   document.getElementById("dateForRevision").value = "";
   document.getElementById("comments").value = "";
+  document.getElementById('ex_topic').value = "";
+  document.getElementById('ex_keywords').value = "";
 }
 
 function resetManageForm() {
