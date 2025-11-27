@@ -108,12 +108,35 @@
         <legend>Основни</legend>
         <div class="row">
           <div>
-            <label for="tripplet_id">Триплет (текст)</label>
-            <input id="tripplet_id" type="text" placeholder="напр. 027001001 или 027.001.001" />
+            <label for="name">Име на урока</label>
+            <input id="name" type="text" placeholder="напр. Вектори — въвеждане" />
           </div>
           <div>
             <label for="class">Клас (число)</label>
             <input id="class" type="number" min="1" max="12" placeholder="напр. 9" />
+          </div>
+        </div>
+        <div class="row3">
+          <div>
+            <label for="source_token">source_token</label>
+            <input id="source_token" type="number" placeholder="напр. 27001" />
+          </div>
+          <div>
+            <label for="section_token">section_token</label>
+            <input id="section_token" type="number" placeholder="напр. 12" />
+          </div>
+          <div>
+            <label for="lesson_token">lesson_token</label>
+            <input id="lesson_token" type="number" placeholder="напр. 3" />
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label for="tripplet_id">Триплет (текст)</label>
+            <input id="tripplet_id" type="text" placeholder="напр. 027001001 или 027.001.001" />
+          </div>
+          <div>
+            <!-- empty column for alignment / future use -->
           </div>
         </div>
         <label for="description">Тема</label>

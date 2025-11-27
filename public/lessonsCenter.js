@@ -26,19 +26,41 @@
   // Helper: fill form from a Lessons row (shared by all loaders)
   function fillFormFromRow(row){
     // Полета
-    $('#name').value = row.name || '';
-    $('#class').value = row.class != null ? row.class : '';
-    $('#description').value = row.description || '';
-    $('#url').value = row.url || '';
-    $('#filepath').value = row.filepath || '';
+    const nameEl = document.getElementById('name');
+    if (nameEl) nameEl.value = row.name || '';
+    const clsEl = document.getElementById('class');
+    if (clsEl) clsEl.value = (row.class != null ? row.class : '');
+    const descEl = document.getElementById('description');
+    if (descEl) descEl.value = row.description || '';
+    const urlEl = document.getElementById('url');
+    if (urlEl) urlEl.value = row.url || '';
+    const fpEl = document.getElementById('filepath');
+    if (fpEl) fpEl.value = row.filepath || '';
+    const tripEl = document.getElementById('tripplet_id');
+    if (tripEl) tripEl.value = row.tripplet_id || '';
+    const srcTok = document.getElementById('source_token');
+    if (srcTok) srcTok.value = (row.source_token != null ? row.source_token : '');
+    const secTok = document.getElementById('section_token');
+    if (secTok) secTok.value = (row.section_token != null ? row.section_token : '');
+    const lesTok = document.getElementById('lesson_token');
+    if (lesTok) lesTok.value = (row.lesson_token != null ? row.lesson_token : '');
     // Списъци
     setList(theoryWrap, (row.theory_snippets||[]));
     setList(exWrap, (row.exercises_ids||[]));
 
     // Flash highlight recently filled fields
     const toFlash = [
-      $('#name'), $('#class'), $('#description'), $('#url'), $('#filepath'),
-      document.querySelector('#theory_list'), document.querySelector('#ex_list')
+      document.getElementById('name'),
+      document.getElementById('class'),
+      document.getElementById('description'),
+      document.getElementById('url'),
+      document.getElementById('filepath'),
+      document.getElementById('tripplet_id'),
+      document.getElementById('source_token'),
+      document.getElementById('section_token'),
+      document.getElementById('lesson_token'),
+      document.querySelector('#theory_list'),
+      document.querySelector('#ex_list')
     ].filter(Boolean);
     toFlash.forEach(el => {
       el.classList.remove('flash-fill'); // restart animation if needed
@@ -177,6 +199,8 @@
   function clearForm(){
     const form = document.getElementById('lessonForm');
     if (form) form.reset();
+    ['name','class','description','url','filepath','tripplet_id','source_token','section_token','lesson_token']
+      .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
     // reset dynamic lists to one blank row each
     theoryWrap.innerHTML = '';
     exWrap.innerHTML = '';
@@ -261,6 +285,7 @@
   async function loadBySearchValue(){
     const q = (snippetInp && snippetInp.value || '').trim();
     if(!q){ return; }
+    clearForm();
     try{
       const r = await fetch(`/lessons/by-search?q=${encodeURIComponent(q)}`);
       if(!r.ok){ console.warn('No lesson for', q); return; }
