@@ -257,21 +257,31 @@ async function replaceLessonScripted(lessonId, theoryIds, exerciseIds){
 function lessonSelectWithAggregates(whereSQL, paramsSQL){
   return {
     sql: `
-      SELECT l.lesson_id, l.tripplet_id, l.description, l.class, l.url, l.filepath,
-             COALESCE((
-               SELECT ARRAY_AGG(s.item_id ORDER BY s.id)
-                 FROM lesson_scripted s
-                WHERE s.lesson_id = l.lesson_id AND s.item_type = 'theory'
-             ), '{}'::int[]) AS theory_snippets,
-             COALESCE((
-               SELECT ARRAY_AGG(s.item_id::text ORDER BY s.id)
-                 FROM lesson_scripted s
-                WHERE s.lesson_id = l.lesson_id AND s.item_type = 'exercise'
-             ), '{}'::text[]) AS exercises_ids
-        FROM "Lessons" l
-       WHERE ${whereSQL}
-       ORDER BY l.updated_at DESC NULLS LAST, l.lesson_id DESC
-       LIMIT 1`,
+      SELECT 
+        l.lesson_id,
+        l.name,
+        l.tripplet_id,
+        l.description,
+        l.class,
+        l.url,
+        l.filepath,
+        l.source_token,
+        l.section_token,
+        l.lesson_token,
+        COALESCE((
+          SELECT ARRAY_AGG(s.item_id ORDER BY s.id)
+            FROM lesson_scripted s
+           WHERE s.lesson_id = l.lesson_id AND s.item_type = 'theory'
+        ), '{}'::int[]) AS theory_snippets,
+        COALESCE((
+          SELECT ARRAY_AGG(s.item_id::text ORDER BY s.id)
+            FROM lesson_scripted s
+           WHERE s.lesson_id = l.lesson_id AND s.item_type = 'exercise'
+        ), '{}'::text[]) AS exercises_ids
+      FROM "Lessons" l
+      WHERE ${whereSQL}
+      ORDER BY l.updated_at DESC NULLS LAST, l.lesson_id DESC
+      LIMIT 1`,
     params: paramsSQL
   };
 }
