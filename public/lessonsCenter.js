@@ -23,8 +23,71 @@
 
   function debounce(fn, ms){ let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), ms); } }
 
+  // --- Drag & Drop helpers ---
+  function getDragAfterElement(container, y) {
+    const els = [...container.querySelectorAll('.item:not(.dragging)')];
+    let closest = { offset: Number.NEGATIVE_INFINITY, element: null };
+    for (const el of els) {
+      const box = el.getBoundingClientRect();
+      const offset = y - box.top - box.height / 2;
+      if (offset < 0 && offset > closest.offset) {
+        closest = { offset, element: el };
+      }
+    }
+    return closest.element;
+  }
+  function makeListDraggable(wrap){
+    if (!wrap || wrap.__dndBound) return;
+    wrap.__dndBound = true;
+    wrap.addEventListener('dragstart', (e)=>{
+      const item = e.target.closest('.item');
+      if (!item || !wrap.contains(item)) return;
+      item.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', 'drag'); } catch(_) {}
+    });
+    wrap.addEventListener('dragend', (e)=>{
+      const item = e.target.closest('.item');
+      if (item) item.classList.remove('dragging');
+      persistOrderFor(wrap);
+    });
+    wrap.addEventListener('dragover', (e)=>{
+      e.preventDefault();
+      const after = getDragAfterElement(wrap, e.clientY);
+      const dragging = wrap.querySelector('.item.dragging');
+      if (!dragging) return;
+      if (after == null) {
+        wrap.appendChild(dragging);
+      } else {
+        wrap.insertBefore(dragging, after);
+      }
+    });
+  }
+
+  async function persistOrderFor(wrap){
+    try{
+      // Determine type by target wrap
+      const isTheory = (wrap === theoryWrap);
+      const type = isTheory ? 'theory' : 'exercise';
+      if (!currentLessonId) return; // only persist when editing existing lesson
+      const ids = Array.from(wrap.querySelectorAll('.item input'))
+        .map(i => parseInt(i.value.trim(), 10))
+        .filter(Number.isInteger);
+      if (!ids.length) return;
+      await fetch(`/lesson-scripted/${currentLessonId}/reorder`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_type: type, item_ids: ids })
+      });
+      console.log('[lessonsCenter] order persisted', { lesson: currentLessonId, type, ids });
+    }catch(e){
+      console.warn('persistOrderFor failed', e);
+    }
+  }
+
   // Helper: fill form from a Lessons row (shared by all loaders)
   function fillFormFromRow(row){
+    currentLessonId = row.lesson_id || currentLessonId;
     // Полета
     const nameEl = document.getElementById('name');
     if (nameEl) nameEl.value = row.name || '';
@@ -100,6 +163,7 @@
     (arr||[]).forEach(val=>{
       const div = document.createElement('div');
       div.className = 'item';
+      div.draggable = true;
       const inp = document.createElement('input');
       inp.type = 'text';
       inp.value = val;
@@ -115,6 +179,7 @@
       // Always at least one blank row
       const div = document.createElement('div');
       div.className = 'item';
+      div.draggable = true;
       const inp = document.createElement('input');
       inp.type = 'text';
       inp.placeholder = wrap === theoryWrap ? 'напр. 123' : 'напр. tag-1';
@@ -125,12 +190,15 @@
       btn.addEventListener('click', ()=> div.remove());
       div.append(inp, btn);
       wrap.append(div);
+      makeListDraggable(wrap);
     }
+    makeListDraggable(wrap);
   }
 
   function addItem(wrap, type){
     const div = document.createElement('div');
     div.className = 'item';
+    div.draggable = true;
     const inp = document.createElement('input');
     inp.type = 'text';
     inp.placeholder = type === 'int' ? 'напр. 123' : 'напр. tag-1';
@@ -141,6 +209,7 @@
     btn.addEventListener('click', ()=> div.remove());
     div.append(inp, btn);
     wrap.append(div);
+    makeListDraggable(wrap);
   }
 
   $('#addTheory').addEventListener('click', ()=> addItem(theoryWrap, 'int'));
@@ -149,6 +218,8 @@
   // init with one row each
   addItem(theoryWrap, 'int');
   addItem(exWrap, 'text');
+  makeListDraggable(theoryWrap);
+  makeListDraggable(exWrap);
 
   function collectList(wrap, toInt){
     const vals = Array.from(wrap.querySelectorAll('input'))

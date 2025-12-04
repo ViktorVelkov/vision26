@@ -314,6 +314,73 @@ app.get('/lesson-scripted/:id', async (req, res) => {
   }
 });
 
+/**
+ * PATCH /lesson-scripted/:lessonId/reorder
+ * Body: { item_type: 'theory' | 'exercise', item_ids: int[] }  // order in the array = desired order
+ * For 'theory' we also cover rows saved as 'snippet'.
+ */
+app.patch('/lesson-scripted/:lessonId/reorder', async (req, res) => {
+  const lessonId = parseInt(req.params.lessonId, 10);
+  if (!Number.isInteger(lessonId)) return res.status(400).json({ error: 'Invalid lessonId' });
+  const body = req.body || {};
+  let itemType = String(body.item_type || '').trim().toLowerCase();
+  if (!['theory','exercise'].includes(itemType)) return res.status(400).json({ error: 'item_type must be "theory" or "exercise"' });
+  const itemIds = Array.isArray(body.item_ids) ? body.item_ids.map(n => parseInt(n,10)).filter(Number.isInteger) : [];
+  if (!itemIds.length) return res.status(400).json({ error: 'item_ids must be a non-empty array of integers' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Try to update positions in-place if column exists
+    const posColExists = true; // our table defines it; still keep a guard below
+    // Normalize: for theory we accept both 'theory' and 'snippet'
+    const typeFilterSQL = (itemType === 'theory')
+      ? `item_type IN ('theory','snippet')`
+      : `item_type = 'exercise'`;
+
+    // Ensure uniqueness by (lesson_id, item_type set, item_id)
+    // Update position using a CASE expression; if that fails (no column), fallback to delete+insert
+    let idx = 1;
+    const casePairs = itemIds.map(id => {
+      const i = idx++;
+      return `WHEN item_id = $${i} THEN ${i}`;
+    }).join(' ');
+    const params = [...itemIds, lessonId];
+
+    try {
+      const sql = `
+        UPDATE lesson_scripted
+           SET position = CASE ${casePairs} ELSE position END
+         WHERE lesson_id = $${params.length}
+           AND ${typeFilterSQL}
+           AND item_id = ANY($1::int[])`;
+      // Note: $1 is reused inside ANY(); the CASE uses the expanded list via WHEN clauses
+      await client.query(sql, params);
+    } catch (e) {
+      // Fallback: delete rows for this type and reinsert in new order
+      await client.query(`DELETE FROM lesson_scripted WHERE lesson_id = $1 AND ${typeFilterSQL}`, [lessonId]);
+      for (let i = 0; i < itemIds.length; i++) {
+        const idv = itemIds[i];
+        await client.query(
+          `INSERT INTO lesson_scripted(lesson_id, item_type, item_id, position)
+           VALUES ($1, $2, $3, $4)`,
+          [lessonId, itemType, idv, i+1]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+    return res.json({ ok: true, lesson_id: lessonId, item_type: itemType, count: itemIds.length });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('PATCH /lesson-scripted/:lessonId/reorder failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  } finally {
+    client.release();
+  }
+});
+
 // Safety shim: guard against accidental uses of a global `client`
 if (typeof global.client === 'undefined') {
   global.client = {

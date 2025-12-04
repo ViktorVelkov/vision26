@@ -24,6 +24,12 @@
     .list .item { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
     .list .item input { flex: 1; }
     .item .rem { border: 1px solid #999; background: #fff; width: 32px; height: 32px; border-radius: 6px; }
+
+    /* Drag & drop styling */
+    .list .item { cursor: grab; }
+    .list .item:active { cursor: grabbing; }
+    .list .item.dragging { opacity: 0.6; outline: 2px dashed #9ca3af; background: #f8fafc; }
+    .list .item.placeholder { height: 36px; border: 2px dashed #cbd5e1; border-radius: 6px; margin-bottom: 6px; }
     .success { border-left: 4px solid #18a957; padding: 8px 12px; background: #eaf9f0; border-radius: 8px; }
     .error { border-left: 4px solid #c62828; padding: 8px 12px; background: #fde8e8; border-radius: 8px; }
     table { width: 100%; border-collapse: collapse; margin-top: 24px; }
