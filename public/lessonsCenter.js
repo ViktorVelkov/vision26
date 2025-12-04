@@ -44,9 +44,14 @@
     if (secTok) secTok.value = (row.section_token != null ? row.section_token : '');
     const lesTok = document.getElementById('lesson_token');
     if (lesTok) lesTok.value = (row.lesson_token != null ? row.lesson_token : '');
-    // Списъци
-    setList(theoryWrap, (row.theory_snippets||[]));
-    setList(exWrap, (row.exercises_ids||[]));
+    // After basic fields, fetch lists from the new table by lesson_id (authoritative source)
+    if (row.lesson_id) {
+      loadScriptedLists(row.lesson_id).catch(console.error);
+    } else {
+      // If no id, clear lists
+      setList(theoryWrap, []);
+      setList(exWrap, []);
+    }
 
     // Flash highlight recently filled fields
     const toFlash = [
@@ -72,6 +77,21 @@
 
     setModeEditing(row.lesson_id || null);
     document.getElementById('lessonForm').scrollIntoView({behavior:'smooth'});
+  }
+
+  // Helper: load lists from lesson_scripted by lesson_id and populate the lists
+  async function loadScriptedLists(lessonId){
+    console.log('[lessonsCenter] loadScriptedLists -> lesson_id=', lessonId);
+    try{
+      const r = await fetch(`/lesson-scripted/${lessonId}`);
+      if (!r.ok) { setList(theoryWrap, []); setList(exWrap, []); return; }
+      const d = await r.json();
+      setList(theoryWrap, Array.isArray(d.theory_snippets) ? d.theory_snippets : []);
+      setList(exWrap, Array.isArray(d.exercises_ids) ? d.exercises_ids : []);
+    }catch(e){
+      console.error('loadScriptedLists failed', e);
+      setList(theoryWrap, []); setList(exWrap, []);
+    }
   }
 
   // Helper: set a list (int[] or text[]) into the dynamic list UI
@@ -135,9 +155,10 @@
       .map(i => i.value.trim())
       .filter(Boolean);
     if (toInt) {
-      return vals.map(v => parseInt(v,10)).filter(n => Number.isInteger(n));
+      return vals.map(v => parseInt(v,10)).filter(Number.isInteger);
     }
-    return vals;
+    // prefer integers if possible; otherwise drop non-numeric (for new lesson_scripted schema)
+    return vals.map(v => parseInt(v,10)).filter(Number.isInteger);
   }
 
   async function doSnippetSearch(q){
@@ -290,6 +311,7 @@
       const r = await fetch(`/lessons/by-search?q=${encodeURIComponent(q)}`);
       if(!r.ok){ console.warn('No lesson for', q); return; }
       const row = await r.json();
+      console.log('[lessonsCenter] by-search found lesson', row && row.lesson_id, row);
       setModeEditing(row.lesson_id || null);
       fillFormFromRow(row);
     }catch(e){ console.error('loadBySearchValue failed', e); }
