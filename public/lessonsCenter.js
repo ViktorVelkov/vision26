@@ -2,8 +2,8 @@
 (function(){
   const $ = (sel) => document.querySelector(sel);
   const theoryWrap = $('#theory_list');
-  const exWrap = $('#ex_list');
-  const snippetInp = $('#snippetSearch');
+  const exWrap = $('#ex_table_body');
+  const exAddInput = $('#ex_add_id');  const snippetInp = $('#snippetSearch');
   const snippetBtn = $('#snippetSearchBtn');
   const completionsUl = $('#snippetCompletions');
   const lessonsTbody = $('#snippetLessons');
@@ -63,16 +63,49 @@
       }
     });
   }
-
+function makeTableDraggable(tbody){
+  if (!tbody || tbody.__dndBound) return;
+  tbody.__dndBound = true;
+  tbody.addEventListener('dragstart', (e)=>{
+    const row = e.target.closest('tr.row-item');
+    if (!row || !tbody.contains(row)) return;
+    row.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('text/plain', 'drag'); } catch(_) {}
+  });
+  tbody.addEventListener('dragend', (e)=>{
+    const row = e.target.closest('tr.row-item');
+    if (row) row.classList.remove('dragging');
+    renumberExerciseRows();
+    persistOrderFor(tbody);
+  });
+  tbody.addEventListener('dragover', (e)=>{
+    e.preventDefault();
+    const dragging = tbody.querySelector('tr.row-item.dragging');
+    if (!dragging) return;
+    const rows = Array.from(tbody.querySelectorAll('tr.row-item:not(.dragging)'));
+    let after = null;
+    for (const r of rows){
+      const box = r.getBoundingClientRect();
+      const offset = e.clientY - (box.top + box.height/2);
+      if (offset < 0) { after = r; break; }
+    }
+    if (!after) tbody.appendChild(dragging); else tbody.insertBefore(dragging, after);
+  });
+}
   async function persistOrderFor(wrap){
     try{
       // Determine type by target wrap
       const isTheory = (wrap === theoryWrap);
       const type = isTheory ? 'theory' : 'exercise';
       if (!currentLessonId) return; // only persist when editing existing lesson
-      const ids = Array.from(wrap.querySelectorAll('.item input'))
-        .map(i => parseInt(i.value.trim(), 10))
-        .filter(Number.isInteger);
+      const ids = (wrap === theoryWrap)
+        ? Array.from(wrap.querySelectorAll('.item input'))
+            .map(i => parseInt(i.value.trim(), 10))
+            .filter(Number.isInteger)
+        : Array.from(exWrap.querySelectorAll('tr.row-item'))
+            .map(tr => parseInt(tr.dataset.id,10))
+            .filter(Number.isInteger);
       if (!ids.length) return;
       await fetch(`/lesson-scripted/${currentLessonId}/reorder`, {
         method: 'PATCH',
@@ -113,7 +146,7 @@
     } else {
       // If no id, clear lists
       setList(theoryWrap, []);
-      setList(exWrap, []);
+      setExercisesTable([]);
     }
 
     // Flash highlight recently filled fields
@@ -128,7 +161,7 @@
       document.getElementById('section_token'),
       document.getElementById('lesson_token'),
       document.querySelector('#theory_list'),
-      document.querySelector('#ex_list')
+      document.querySelector('#ex_table')
     ].filter(Boolean);
     toFlash.forEach(el => {
       el.classList.remove('flash-fill'); // restart animation if needed
@@ -147,16 +180,84 @@
     console.log('[lessonsCenter] loadScriptedLists -> lesson_id=', lessonId);
     try{
       const r = await fetch(`/lesson-scripted/${lessonId}`);
-      if (!r.ok) { setList(theoryWrap, []); setList(exWrap, []); return; }
+      if (!r.ok) {
+        setList(theoryWrap, []);
+        await setExercisesTable([]);
+        return;
+      }
       const d = await r.json();
       setList(theoryWrap, Array.isArray(d.theory_snippets) ? d.theory_snippets : []);
-      setList(exWrap, Array.isArray(d.exercises_ids) ? d.exercises_ids : []);
+      await setExercisesTable(Array.isArray(d.exercises_ids) ? d.exercises_ids : []);
     }catch(e){
       console.error('loadScriptedLists failed', e);
-      setList(theoryWrap, []); setList(exWrap, []);
+      setList(theoryWrap, []);
+      await setExercisesTable([]);
     }
   }
+// --- Exercise table rendering with meta (duration, difficulty)
+async function fetchExerciseMetaBulk(ids){
+  if (!ids || !ids.length) return [];
+  try{
+    const r = await fetch(`/exercise-meta?ids=${encodeURIComponent(ids.join(','))}`);
 
+    // If the meta endpoint fails, still render IDs (with 0 meta) so the table is never empty.
+    if (!r.ok) {
+      return ids.map(id => ({ exercise_id:id, duration_minutes:0, difficulty:0, comment:'' }));
+    }
+
+    const arr = await r.json();
+    const safeArr = Array.isArray(arr) ? arr : [];
+    const map = new Map(safeArr.map(row => [parseInt(row.exercise_id,10), row]));
+
+    return ids.map(id => {
+      const m = map.get(id);
+      return {
+        exercise_id: id,
+        duration_minutes: m ? (parseInt(m.duration_minutes,10) || 0) : 0,
+        difficulty: m ? (parseInt(m.difficulty,10) || 0) : 0,
+        comment: m ? (m.comment || '') : ''
+      };
+    });
+  }catch(e){
+    console.warn('fetchExerciseMetaBulk failed', e);
+    return ids.map(id => ({ exercise_id:id, duration_minutes:0, difficulty:0, comment:'' }));
+  }
+}
+
+function buildExerciseRow(meta, index){
+  const tr = document.createElement('tr');
+  tr.className = 'row-item';
+  tr.draggable = true;
+  tr.dataset.id = meta.exercise_id;
+
+  const tdId  = document.createElement('td'); tdId.className  = 'eid';  tdId.textContent  = String(meta.exercise_id);
+  const tdDur = document.createElement('td'); tdDur.className = 'dur';  tdDur.textContent = String(meta.duration_minutes);
+  const tdDf  = document.createElement('td'); tdDf.className  = 'diff'; tdDf.textContent  = String(meta.difficulty);
+
+  const tdAct = document.createElement('td');
+  const btn = document.createElement('button');
+  btn.type = 'button'; btn.className = 'rem'; btn.textContent = '×';
+  btn.title = 'Премахни упражнението';
+  btn.addEventListener('click', ()=> {
+    tr.remove();
+    persistOrderFor(exWrap);
+  });
+  tdAct.appendChild(btn);
+
+  tr.append(tdId, tdDur, tdDf, tdAct);
+  return tr;
+}
+
+function renumberExerciseRows(){ /* no index column */ }
+
+async function setExercisesTable(ids){
+  exWrap.innerHTML = '';
+  const metas = await fetchExerciseMetaBulk(ids);
+  metas.forEach((m, i)=>{
+    exWrap.appendChild(buildExerciseRow(m, i));
+  });
+  makeTableDraggable(exWrap);
+}
   // Helper: set a list (int[] or text[]) into the dynamic list UI
   function setList(wrap, arr){
     wrap.innerHTML = '';
@@ -213,22 +314,32 @@
   }
 
   $('#addTheory').addEventListener('click', ()=> addItem(theoryWrap, 'int'));
-  $('#addEx').addEventListener('click', ()=> addItem(exWrap, 'text'));
+  $('#addEx').addEventListener('click', async ()=>{
+    const v = exAddInput && exAddInput.value ? parseInt(exAddInput.value,10) : NaN;
+    if (!Number.isInteger(v) || v <= 0) return;
+    const current = collectList(exWrap, false);
+    if (!current.includes(v)) current.push(v);
+    await setExercisesTable(current);
+    exAddInput.value = '';
+    persistOrderFor(exWrap);
+  });
 
-  // init with one row each
-  addItem(theoryWrap, 'int');
-  addItem(exWrap, 'text');
-  makeListDraggable(theoryWrap);
-  makeListDraggable(exWrap);
+    // init with one theory row; exercises table starts empty and renders on load/add
+    addItem(theoryWrap, 'int');
+    makeListDraggable(theoryWrap);
 
   function collectList(wrap, toInt){
+    if (wrap === exWrap){
+      return Array.from(exWrap.querySelectorAll('tr.row-item'))
+        .map(tr => parseInt(tr.dataset.id,10))
+        .filter(Number.isInteger);
+    }
     const vals = Array.from(wrap.querySelectorAll('input'))
       .map(i => i.value.trim())
       .filter(Boolean);
     if (toInt) {
       return vals.map(v => parseInt(v,10)).filter(Number.isInteger);
     }
-    // prefer integers if possible; otherwise drop non-numeric (for new lesson_scripted schema)
     return vals.map(v => parseInt(v,10)).filter(Number.isInteger);
   }
 
@@ -297,7 +408,6 @@
     theoryWrap.innerHTML = '';
     exWrap.innerHTML = '';
     addItem(theoryWrap,'int');
-    addItem(exWrap,'text');
     // also clear the snippet search input and results
     if (snippetInp) snippetInp.value = '';
     if (completionsUl) completionsUl.innerHTML = '';

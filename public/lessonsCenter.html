@@ -30,6 +30,10 @@
     .list .item:active { cursor: grabbing; }
     .list .item.dragging { opacity: 0.6; outline: 2px dashed #9ca3af; background: #f8fafc; }
     .list .item.placeholder { height: 36px; border: 2px dashed #cbd5e1; border-radius: 6px; margin-bottom: 6px; }
+    /* Drag rows for exercises table */
+    #ex_table_body tr.row-item { cursor: grab; }
+    #ex_table_body tr.row-item:active { cursor: grabbing; }
+    #ex_table_body tr.row-item.dragging { opacity: 0.6; outline: 2px dashed #9ca3af; background: #f8fafc; }
     .success { border-left: 4px solid #18a957; padding: 8px 12px; background: #eaf9f0; border-radius: 8px; }
     .error { border-left: 4px solid #c62828; padding: 8px 12px; background: #fde8e8; border-radius: 8px; }
     table { width: 100%; border-collapse: collapse; margin-top: 24px; }
@@ -168,9 +172,22 @@
             <button type="button" class="btn btn-plain" id="addTheory">+ Добави ID</button>
           </div>
           <div>
-            <label>Упражнения — (text[])</label>
-            <div id="ex_list" class="list"></div>
-            <button type="button" class="btn btn-plain" id="addEx">+ Добави стойност</button>
+            <label>Упражнения</label>
+            <table id="ex_table" style="width:100%; border-collapse:collapse; margin-top:6px;">
+              <thead>
+                <tr>
+                  <th style="width:110px;">ID</th>
+                  <th style="width:160px;">Продълж. (мин)</th>
+                  <th style="width:140px;">Сложност</th>
+                  <th style="width:46px;"></th>
+                </tr>
+              </thead>
+              <tbody id="ex_table_body"></tbody>
+            </table>
+            <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+              <input id="ex_add_id" type="number" min="1" placeholder="въведи ID" style="max-width:160px;"/>
+              <button type="button" class="btn btn-plain" id="addEx">+ Добави</button>
+            </div>
           </div>
         </div>
       </fieldset>
