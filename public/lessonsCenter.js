@@ -130,6 +130,8 @@ function makeTableDraggable(tbody){
     if (clsEl) clsEl.value = (row.class != null ? row.class : '');
     const descEl = document.getElementById('description');
     if (descEl) descEl.value = row.description || '';
+    const desc2El = document.getElementById('description2');
+    if (desc2El) desc2El.value = row.description2 || '';
     const urlEl = document.getElementById('url');
     if (urlEl) urlEl.value = row.url || '';
     const fpEl = document.getElementById('filepath');
@@ -738,10 +740,8 @@ async function setExercisesTable(ids){
 
   function clearForm(){
     const form = document.getElementById('lessonForm');
-    if (form) form.reset();
-    ['name','class','description','url','filepath','tripplet_id','source_token','section_token','lesson_token']
-      .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-    // reset dynamic lists to one blank row each
+   ['name','class','description','description2','url','filepath','tripplet_id','source_token','section_token','lesson_token']
+  .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });    // reset dynamic lists to one blank row each
     snWrap.innerHTML = '';
     exWrap.innerHTML = '';
 
@@ -761,6 +761,7 @@ async function setExercisesTable(ids){
       name: $('#name').value.trim() || null,
       class: $('#class').value ? parseInt($('#class').value,10) : null,
       description: $('#description').value.trim() || null,
+      description2: ($('#description2') ? $('#description2').value.trim() : '') || null,
       url: $('#url').value.trim() || null,
       filepath: $('#filepath').value.trim() || null,
       theory_snippets: collectList(snWrap, false),
@@ -825,16 +826,27 @@ async function setExercisesTable(ids){
   // Loader by snippetSearch value (bytext)
   async function loadBySearchValue(){
     const q = (snippetInp && snippetInp.value || '').trim();
-    if(!q){ return; }
+    if(!q) return;
+
     clearForm();
+
     try{
-      const r = await fetch(`/lessons/by-search?q=${encodeURIComponent(q)}`);
-      if(!r.ok){ console.warn('No lesson for', q); return; }
-      const row = await r.json();
-      console.log('[lessonsCenter] by-search found lesson', row && row.lesson_id, row);
-      setModeEditing(row.lesson_id || null);
-      fillFormFromRow(row);
-    }catch(e){ console.error('loadBySearchValue failed', e); }
+      // 1) Намери урок по търсене (за да вземем lesson_id)
+      const r1 = await fetch(`/lessons/by-search?q=${encodeURIComponent(q)}`);
+      if (!r1.ok) { console.warn('No lesson for', q); return; }
+      const found = await r1.json();
+      if (!found || !found.lesson_id) return;
+
+      // 2) Зареди ПЪЛНИЯ урок от snippet-ref (вкл. description2)
+      const r2 = await fetch(`/snippet-ref?id=${encodeURIComponent(found.lesson_id)}`);
+      if (!r2.ok) { console.warn('Failed to load full lesson', found.lesson_id); return; }
+      const full = await r2.json();
+
+      setModeEditing(full.lesson_id || null);
+      fillFormFromRow(full);
+    }catch(e){
+      console.error('loadBySearchValue failed', e);
+    }
   }
 
   // Add listener for loadBySearchBtn

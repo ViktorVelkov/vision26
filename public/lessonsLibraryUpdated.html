@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="bg">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lessons Library (Updated)</title>
+  <style>
+    :root { --b:#e6e6e6; --bg:#fafafa; --fg:#111; --muted:#777; }
+    body{ margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; color:var(--fg); background:var(--bg); }
+    header{ position:sticky; top:0; background:white; border-bottom:1px solid var(--b); padding:10px 14px; z-index:10; }
+    header .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    input, button{ font:inherit; }
+    input{ padding:8px 10px; border:1px solid var(--b); border-radius:10px; min-width:260px; }
+    button{ padding:8px 10px; border:1px solid var(--b); border-radius:10px; background:white; cursor:pointer; }
+    button:hover{ background:#f2f2f2; }
+    #status{ margin-left:auto; color:var(--muted); }
+
+    /* Light switch (horizontal) */
+    .switchWrap{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    .switchLabel{ font-size:12px; color:#333; }
+    .switch{ position:relative; display:inline-block; width:46px; height:26px; }
+    .switch input{ opacity:0; width:0; height:0; }
+    .slider{ position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background:#ddd; transition:.2s; border-radius:999px; border:1px solid var(--b); }
+    .slider:before{ position:absolute; content:""; height:20px; width:20px; left:3px; top:50%; transform:translateY(-50%); background:white; transition:.2s; border-radius:50%; border:1px solid var(--b); }
+    .switch input:checked + .slider{ background:#cfe9cf; }
+    .switch input:checked + .slider:before{ transform:translate(20px, -50%); }
+
+    .wrap{ display:grid; grid-template-columns: 360px 1fr; min-height: calc(100vh - 58px); }
+    aside{ border-right:1px solid var(--b); background:white; }
+    main{ padding:14px; }
+
+    #lessonsList{ padding:10px; display:flex; flex-direction:column; gap:10px; }
+    .lessonCard{ text-align:left; border:1px solid var(--b); border-radius:12px; padding:10px; background:white; }
+    .lessonCard.selected{ outline:2px solid #7ac77a; }
+    .lessonTitle{ font-weight:700; margin-bottom:6px; }
+    .lessonMeta{ display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px; }
+    .lessonDesc{ color:var(--muted); font-size:13px; }
+
+    .pill{ display:inline-flex; padding:3px 8px; border:1px solid var(--b); border-radius:999px; font-size:12px; color:#333; background:#fff; }
+    .empty{ padding:14px; color:var(--muted); }
+
+    .topBar{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+    #lessonTitle{ font-size:20px; font-weight:800; }
+    #openLessonFile{ margin-left:auto; text-decoration:none; border:1px solid var(--b); border-radius:10px; padding:8px 10px; background:white; color:inherit; }
+    #openLessonFile:hover{ background:#f2f2f2; }
+    #openLessonFile.disabled{ opacity:0.55; pointer-events:none; }
+
+    #lessonMeta{ display:flex; gap:6px; flex-wrap:wrap; margin:10px 0 14px; }
+
+    .photoRow{ border:1px solid var(--b); border-radius:14px; background:white; padding:12px; margin-bottom:12px; }
+    .photoRowHeader{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+    .photoRowTitle{ font-weight:700; }
+    .photoRowLinks{ margin-left:auto; display:flex; gap:10px; }
+    .photoRowLinks a{ color:inherit; }
+    .muted{ color:var(--muted); }
+
+    .photoGrid{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+    .imgCard{ border:1px solid var(--b); border-radius:12px; overflow:hidden; background:#fff; }
+    .imgLabel{ padding:8px 10px; border-bottom:1px solid var(--b); font-size:12px; color:var(--muted); }
+    img{ width:100%; height:auto; display:block; }
+
+    @media (max-width: 980px){
+      .wrap{ grid-template-columns: 1fr; }
+      aside{ border-right:none; border-bottom:1px solid var(--b); }
+      .photoGrid{ grid-template-columns: 1fr; }
+      #status{ width:100%; margin-left:0; }
+      input{ min-width: 160px; flex: 1; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="row">
+      <input id="searchInput" placeholder="Търси по description..." autocomplete="off" spellcheck="false" />
+      <button id="reloadBtn">Презареди</button>
+      <!-- Search mode light switch + single input -->
+      <div class="switchWrap" title="Условие за търсене">
+        <span class="switchLabel" id="switchLeft">description</span>
+        <label class="switch">
+          <input type="checkbox" id="searchModeSwitch" aria-label="Условие за търсене (description/ID)">
+          <span class="slider"></span>
+        </label>
+        <span class="switchLabel" id="switchRight">ID</span>
+      </div>
+      <div id="status"></div>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <aside>
+      <div id="lessonsList"></div>
+    </aside>
+
+    <main>
+      <div class="topBar">
+        <div id="lessonTitle">(избери урок)</div>
+        <a id="openLessonFile" class="disabled">Няма файл към урока</a>
+      </div>
+
+      <div id="lessonMeta"></div>
+
+      <div id="photosWrap" class="empty">Избери урок отляво, за да се заредят снимките.</div>
+    </main>
+  </div>
+
+  <script src="/lessonsLibraryUpdated_index.js"></script>
+</body>
+</html>

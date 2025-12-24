@@ -149,11 +149,11 @@ app.get('/snippet-ref', async (req, res) => {
     const id = parseInt(req.query.id, 10);
     if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
 
-    const { rows } = await pool.query(
-      `SELECT lesson_id, name, tripplet_id, description, class, url, filepath, source_token, section_token, lesson_token
-         FROM "Lessons" WHERE lesson_id = $1 LIMIT 1`,
-      [id]
-    );
+   const { rows } = await pool.query(
+  `SELECT lesson_id, name, tripplet_id, description, description2, class, url, filepath, source_token, section_token, lesson_token
+     FROM "Lessons" WHERE lesson_id = $1 LIMIT 1`,
+  [id]
+);
     if (!rows.length) return res.status(404).json({ error: 'Not found' });
     return res.json(rows[0]);
   } catch (e) {
@@ -273,32 +273,21 @@ async function replaceLessonScripted(lessonId, theoryIds, exerciseIds){
     const tIds = Array.isArray(theoryIds) ? theoryIds.map(n=>parseInt(n,10)).filter(Number.isInteger) : [];
     const eIds = Array.isArray(exerciseIds) ? exerciseIds.map(n=>parseInt(n,10)).filter(Number.isInteger) : [];
     // Insert theory
-    for(let i=0;i<tIds.length;i++){
-      try{
-        await client.query(
-          `INSERT INTO lesson_scripted(lesson_id,item_type,item_id,position) VALUES ($1,'theory',$2,$3)`,
-          [lessonId, tIds[i], i+1]
-        );
-      }catch(_e){
-        await client.query(
-          `INSERT INTO lesson_scripted(lesson_id,item_type,item_id) VALUES ($1,'theory',$2)`,
-          [lessonId, tIds[i]]
-        );
-      }
+    for (let i = 0; i < tIds.length; i++) {
+      await client.query(
+        `INSERT INTO lesson_scripted(lesson_id,item_type,item_id,position)
+         VALUES ($1,'theory',$2,$3)`,
+        [lessonId, tIds[i], i + 1]
+      );
     }
+
     // Insert exercises
-    for(let i=0;i<eIds.length;i++){
-      try{
-        await client.query(
-          `INSERT INTO lesson_scripted(lesson_id,item_type,item_id,position) VALUES ($1,'exercise',$2,$3)`,
-          [lessonId, eIds[i], i+1]
-        );
-      }catch(_e){
-        await client.query(
-          `INSERT INTO lesson_scripted(lesson_id,item_type,item_id) VALUES ($1,'exercise',$2)`,
-          [lessonId, eIds[i]]
-        );
-      }
+    for (let i = 0; i < eIds.length; i++) {
+      await client.query(
+        `INSERT INTO lesson_scripted(lesson_id,item_type,item_id,position)
+         VALUES ($1,'exercise',$2,$3)`,
+        [lessonId, eIds[i], i + 1]
+      );
     }
     await client.query('COMMIT');
   }catch(e){
@@ -438,26 +427,15 @@ app.patch('/lesson-scripted/:lessonId/reorder', async (req, res) => {
     }).join(' ');
     const params = [...itemIds, lessonId];
 
-    try {
-      const sql = `
-        UPDATE lesson_scripted
-           SET position = CASE ${casePairs} ELSE position END
-         WHERE lesson_id = $${params.length}
-           AND ${typeFilterSQL}
-           AND item_id = ANY($1::int[])`;
-      // Note: $1 is reused inside ANY(); the CASE uses the expanded list via WHEN clauses
-      await client.query(sql, params);
-    } catch (e) {
-      // Fallback: delete rows for this type and reinsert in new order
-      await client.query(`DELETE FROM lesson_scripted WHERE lesson_id = $1 AND ${typeFilterSQL}`, [lessonId]);
-      for (let i = 0; i < itemIds.length; i++) {
-        const idv = itemIds[i];
-        await client.query(
-          `INSERT INTO lesson_scripted(lesson_id, item_type, item_id, position)
-           VALUES ($1, $2, $3, $4)`,
-          [lessonId, itemType, idv, i+1]
-        );
-      }
+    // Always rewrite the section in the requested order (safe + supports new IDs)
+    await client.query(`DELETE FROM lesson_scripted WHERE lesson_id = $1 AND ${typeFilterSQL}`, [lessonId]);
+    for (let i = 0; i < itemIds.length; i++) {
+      const idv = itemIds[i];
+      await client.query(
+        `INSERT INTO lesson_scripted(lesson_id, item_type, item_id, position)
+         VALUES ($1, $2, $3, $4)`,
+        [lessonId, itemType, idv, i + 1]
+      );
     }
 
     await client.query('COMMIT');
@@ -877,7 +855,17 @@ app.post('/sticky-notes/done-append', (req, res) => {
     return res.status(500).json({ error: 'Failed to append' });
   }
 });
-app.use('/files', express.static('/Users/viktorvelkov/Documents'));
+app.use('/files', express.static('/Users/viktorvelkov/Documents', {
+  setHeaders: (res, filePath) => {
+    try {
+      const fp = String(filePath || '').toLowerCase();
+      if (fp.endsWith('.pdf')) {
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', 'inline');
+      }
+    } catch (_) {}
+  }
+}));
 app.use("/holidays", holidayRouter);
 app.use("/", scheduleSelectionRouter);
 require('./public/lesCal_post')(app, pool);
@@ -1886,9 +1874,18 @@ app.patch('/lessons/:id', async (req, res) => {
       const r = await pool.query(sql, params);
       if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' });
     }
-    if (Array.isArray(body.theory_snippets) || Array.isArray(body.exercises_ids)) {
-      try{ await replaceLessonScripted(id, body.theory_snippets || [], body.exercises_ids || []); }catch(e){ console.warn('replaceLessonScripted on PATCH failed:', e && e.message ? e.message : e); }
-    }
+if (Array.isArray(body.theory_snippets) || Array.isArray(body.exercises_ids)) {
+  console.log('[PATCH /lessons] replaceLessonScripted CALLED', {
+    lessonId: id,
+    theory: body.theory_snippets,
+    exercises: body.exercises_ids
+  });
+  try{
+    await replaceLessonScripted(id, body.theory_snippets || [], body.exercises_ids || []);
+  }catch(e){
+    console.warn('replaceLessonScripted on PATCH failed:', e && e.message ? e.message : e);
+  }
+}
     try{ await pool.query('INSERT INTO lessons_actions(lesson_id, action) VALUES ($1, $2)', [id, 'updated']); }catch(_e){ console.error('log insert failed (updated):', _e); }
     res.json({ ok:true, lesson_id: id });
   }catch(err){
@@ -3267,5 +3264,95 @@ app.post('/threads/create', async (req, res) => {
     return res.status(500).json({ error: 'DB error' });
   }finally{
     client.release();
+  }
+});
+
+// =========================
+// Lessons Library Updated API
+// =========================
+
+// Convert absolute local paths (under /Users/viktorvelkov/Documents) to a public URL served by:
+// app.use('/files', express.static('/Users/viktorvelkov/Documents'))
+function toPublicFileUrl(p){
+  const v = (p == null) ? '' : String(p).trim();
+  if (!v) return null;
+
+  // Already a web URL or already mapped
+  if (/^https?:\/\//i.test(v)) return v;
+  if (v.startsWith('/files/')) return v;
+
+  const base = '/Users/viktorvelkov/Documents';
+  if (v.startsWith(base)) {
+    const rest = v.slice(base.length);
+    return '/files' + (rest.startsWith('/') ? rest : '/' + rest);
+  }
+
+  // If it is a relative path, return as-is for now
+  return v;
+}
+
+// GET /api/lessons  -> list lessons for lessonsLibraryUpdated_index.js
+app.get('/api/lessons', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT lesson_id, name, filepath, url, description, description2
+         FROM "Lessons"
+        ORDER BY updated_at DESC NULLS LAST, lesson_id DESC
+        LIMIT 1000`
+    );
+
+    // Normalize paths to public URLs when possible
+    const normalized = rows.map(r => {
+      const fileUrl = toPublicFileUrl(r.url || r.filepath);
+      return {
+        lesson_id: r.lesson_id,
+        name: r.name,
+        description: r.description,
+        description2: r.description2,
+        // UI uses (url ?? filepath) to open a file.
+        // If url is empty, put mapped filepath into url so the button works.
+        url: (r.url && String(r.url).trim()) ? String(r.url).trim() : (fileUrl || null),
+        filepath: r.filepath ? String(r.filepath) : null
+      };
+    });
+
+    return res.json(normalized);
+  } catch (e) {
+    console.error('GET /api/lessons failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  }
+});
+
+// GET /api/lessons/:id/photos -> exercise photos for a lesson
+app.get('/api/lessons/:id/photos', async (req, res) => {
+  try {
+    const lessonId = parseInt(req.params.id, 10);
+    if (!Number.isInteger(lessonId)) return res.status(400).json({ error: 'Invalid lesson id' });
+
+    const { rows } = await pool.query(
+      `SELECT
+         ls.position,
+         e."ID" AS exercise_id,
+         e.text_filepath,
+         e.solution_filepath
+       FROM lesson_scripted ls
+       JOIN "Exercises" e ON e."ID" = ls.item_id
+       WHERE ls.lesson_id = $1
+         AND ls.item_type = 'exercise'
+       ORDER BY ls.position ASC NULLS LAST, ls.id ASC`,
+      [lessonId]
+    );
+
+    const out = rows.map(r => ({
+      position: r.position,
+      exercise_id: r.exercise_id,
+      text: toPublicFileUrl(r.text_filepath),
+      solution: toPublicFileUrl(r.solution_filepath)
+    }));
+
+    return res.json(out);
+  } catch (e) {
+    console.error('GET /api/lessons/:id/photos failed:', e);
+    return res.status(500).json({ error: 'DB error' });
   }
 });
