@@ -530,12 +530,14 @@ if (typeof global.client === 'undefined') {
 app.post('/exercises', async (req, res) => {
   try {
     const b = req.body || {};
-    const Page = parseInt(b.page, 10);
-    const NumberVal = parseInt(b.number, 10);
-    const ResourceID = parseInt(b.resourceID, 10);
-    if (!Number.isInteger(Page) || !Number.isInteger(NumberVal) || !Number.isInteger(ResourceID)) {
-      return res.status(400).json({ error: 'Invalid page/number/resourceID' });
-    }
+const Page = parseInt(b.page, 10);
+// IMPORTANT: Number is TEXT in DB (can be "2а"), so do NOT parseInt.
+const NumberVal = (b.number == null) ? '' : String(b.number).trim();
+const ResourceID = parseInt(b.resourceID, 10);
+
+if (!Number.isInteger(Page) || !Number.isInteger(ResourceID) || !NumberVal) {
+  return res.status(400).json({ error: 'Invalid page/number/resourceID' });
+}
 
     const difficulty = (b.difficulty != null ? parseInt(b.difficulty,10) : null);
     const date_last_solved = Array.isArray(b.date_last_solved) ? b.date_last_solved : null;
@@ -549,7 +551,7 @@ app.post('/exercises', async (req, res) => {
     // Try to find existing by tuple_key JSONB
     const findSql = `SELECT "ID" FROM "Exercises"
                      WHERE (tuple_key->>'Page')::int = $1
-                       AND (tuple_key->>'Number')::int = $2
+                       AND (tuple_key->>'Number') = $2
                        AND (tuple_key->>'ResourceID')::int = $3
                      ORDER BY "ID" DESC LIMIT 1`;
     const found = await pool.query(findSql, [Page, NumberVal, ResourceID]);
@@ -624,8 +626,8 @@ app.patch('/exercises/extras-by-tuple', async (req, res) => {
   try {
     const rID = parseInt(req.body.resourceID, 10);
     const pg = parseInt(req.body.page, 10);
-    const num = parseInt(req.body.number, 10);
-    if (!Number.isInteger(rID) || !Number.isInteger(pg) || !Number.isInteger(num)) {
+    const num = (req.body.number == null) ? '' : String(req.body.number).trim();
+    if (!Number.isInteger(rID) || !Number.isInteger(pg) || !num){
       return res.status(400).json({ error: 'Invalid tuple (resourceID/page/number)' });
     }
 
@@ -647,7 +649,7 @@ app.patch('/exercises/extras-by-tuple', async (req, res) => {
     const sql = `UPDATE "Exercises"
                    SET ${sets.join(', ')}
                  WHERE (tuple_key->>'Page')::int = $${params.length-2}
-                   AND (tuple_key->>'Number')::int = $${params.length-1}
+                   AND (tuple_key->>'Number') = $${params.length-1}
                    AND (tuple_key->>'ResourceID')::int = $${params.length}
                  RETURNING "ID","topic","keyWords"`;
     const r = await pool.query(sql, params);
@@ -2835,79 +2837,60 @@ app.patch("/update-exercise", async (req, res) => {
 
   const appendFields = ["comments", "date_last_solved", "for_revision"];
   const allowedFields = [
+    // difficulty is stored as "difficulty" in the DB, but allow both spellings to avoid frontend mismatch
+    "difficulty",
     "Difficulty",
+
     "multiple_solutions",
     "has_solution",
     "has_assignmentCondition",
+
+    // file path columns
+    "text_filepath",
+    "solution_filepath",
+
     ...appendFields
   ];
 
   if (!allowedFields.includes(field)) {
     return res.status(400).json({ error: "Invalid field" });
   }
-  
+
+  // Normalize legacy/alternate field names to the real DB column names
+  const normalizedField = field === 'Difficulty' ? 'difficulty' : field;
+
   try {
-    // let query, params;
+    let query, params;
 
-    // if (appendFields.includes(field)) {
-    //   // Detect type and cast accordingly
-    //   let castType = "text";
-    //   if (field === "date_last_solved" || field === "for_revision") {
-    //       console.log(params);
-    // if (field === "date_last_solved" || field === "for_revision") {
-    // query = `
-    //     UPDATE "Exercises"
-    //     SET "${field}" = array_append(COALESCE("${field}", '{}'::date[]), $1::date)
-    //     WHERE "ID" = $2 RETURNING *`;
-    // params = [value, id];
-    // }
-    //   }
-    // else if (field === "comments") {
-    //     query = `
-    //         UPDATE "Exercises"
-    //         SET "comments" = $1::text[]
-    //         WHERE "ID" = $2 RETURNING *`;
-    //     params = [value, id];
-    //     }
-    //   else {
-    //   console.log("can i get a heyo")
-    //         query = `
-    //     UPDATE "Exercises"
-    //     SET "${field}" = $1
-    //     WHERE "ID" = $2 RETURNING *`;
-    //     params = [value, id];    }
-    // } 
-        let query, params;
-
-        if (appendFields.includes(field)) {
-        if (field === "date_last_solved" || field === "for_revision") {
-            query = `
+    if (appendFields.includes(field)) {
+      if (field === "date_last_solved" || field === "for_revision") {
+        query = `
             UPDATE "Exercises"
-            SET "${field}" = array_append(COALESCE("${field}", '{}'::date[]), $1::date)
+            SET "${normalizedField}" = array_append(COALESCE("${normalizedField}", '{}'::date[]), $1::date)
             WHERE "ID" = $2 RETURNING *`;
-            params = [value, id];
-        } else if (field === "comments") {
-            query = `
+        params = [value, id];
+      } else if (field === "comments") {
+        query = `
             UPDATE "Exercises"
             SET "comments" = $1::text[]
             WHERE "ID" = $2 RETURNING *`;
-            params = [value, id];
-        }
-        } else {
-        // All other fields, including has_assignmentCondition
-        query = `
-            UPDATE "Exercises"
-            SET "${field}" = $1
-            WHERE "ID" = $2 RETURNING *`;
         params = [value, id];
-        }
-            const result = await pool.query(query, params);
-            res.json(result.rows[0]);
-        } catch (err) {
-            console.error("❌ DB update error:", err);
-            res.status(500).json({ error: "Update failed" });
-        }
-        });
+      }
+    } else {
+      // All other fields, including has_assignmentCondition
+      query = `
+            UPDATE "Exercises"
+            SET "${normalizedField}" = $1
+            WHERE "ID" = $2 RETURNING *`;
+      params = [value, id];
+    }
+    const result = await pool.query(query, params);
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("❌ DB update error:", err);
+    res.status(500).json({ error: "Update failed" });
+  }
+});
 
 app.get("/exercise-details", async (req, res) => {
   const { resourceID, page, number } = req.query;

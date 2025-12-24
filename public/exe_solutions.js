@@ -152,6 +152,39 @@ function submitFormWithFile(file) {
 
 async function handleUploadAndInsert(paths = {}) {
     const { textPath = null, solPath = null } = paths;
+
+    // Helper: patch a single field via /update-exercise
+    async function patchExerciseField(id, field, value) {
+        const res = await fetch("/update-exercise", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id, field, value })
+        });
+        if (!res.ok) {
+            const t = await res.text().catch(() => '');
+            console.error('PATCH /update-exercise failed', { id, field, value, status: res.status, body: t });
+            throw new Error(`Update failed for ${field} (HTTP ${res.status}): ${t}`);
+        }
+        return res.json();
+    }
+
+    // Helper: load existing exercise by tuple (resourceID/page/number)
+    async function loadExistingByTuple(resourceID, page, number) {
+        const url = `/exercise-details?resourceID=${encodeURIComponent(resourceID)}&page=${encodeURIComponent(page)}&number=${encodeURIComponent(number)}`;
+        const res = await fetch(url);
+        if (!res.ok) {
+            const t = await res.text().catch(() => '');
+            console.warn('GET /exercise-details not ok', { url, status: res.status, body: t });
+            return null;
+        }
+        const j = await res.json().catch(() => null);
+        if (!j) {
+            console.warn('GET /exercise-details returned non-JSON', { url });
+            return null;
+        }
+        return j;
+    }
+
     try {
         const file1 = document.getElementById("file1").files[0];
         const file2 = document.getElementById("file2").files[0];
@@ -191,41 +224,126 @@ async function handleUploadAndInsert(paths = {}) {
             topic: topicRaw || null,
             keyWords: keyWordsArr
         };
+
+        // 1) Try normal path: POST /exercises (returns {id, reused})
+        let result = null;
+        let newId = null;
+        let reused = false;
+
         const res = await fetch("/exercises", {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify(exerciseData)
         });
 
-        if (!res.ok) throw new Error("Failed to insert exercise.");
-        const result = await res.json();
-        const newId = (result && (result.id ?? result.ID ?? result.exerciseID ?? (result.row && (result.row.id ?? result.row.ID)))) || null;
-        console.log('Insert /exercises result =', result, '=> newId =', newId);
+        if (res.ok) {
+            result = await res.json();
+            newId = (result && (result.id ?? result.ID ?? result.exerciseID ?? (result.row && (result.row.id ?? result.row.ID)))) || null;
+            reused = !!(result && result.reused);
+            console.log('Insert /exercises result =', result, '=> newId =', newId, 'reused =', reused);
+        } else {
+            // 2) Fallback: if insert/find fails for any reason, try to load the existing row by tuple.
+            const t = await res.text().catch(() => '');
+            console.warn('POST /exercises not ok, falling back to /exercise-details. Status:', res.status, 'Body:', t);
+
+            const existing = await loadExistingByTuple(exerciseData.resourceID, exerciseData.page, exerciseData.number);
+            if (!existing || !existing.ID) {
+                throw new Error(`Failed to insert/find exercise and could not load by tuple: ${t || ('HTTP ' + res.status)}`);
+            }
+            newId = parseInt(existing.ID, 10);
+            reused = true;
+            result = { id: newId, reused: true, fallback: true };
+            console.log('Fallback existing exercise loaded => newId =', newId);
+        }
+
+        // If the exercise already exists, we do NOT stop.
+        // Instead: load the existing row and, if the uploaded side is missing, update it.
+        let updatedSomething = false;
+        if (reused) {
+            const existing = await loadExistingByTuple(exerciseData.resourceID, exerciseData.page, exerciseData.number);
+            // existing may be null if endpoint fails; in that case we still try to patch blindly.
+
+            const canTrustExisting = !!existing;
+            const hasTextNow = canTrustExisting ? !!existing.has_assignmentCondition : false;
+            const hasSolNow = canTrustExisting ? !!existing.has_solution : false;
+            const textPathNow = canTrustExisting ? (existing.text_filepath || null) : null;
+            const solPathNow = canTrustExisting ? (existing.solution_filepath || null) : null;
+
+            // If we couldn't load the row, don't block the update — try to patch anyway.
+            const needTextPatch = !!file1 && (!!textFilePath) && (!canTrustExisting || !hasTextNow || !textPathNow);
+            const needSolPatch  = !!file2 && (!!solutionFilePath) && (!canTrustExisting || !hasSolNow || !solPathNow);
+
+            if (!canTrustExisting) {
+                console.warn('Could not load existing row via /exercise-details; will attempt PATCH anyway.', {
+                    tuple: { resourceID: exerciseData.resourceID, page: exerciseData.page, number: exerciseData.number },
+                    newId,
+                    needTextPatch,
+                    needSolPatch
+                });
+            }
+
+            if (needTextPatch) {
+                await patchExerciseField(newId, 'has_assignmentCondition', true);
+                await patchExerciseField(newId, 'text_filepath', textFilePath);
+                updatedSomething = true;
+            }
+
+            if (needSolPatch) {
+                await patchExerciseField(newId, 'has_solution', true);
+                await patchExerciseField(newId, 'solution_filepath', solutionFilePath);
+                updatedSomething = true;
+            }
+            // If nothing needed updating, we still treat the action as successful.
+        }
 
         // Try to persist extra fields (topic, keyWords) in case /exercises ignores them
         try {
-          if (newId) {
-            const r2 = await fetch(`/exercises/${newId}/extras`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ topic: exerciseData.topic, keyWords: exerciseData.keyWords })
-            });
-            if (!r2.ok) {
-              const t = await r2.text();
-              console.warn('extras update not ok:', t);
+            if (newId) {
+                const r2 = await fetch(`/exercises/${newId}/extras`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ topic: exerciseData.topic, keyWords: exerciseData.keyWords })
+                });
+                if (!r2.ok) {
+                    const t = await r2.text();
+                    console.warn('extras update not ok:', t);
+                }
+                // Fallback: if :id extras patch fails (or endpoint missing), try tuple-based extras update.
+                if (!r2.ok) {
+                    try {
+                        await fetch(`/exercises/extras-by-tuple`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                resourceID: exerciseData.resourceID,
+                                page: exerciseData.page,
+                                number: exerciseData.number,
+                                topic: exerciseData.topic,
+                                keyWords: exerciseData.keyWords
+                            })
+                        });
+                    } catch (_) {}
+                }
+            } else {
+                console.warn('No newId from /exercises insert; extras not patched');
             }
-          } else {
-            console.warn('No newId from /exercises insert; extras not patched');
-          }
-        } catch(e) {
-          console.warn('extras update failed:', e && e.message ? e.message : e);
+        } catch (e) {
+            console.warn('extras update failed:', e && e.message ? e.message : e);
         }
 
-        alert("✅ Exercise saved successfully" + (newId? (": ID "+newId):''));
+        if (reused) {
+            if (updatedSomething) {
+                alert(`✅ Упражнението вече съществуваше (ID ${newId}), но липсващото условие/решение беше добавено.`);
+            } else {
+                alert(`ℹ️ Упражнението вече съществуваше (ID ${newId}) и вече има качено условие/решение. Няма промяна.`);
+            }
+        } else {
+            alert("✅ Exercise saved successfully" + (newId ? (": ID " + newId) : ''));
+        }
+
     } catch (err) {
-        alert("⚠️ Exercise already exists in the database.");
+        console.error('handleUploadAndInsert failed (full):', err);
+        alert("❌ Грешка при запис/ъпдейт: " + (err && err.message ? err.message : String(err)));
     }
 }
 
