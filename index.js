@@ -146,6 +146,7 @@ const pool = require('./db');
 // Table shape used:
 // id bigserial PK, lesson_id int NOT NULL, item_type text NOT NULL CHECK (item_type IN ('theory','exercise')),
 // item_id int NOT NULL, position int, added_at timestamp DEFAULT now()
+// --- LESSON SCRIPTED: table + helpers (theory/exercises broken out per row) ---
 (async function ensureLessonScripted(){
   try {
     await pool.query(`
@@ -159,6 +160,10 @@ const pool = require('./db');
       );
       CREATE INDEX IF NOT EXISTS idx_lscripted_lesson ON lesson_scripted(lesson_id);
       CREATE INDEX IF NOT EXISTS idx_lscripted_type_pos ON lesson_scripted(item_type, position);
+      -- Editable per-exercise meta
+      ALTER TABLE lesson_scripted
+        ADD COLUMN IF NOT EXISTS "timeInMinutes" INTEGER DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS "difficulty"    INTEGER DEFAULT 0;
     `);
     // One-time migration: if table is empty, try to migrate from old array columns in Lessons
     const { rows: cnt } = await pool.query(`SELECT COUNT(*)::int AS n FROM lesson_scripted`);
@@ -292,22 +297,42 @@ app.get('/lesson-scripted/:id', async (req, res) => {
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
   try{
     const t = await pool.query(
-      `SELECT item_id
+      `SELECT item_id, "timeInMinutes", "difficulty"
          FROM lesson_scripted
         WHERE lesson_id = $1 AND item_type IN ('theory','snippet')
      ORDER BY id ASC`,
       [id]
     );
     const e = await pool.query(
-      `SELECT item_id
+      `SELECT item_id, "timeInMinutes", "difficulty"
          FROM lesson_scripted
         WHERE lesson_id = $1 AND item_type = 'exercise'
      ORDER BY id ASC`,
       [id]
     );
     const theory = t.rows.map(r => parseInt(r.item_id,10)).filter(Number.isInteger);
-    const exercises = e.rows.map(r => parseInt(r.item_id,10)).filter(Number.isInteger);
-    return res.json({ lesson_id: id, theory_snippets: theory, exercises_ids: exercises });
+
+    const snippets = t.rows
+      .map(r => ({
+        snippet_id: parseInt(r.item_id,10),
+        timeInMinutes: (r.timeInMinutes != null ? parseInt(r.timeInMinutes,10) : 0) || 0,
+        difficulty: (r.difficulty != null ? parseInt(r.difficulty,10) : 0) || 0
+      }))
+      .filter(x => Number.isInteger(x.snippet_id));
+
+    const exercises_ids = e.rows
+      .map(r => parseInt(r.item_id,10))
+      .filter(Number.isInteger);
+
+    const exercises = e.rows
+      .map(r => ({
+        exercise_id: parseInt(r.item_id,10),
+        timeInMinutes: (r.timeInMinutes != null ? parseInt(r.timeInMinutes,10) : 0) || 0,
+        difficulty: (r.difficulty != null ? parseInt(r.difficulty,10) : 0) || 0
+      }))
+      .filter(x => Number.isInteger(x.exercise_id));
+
+    return res.json({ lesson_id: id, theory_snippets: theory, snippets, exercises_ids, exercises });
   }catch(err){
     console.error('GET /lesson-scripted/:id failed:', err);
     return res.status(500).json({ error: 'DB error' });
@@ -326,7 +351,20 @@ app.patch('/lesson-scripted/:lessonId/reorder', async (req, res) => {
   let itemType = String(body.item_type || '').trim().toLowerCase();
   if (!['theory','exercise'].includes(itemType)) return res.status(400).json({ error: 'item_type must be "theory" or "exercise"' });
   const itemIds = Array.isArray(body.item_ids) ? body.item_ids.map(n => parseInt(n,10)).filter(Number.isInteger) : [];
-  if (!itemIds.length) return res.status(400).json({ error: 'item_ids must be a non-empty array of integers' });
+
+  // Allow empty list -> clears the section
+  if (!itemIds.length) {
+    const typeFilterSQL = (itemType === 'theory')
+      ? `item_type IN ('theory','snippet')`
+      : `item_type = 'exercise'`;
+    try{
+      await pool.query(`DELETE FROM lesson_scripted WHERE lesson_id = $1 AND ${typeFilterSQL}`, [lessonId]);
+      return res.json({ ok:true, lesson_id: lessonId, item_type: itemType, count: 0 });
+    }catch(e){
+      console.error('PATCH /lesson-scripted/:lessonId/reorder (clear) failed:', e);
+      return res.status(500).json({ error: 'DB error' });
+    }
+  }
 
   const client = await pool.connect();
   try {
@@ -378,6 +416,59 @@ app.patch('/lesson-scripted/:lessonId/reorder', async (req, res) => {
     return res.status(500).json({ error: 'DB error' });
   } finally {
     client.release();
+  }
+});
+
+/**
+ * PATCH /lesson-scripted/:lessonId/item
+ * Body: { item_type:'exercise', item_id:int, timeInMinutes?:int, difficulty?:int }
+ */
+app.patch('/lesson-scripted/:lessonId/item', async (req, res) => {
+  const lessonId = parseInt(req.params.lessonId, 10);
+  if (!Number.isInteger(lessonId)) return res.status(400).json({ error: 'Invalid lessonId' });
+
+  const body = req.body || {};
+  const itemType = String(body.item_type || '').trim().toLowerCase();
+  const itemId = parseInt(body.item_id, 10);
+  if (!['exercise','theory'].includes(itemType) || !Number.isInteger(itemId)) {
+    return res.status(400).json({ error: 'Invalid item_type or item_id' });
+  }
+
+  const t = (body.timeInMinutes != null) ? parseInt(body.timeInMinutes,10) : null;
+  let d = (body.difficulty != null) ? parseInt(body.difficulty,10) : null;
+  if (Number.isInteger(d)) {
+    if (d < 0) d = 0;
+    if (d > 3) d = 3;
+  }
+
+  const sets = [];
+  const params = [];
+  if (Number.isInteger(t)) { params.push(t); sets.push(`"timeInMinutes" = $${params.length}`); }
+  if (Number.isInteger(d)) { params.push(d); sets.push(`"difficulty" = $${params.length}`); }
+  if (!sets.length) return res.status(400).json({ error: 'No editable fields provided' });
+
+  params.push(lessonId);
+  params.push(itemId);
+
+  // For theory, update both 'theory' and 'snippet'
+  const typeWhere = (itemType === 'theory')
+    ? `item_type IN ('theory','snippet')`
+    : `item_type = 'exercise'`;
+
+  try{
+    const sql = `
+      UPDATE lesson_scripted
+         SET ${sets.join(', ')}
+       WHERE lesson_id = $${params.length-1}
+         AND ${typeWhere}
+         AND item_id = $${params.length}
+       RETURNING id, lesson_id, item_type, item_id, "timeInMinutes", "difficulty"`;
+    const r = await pool.query(sql, params);
+    if (!r.rowCount) return res.status(404).json({ error: 'Row not found' });
+    return res.json({ ok:true, row: r.rows[0] });
+  }catch(e){
+    console.error('PATCH /lesson-scripted/:lessonId/item failed:', e);
+    return res.status(500).json({ error: 'DB error' });
   }
 });
 
@@ -537,6 +628,68 @@ app.patch('/exercises/extras-by-tuple', async (req, res) => {
     return res.status(500).json({ error: 'DB error' });
   }
 });
+
+/**
+ * GET /exercise-ref?ids=1,2,3
+ * Returns reference info for each exercise id:
+ *  - Number, Page, ResourceID from "Exercises"
+ *  - Authors/Edition/Year/SourceType/Grade/Publisher/Press from "Resources" (if present)
+ */
+app.get('/exercise-ref', async (req, res) => {
+  try {
+    const raw = String(req.query.ids || '').trim();
+    if (!raw) return res.json([]);
+
+    const ids = raw
+      .split(',')
+      .map(s => parseInt(String(s).trim(), 10))
+      .filter(Number.isInteger);
+
+    if (!ids.length) return res.json([]);
+
+    const { rows } = await pool.query(
+      `SELECT e."ID"         AS exercise_id,
+              e."Number"     AS number,
+              e."Page"       AS page,
+              e."ResourceID" AS resourceid,
+              r."Authors"    AS authors,
+              r."Edition"    AS edition,
+              r."Year"       AS year,
+              r."SourceType" AS sourcetype,
+              r."Grade"      AS grade,
+              r."Publisher"  AS publisher,
+              r."Press"      AS press
+         FROM "Exercises" e
+         LEFT JOIN "Resources" r ON r."ID" = e."ResourceID"
+        WHERE e."ID" = ANY($1::int[])
+        ORDER BY e."ID" ASC`,
+      [ids]
+    );
+
+    return res.json(
+      rows.map(r => ({
+        exercise_id: r.exercise_id == null ? null : parseInt(r.exercise_id, 10),
+        number: r.number == null ? null : String(r.number),
+        page: r.page == null ? null : parseInt(r.page, 10),
+        resourceid: r.resourceid == null ? null : parseInt(r.resourceid, 10),
+        resource: {
+          id: r.resourceid == null ? null : parseInt(r.resourceid, 10),
+          authors: r.authors == null ? null : String(r.authors),
+          edition: r.edition == null ? null : parseInt(r.edition, 10),
+          year: r.year == null ? null : parseInt(r.year, 10),
+          sourcetype: r.sourcetype == null ? null : parseInt(r.sourcetype, 10),
+          grade: r.grade == null ? null : parseInt(r.grade, 10),
+          publisher: r.publisher == null ? null : parseInt(r.publisher, 10),
+          press: r.press == null ? null : parseInt(r.press, 10)
+        }
+      })).filter(x => Number.isInteger(x.exercise_id))
+    );
+  } catch (e) {
+    console.error('GET /exercise-ref failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  }
+}); 
+
 
 // Ensure lessons_actions table exists at startup
 (async function ensureLessonsActionsTable(){

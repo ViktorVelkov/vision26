@@ -1,9 +1,10 @@
 // lessonsCenter.js
 (function(){
   const $ = (sel) => document.querySelector(sel);
-  const theoryWrap = $('#theory_list');
+  const snWrap = $('#sn_table_body');
   const exWrap = $('#ex_table_body');
   const exAddInput = $('#ex_add_id');  const snippetInp = $('#snippetSearch');
+  const snAddInput = $('#sn_add_id');
   const snippetBtn = $('#snippetSearchBtn');
   const completionsUl = $('#snippetCompletions');
   const lessonsTbody = $('#snippetLessons');
@@ -96,17 +97,17 @@ function makeTableDraggable(tbody){
   async function persistOrderFor(wrap){
     try{
       // Determine type by target wrap
-      const isTheory = (wrap === theoryWrap);
+      const isTheory = (wrap === snWrap);
       const type = isTheory ? 'theory' : 'exercise';
       if (!currentLessonId) return; // only persist when editing existing lesson
-      const ids = (wrap === theoryWrap)
-        ? Array.from(wrap.querySelectorAll('.item input'))
-            .map(i => parseInt(i.value.trim(), 10))
+      const ids = (wrap === snWrap)
+        ? Array.from(snWrap.querySelectorAll('tr.row-item'))
+            .map(tr => parseInt(tr.dataset.id,10))
             .filter(Number.isInteger)
         : Array.from(exWrap.querySelectorAll('tr.row-item'))
             .map(tr => parseInt(tr.dataset.id,10))
             .filter(Number.isInteger);
-      if (!ids.length) return;
+      // (Allow sending even if ids.length === 0, to clear section)
       await fetch(`/lesson-scripted/${currentLessonId}/reorder`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -145,7 +146,7 @@ function makeTableDraggable(tbody){
       loadScriptedLists(row.lesson_id).catch(console.error);
     } else {
       // If no id, clear lists
-      setList(theoryWrap, []);
+      setSnippetsTable([]);
       setExercisesTable([]);
     }
 
@@ -160,7 +161,7 @@ function makeTableDraggable(tbody){
       document.getElementById('source_token'),
       document.getElementById('section_token'),
       document.getElementById('lesson_token'),
-      document.querySelector('#theory_list'),
+      document.querySelector('#sn_table'),
       document.querySelector('#ex_table')
     ].filter(Boolean);
     toFlash.forEach(el => {
@@ -181,19 +182,142 @@ function makeTableDraggable(tbody){
     try{
       const r = await fetch(`/lesson-scripted/${lessonId}`);
       if (!r.ok) {
-        setList(theoryWrap, []);
+        setSnippetsTable([]);
         await setExercisesTable([]);
         return;
       }
       const d = await r.json();
-      setList(theoryWrap, Array.isArray(d.theory_snippets) ? d.theory_snippets : []);
-      await setExercisesTable(Array.isArray(d.exercises_ids) ? d.exercises_ids : []);
+      // Prefer server-provided snippet meta if present
+      if (Array.isArray(d.snippets) && d.snippets.length) {
+        snWrap.innerHTML = '';
+        d.snippets.forEach((m, i) => {
+          snWrap.appendChild(buildSnippetRow({
+            snippet_id: m.snippet_id,
+            timeInMinutes: m.timeInMinutes ?? 0,
+            difficulty: m.difficulty ?? 0
+          }, i));
+        });
+        makeTableDraggable(snWrap);
+      } else {
+        await setSnippetsTable(Array.isArray(d.theory_snippets) ? d.theory_snippets : []);
+      }
+
+      // Prefer server-provided exercise meta (timeInMinutes, difficulty)
+      if (Array.isArray(d.exercises) && d.exercises.length) {
+        exWrap.innerHTML = '';
+        d.exercises.forEach((m, i) => {
+          exWrap.appendChild(buildExerciseRow({
+            exercise_id: m.exercise_id,
+            timeInMinutes: m.timeInMinutes ?? 0,
+            difficulty: m.difficulty ?? 0
+          }, i));
+        });
+        makeTableDraggable(exWrap);
+      } else {
+        // Fallback: only IDs (will fetch meta separately)
+        await setExercisesTable(Array.isArray(d.exercises_ids) ? d.exercises_ids : []);
+      }
     }catch(e){
       console.error('loadScriptedLists failed', e);
-      setList(theoryWrap, []);
+      setSnippetsTable([]);
       await setExercisesTable([]);
     }
   }
+// --- Snippet table rendering with meta (duration, difficulty)
+async function fetchSnippetMetaBulk(ids){
+  // Snippets meta идва от lesson_scripted (GET /lesson-scripted/:id връща snippets),
+  // но за fallback при добавяне на нови IDs показваме 0.
+  if (!ids || !ids.length) return [];
+  return ids.map(id => ({ snippet_id:id, timeInMinutes:0, difficulty:0 }));
+}
+
+async function patchLessonScriptedSnippetMeta(lessonId, itemId, patch){
+  if (!lessonId || !itemId) return;
+  try{
+    const r = await fetch(`/lesson-scripted/${lessonId}/item`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item_type: 'theory', item_id: itemId, ...patch })
+    });
+    if (!r.ok) {
+      const t = await r.text().catch(()=> '');
+      console.warn('patchLessonScriptedSnippetMeta not ok', r.status, t);
+    }
+  }catch(e){
+    console.warn('patchLessonScriptedSnippetMeta failed', e);
+  }
+}
+
+function buildSnippetRow(meta, index){
+  const tr = document.createElement('tr');
+  tr.className = 'row-item';
+  tr.draggable = true;
+  tr.dataset.id = meta.snippet_id;
+
+  const tdId  = document.createElement('td');
+  tdId.className  = 'sid';
+  tdId.textContent  = String(meta.snippet_id);
+
+  const tdDur = document.createElement('td');
+  tdDur.className = 'dur';
+  const durInp = document.createElement('input');
+  durInp.type = 'number';
+  durInp.min = '0';
+  durInp.step = '1';
+  durInp.style.width = '100%';
+  durInp.value = String(meta.timeInMinutes != null ? meta.timeInMinutes : 0);
+  tdDur.appendChild(durInp);
+
+  const tdDf  = document.createElement('td');
+  tdDf.className  = 'diff';
+  const dfInp = document.createElement('input');
+  dfInp.type = 'number';
+  dfInp.min = '0';
+  dfInp.step = '1';
+  dfInp.max = '3';
+  dfInp.style.width = '100%';
+  dfInp.value = String(meta.difficulty != null ? meta.difficulty : 0);
+  tdDf.appendChild(dfInp);
+
+  const saveIfEditing = async ()=>{
+    if (!currentLessonId) return;
+    const t = parseInt(durInp.value, 10);
+    let d = parseInt(dfInp.value, 10);
+    if (!Number.isInteger(d) || d < 0) d = 0;
+    if (d > 3) d = 3;
+    dfInp.value = String(d);
+    await patchLessonScriptedSnippetMeta(currentLessonId, meta.snippet_id, {
+      timeInMinutes: Number.isFinite(t) ? t : 0,
+      difficulty: Number.isFinite(d) ? d : 0
+    });
+  };
+  durInp.addEventListener('blur', saveIfEditing);
+  dfInp.addEventListener('blur', saveIfEditing);
+
+  const tdAct = document.createElement('td');
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'rem';
+  btn.textContent = '×';
+  btn.title = 'Премахни снипета';
+  btn.addEventListener('click', ()=> {
+    tr.remove();
+    persistOrderFor(snWrap);
+  });
+  tdAct.appendChild(btn);
+
+  tr.append(tdId, tdDur, tdDf, tdAct);
+  return tr;
+}
+
+async function setSnippetsTable(ids){
+  snWrap.innerHTML = '';
+  const metas = await fetchSnippetMetaBulk(ids);
+  metas.forEach((m, i)=>{
+    snWrap.appendChild(buildSnippetRow(m, i));
+  });
+  makeTableDraggable(snWrap);
+}
 // --- Exercise table rendering with meta (duration, difficulty)
 async function fetchExerciseMetaBulk(ids){
   if (!ids || !ids.length) return [];
@@ -202,7 +326,7 @@ async function fetchExerciseMetaBulk(ids){
 
     // If the meta endpoint fails, still render IDs (with 0 meta) so the table is never empty.
     if (!r.ok) {
-      return ids.map(id => ({ exercise_id:id, duration_minutes:0, difficulty:0, comment:'' }));
+      return ids.map(id => ({ exercise_id:id, timeInMinutes:0, duration_minutes:0, difficulty:0, comment:'' }));
     }
 
     const arr = await r.json();
@@ -213,6 +337,7 @@ async function fetchExerciseMetaBulk(ids){
       const m = map.get(id);
       return {
         exercise_id: id,
+        timeInMinutes: m ? (parseInt(m.duration_minutes,10) || 0) : 0,
         duration_minutes: m ? (parseInt(m.duration_minutes,10) || 0) : 0,
         difficulty: m ? (parseInt(m.difficulty,10) || 0) : 0,
         comment: m ? (m.comment || '') : ''
@@ -220,7 +345,24 @@ async function fetchExerciseMetaBulk(ids){
     });
   }catch(e){
     console.warn('fetchExerciseMetaBulk failed', e);
-    return ids.map(id => ({ exercise_id:id, duration_minutes:0, difficulty:0, comment:'' }));
+    return ids.map(id => ({ exercise_id:id, timeInMinutes:0, duration_minutes:0, difficulty:0, comment:'' }));
+  }
+}
+
+async function patchLessonScriptedExerciseMeta(lessonId, itemId, patch){
+  if (!lessonId || !itemId) return;
+  try{
+    const r = await fetch(`/lesson-scripted/${lessonId}/item`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item_type: 'exercise', item_id: itemId, ...patch })
+    });
+    if (!r.ok) {
+      const t = await r.text().catch(()=> '');
+      console.warn('patchLessonScriptedExerciseMeta not ok', r.status, t);
+    }
+  }catch(e){
+    console.warn('patchLessonScriptedExerciseMeta failed', e);
   }
 }
 
@@ -230,13 +372,53 @@ function buildExerciseRow(meta, index){
   tr.draggable = true;
   tr.dataset.id = meta.exercise_id;
 
-  const tdId  = document.createElement('td'); tdId.className  = 'eid';  tdId.textContent  = String(meta.exercise_id);
-  const tdDur = document.createElement('td'); tdDur.className = 'dur';  tdDur.textContent = String(meta.duration_minutes);
-  const tdDf  = document.createElement('td'); tdDf.className  = 'diff'; tdDf.textContent  = String(meta.difficulty);
+  const tdId  = document.createElement('td');
+  tdId.className  = 'eid';
+  tdId.textContent  = String(meta.exercise_id);
+
+  const tdDur = document.createElement('td');
+  tdDur.className = 'dur';
+  const durInp = document.createElement('input');
+  durInp.type = 'number';
+  durInp.min = '0';
+  durInp.step = '1';
+  durInp.style.width = '100%';
+  durInp.value = String(meta.timeInMinutes != null ? meta.timeInMinutes : (meta.duration_minutes != null ? meta.duration_minutes : 0));
+  tdDur.appendChild(durInp);
+
+  const tdDf  = document.createElement('td');
+  tdDf.className  = 'diff';
+  const dfInp = document.createElement('input');
+  dfInp.type = 'number';
+  dfInp.min = '0';
+  dfInp.step = '1';
+  dfInp.max = '3';
+  dfInp.style.width = '100%';
+  dfInp.value = String(meta.difficulty != null ? meta.difficulty : 0);
+  tdDf.appendChild(dfInp);
+
+  // Persist on blur (only when editing an existing lesson)
+  const saveIfEditing = async ()=>{
+    if (!currentLessonId) return;
+    const t = parseInt(durInp.value, 10);
+    let d = parseInt(dfInp.value, 10);
+    if (!Number.isInteger(d) || d < 0) d = 0;
+    if (d > 3) d = 3;
+    dfInp.value = String(d);
+    const patch = {
+      timeInMinutes: Number.isFinite(t) ? t : 0,
+      difficulty: Number.isFinite(d) ? d : 0
+    };
+    await patchLessonScriptedExerciseMeta(currentLessonId, meta.exercise_id, patch);
+  };
+  durInp.addEventListener('blur', saveIfEditing);
+  dfInp.addEventListener('blur', saveIfEditing);
 
   const tdAct = document.createElement('td');
   const btn = document.createElement('button');
-  btn.type = 'button'; btn.className = 'rem'; btn.textContent = '×';
+  btn.type = 'button';
+  btn.className = 'rem';
+  btn.textContent = '×';
   btn.title = 'Премахни упражнението';
   btn.addEventListener('click', ()=> {
     tr.remove();
@@ -313,7 +495,15 @@ async function setExercisesTable(ids){
     makeListDraggable(wrap);
   }
 
-  $('#addTheory').addEventListener('click', ()=> addItem(theoryWrap, 'int'));
+  $('#addTheory').addEventListener('click', async ()=>{
+    const v = snAddInput && snAddInput.value ? parseInt(snAddInput.value,10) : NaN;
+    if (!Number.isInteger(v) || v <= 0) return;
+    const current = collectList(snWrap, false);
+    if (!current.includes(v)) current.push(v);
+    await setSnippetsTable(current);
+    snAddInput.value = '';
+    persistOrderFor(snWrap);
+  });
   $('#addEx').addEventListener('click', async ()=>{
     const v = exAddInput && exAddInput.value ? parseInt(exAddInput.value,10) : NaN;
     if (!Number.isInteger(v) || v <= 0) return;
@@ -324,13 +514,17 @@ async function setExercisesTable(ids){
     persistOrderFor(exWrap);
   });
 
-    // init with one theory row; exercises table starts empty and renders on load/add
-    addItem(theoryWrap, 'int');
-    makeListDraggable(theoryWrap);
+    // init: snippets/exercises tables start empty; render on load/add
+    setSnippetsTable([]);
 
   function collectList(wrap, toInt){
     if (wrap === exWrap){
       return Array.from(exWrap.querySelectorAll('tr.row-item'))
+        .map(tr => parseInt(tr.dataset.id,10))
+        .filter(Number.isInteger);
+    }
+    if (wrap === snWrap){
+      return Array.from(snWrap.querySelectorAll('tr.row-item'))
         .map(tr => parseInt(tr.dataset.id,10))
         .filter(Number.isInteger);
     }
@@ -405,9 +599,9 @@ async function setExercisesTable(ids){
     ['name','class','description','url','filepath','tripplet_id','source_token','section_token','lesson_token']
       .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
     // reset dynamic lists to one blank row each
-    theoryWrap.innerHTML = '';
+    snWrap.innerHTML = '';
     exWrap.innerHTML = '';
-    addItem(theoryWrap,'int');
+    setSnippetsTable([]);
     // also clear the snippet search input and results
     if (snippetInp) snippetInp.value = '';
     if (completionsUl) completionsUl.innerHTML = '';
@@ -424,7 +618,7 @@ async function setExercisesTable(ids){
       description: $('#description').value.trim() || null,
       url: $('#url').value.trim() || null,
       filepath: $('#filepath').value.trim() || null,
-      theory_snippets: collectList(theoryWrap, true),
+      theory_snippets: collectList(snWrap, false),
       exercises_ids: collectList(exWrap, false)
     };
 

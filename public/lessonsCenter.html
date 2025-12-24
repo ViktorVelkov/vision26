@@ -167,9 +167,22 @@
         <legend>Под-списъци</legend>
         <div class="row">
           <div>
-            <label>Теория — snippets (integer[])</label>
-            <div id="theory_list" class="list"></div>
-            <button type="button" class="btn btn-plain" id="addTheory">+ Добави ID</button>
+            <label>Теория — snippets</label>
+            <table id="sn_table" style="width:100%; border-collapse:collapse; margin-top:6px;">
+              <thead>
+                <tr>
+                  <th style="width:110px;">ID</th>
+                  <th style="width:160px;">Продълж. (мин)</th>
+                  <th style="width:140px;">Сложност</th>
+                  <th style="width:46px;"></th>
+                </tr>
+              </thead>
+              <tbody id="sn_table_body"></tbody>
+            </table>
+            <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+              <input id="sn_add_id" type="number" min="1" placeholder="въведи ID" style="max-width:160px;"/>
+              <button type="button" class="btn btn-plain" id="addTheory">+ Добави</button>
+            </div>
           </div>
           <div>
             <label>Упражнения</label>
