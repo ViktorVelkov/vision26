@@ -1,4 +1,5 @@
 // index.js
+// index.js
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -109,6 +110,57 @@ const holidayRouter = require("./routes/holidays");
 const upload = multer({ storage: multer.memoryStorage() });
 const scheduleSelectionRouter = require("./routes/scheduleSelection");
 const pool = require('./db');
+
+/**
+ * GET /snippet-ref
+ * - /snippet-ref?id=<lesson_id>        -> Lessons info (backward compatible with existing UI)
+ * - /snippet-ref?ids=1,2,3            -> Snippets uslovie for snippet ids (bulk)
+ */
+app.get('/snippet-ref', async (req, res) => {
+  try {
+    // Bulk: ids=1,2,3 -> fetch from "Snippets" by snippet id
+    if (req.query.ids != null) {
+      const raw = String(req.query.ids || '').trim();
+      if (!raw) return res.json([]);
+
+      const ids = raw.split(',')
+        .map(s => parseInt(String(s).trim(), 10))
+        .filter(Number.isInteger);
+      if (!ids.length) return res.json([]);
+
+      const { rows } = await pool.query(
+        `SELECT s.id AS snippet_id,
+               s.name AS name,
+               s.uslovie AS uslovie
+          FROM "Snippets" s
+         WHERE s.id = ANY($1::int[])
+         ORDER BY s.id ASC`,
+        [ids]
+      );
+
+      return res.json(rows.map(r => ({
+        snippet_id: r.snippet_id == null ? null : parseInt(r.snippet_id, 10),
+        name: r.name == null ? '' : String(r.name),
+        uslovie: r.uslovie == null ? '' : String(r.uslovie)
+      })).filter(x => Number.isInteger(x.snippet_id)));
+    }
+
+    // Single: id=<lesson_id> -> fetch from "Lessons" (existing behavior)
+    const id = parseInt(req.query.id, 10);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
+
+    const { rows } = await pool.query(
+      `SELECT lesson_id, name, tripplet_id, description, class, url, filepath, source_token, section_token, lesson_token
+         FROM "Lessons" WHERE lesson_id = $1 LIMIT 1`,
+      [id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    return res.json(rows[0]);
+  } catch (e) {
+    console.error('GET /snippet-ref failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  }
+});
 
 // --- Compatibility shim for lessons_scripted vs lesson_scripted ---
 // Note: item_type may be 'theory', 'exercise', or 'snippet' (for theory/snippet rows).
@@ -653,6 +705,7 @@ app.get('/exercise-ref', async (req, res) => {
               e."Page"       AS page,
               e."ResourceID" AS resourceid,
               r."Authors"    AS authors,
+              r."KeyWords"   AS resource_keywords,
               r."Edition"    AS edition,
               r."Year"       AS year,
               r."SourceType" AS sourcetype,
@@ -674,6 +727,7 @@ app.get('/exercise-ref', async (req, res) => {
         resourceid: r.resourceid == null ? null : parseInt(r.resourceid, 10),
         resource: {
           id: r.resourceid == null ? null : parseInt(r.resourceid, 10),
+          keyWords: r.resource_keywords == null ? '' : String(r.resource_keywords),
           authors: r.authors == null ? null : String(r.authors),
           edition: r.edition == null ? null : parseInt(r.edition, 10),
           year: r.year == null ? null : parseInt(r.year, 10),

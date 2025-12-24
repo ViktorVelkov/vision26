@@ -98,13 +98,18 @@
           <strong></strong>
           <ul id="snippetCompletions" style="margin-top:6px; padding-left:18px;"></ul>
         </div>
-        
         <div>
           <strong></strong>
           <div id="snippetLessonsWrap" style="max-height:220px; overflow:auto; border:1px solid #eee; border-radius:8px; padding:6px;">
             <table style="width:100%; border-collapse:collapse;">
               <thead>
-                <tr><th>ID</th><th>Триплет</th><th>Тема</th><th>Клас</th></tr>
+                <tr>
+                  <th>ID</th>
+                  <th>Триплет</th>
+                  <th>Тема</th>
+                  <th>Клас</th>
+                  <th>Инфо</th>
+                </tr>
               </thead>
               <tbody id="snippetLessons"></tbody>
             </table>
@@ -203,6 +208,23 @@
             </div>
           </div>
         </div>
+      <details id="ref_details" style="margin-top:14px;">
+        <summary class="btn btn-plain" style="list-style:none; display:inline-flex; align-items:center; gap:8px; cursor:pointer;">
+          Информация (ID · Вид · Инфо)
+        </summary>
+        <div style="margin-top:10px;">
+          <table id="ref_table" style="width:100%; border-collapse:collapse; margin-top:6px;">
+            <thead>
+              <tr>
+                <th style="width:110px;">ID</th>
+                <th style="width:130px;">Вид</th>
+                <th>Инфо</th>
+              </tr>
+            </thead>
+            <tbody id="ref_table_body"></tbody>
+          </table>
+        </div>
+      </details>
       </fieldset>
 
       <div style="display:flex; justify-content:space-between; align-items:center; margin:8px 0 6px;">

@@ -3,6 +3,7 @@
   const $ = (sel) => document.querySelector(sel);
   const snWrap = $('#sn_table_body');
   const exWrap = $('#ex_table_body');
+  const refWrap = $('#ref_table_body');
   const exAddInput = $('#ex_add_id');  const snippetInp = $('#snippetSearch');
   const snAddInput = $('#sn_add_id');
   const snippetBtn = $('#snippetSearchBtn');
@@ -177,52 +178,134 @@ function makeTableDraggable(tbody){
   }
 
   // Helper: load lists from lesson_scripted by lesson_id and populate the lists
-  async function loadScriptedLists(lessonId){
-    console.log('[lessonsCenter] loadScriptedLists -> lesson_id=', lessonId);
-    try{
-      const r = await fetch(`/lesson-scripted/${lessonId}`);
-      if (!r.ok) {
-        setSnippetsTable([]);
-        await setExercisesTable([]);
-        return;
-      }
-      const d = await r.json();
-      // Prefer server-provided snippet meta if present
-      if (Array.isArray(d.snippets) && d.snippets.length) {
-        snWrap.innerHTML = '';
-        d.snippets.forEach((m, i) => {
-          snWrap.appendChild(buildSnippetRow({
-            snippet_id: m.snippet_id,
-            timeInMinutes: m.timeInMinutes ?? 0,
-            difficulty: m.difficulty ?? 0
-          }, i));
-        });
-        makeTableDraggable(snWrap);
-      } else {
-        await setSnippetsTable(Array.isArray(d.theory_snippets) ? d.theory_snippets : []);
-      }
-
-      // Prefer server-provided exercise meta (timeInMinutes, difficulty)
-      if (Array.isArray(d.exercises) && d.exercises.length) {
-        exWrap.innerHTML = '';
-        d.exercises.forEach((m, i) => {
-          exWrap.appendChild(buildExerciseRow({
-            exercise_id: m.exercise_id,
-            timeInMinutes: m.timeInMinutes ?? 0,
-            difficulty: m.difficulty ?? 0
-          }, i));
-        });
-        makeTableDraggable(exWrap);
-      } else {
-        // Fallback: only IDs (will fetch meta separately)
-        await setExercisesTable(Array.isArray(d.exercises_ids) ? d.exercises_ids : []);
-      }
-    }catch(e){
-      console.error('loadScriptedLists failed', e);
-      setSnippetsTable([]);
+async function loadScriptedLists(lessonId){
+  console.log('[lessonsCenter] loadScriptedLists -> lesson_id=', lessonId);
+  try{
+    const r = await fetch(`/lesson-scripted/${lessonId}`);
+    if (!r.ok) {
+      await setSnippetsTable([]);
       await setExercisesTable([]);
+      await updateRefTable();
+      return;
     }
+
+    const d = await r.json();
+
+    // Prefer server-provided snippet meta if present
+    if (Array.isArray(d.snippets) && d.snippets.length) {
+      snWrap.innerHTML = '';
+      d.snippets.forEach((m, i) => {
+        snWrap.appendChild(buildSnippetRow({
+          snippet_id: m.snippet_id,
+          timeInMinutes: m.timeInMinutes ?? 0,
+          difficulty: m.difficulty ?? 0
+        }, i));
+      });
+      makeTableDraggable(snWrap);
+    } else {
+      await setSnippetsTable(Array.isArray(d.theory_snippets) ? d.theory_snippets : []);
+    }
+
+    // Prefer server-provided exercise meta (timeInMinutes, difficulty)
+    if (Array.isArray(d.exercises) && d.exercises.length) {
+      exWrap.innerHTML = '';
+      d.exercises.forEach((m, i) => {
+        exWrap.appendChild(buildExerciseRow({
+          exercise_id: m.exercise_id,
+          timeInMinutes: m.timeInMinutes ?? 0,
+          difficulty: m.difficulty ?? 0
+        }, i));
+      });
+      makeTableDraggable(exWrap);
+    } else {
+      // Fallback: only IDs (will fetch meta separately)
+      await setExercisesTable(Array.isArray(d.exercises_ids) ? d.exercises_ids : []);
+    }
+
+    await updateRefTable();
+  }catch(e){
+    console.error('loadScriptedLists failed', e);
+    await setSnippetsTable([]);
+    await setExercisesTable([]);
+    await updateRefTable();
   }
+}
+
+  function escapeHtml(s){
+  return String(s ?? '')
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#039;');
+}
+
+function truncateText(s, n){
+  const t = String(s ?? '');
+  return t.length <= n ? t : t.slice(0, n - 1) + '…';
+}
+
+async function fetchSnippetRefs(ids){
+  if (!ids.length) return new Map();
+  const r = await fetch(`/snippet-ref?ids=${ids.join(',')}`);
+  if (!r.ok) return new Map();
+  const arr = await r.json();
+  return new Map(arr.map(x => [x.snippet_id, x]));
+}
+
+async function fetchExerciseRefs(ids){
+  if (!ids.length) return new Map();
+  const r = await fetch(`/exercise-ref?ids=${ids.join(',')}`);
+  if (!r.ok) return new Map();
+  const arr = await r.json();
+  return new Map(arr.map(x => [x.exercise_id, x]));
+}
+
+function formatExercise(ref){
+  if (!ref) return '';
+  const p = ref.page ? `стр. ${ref.page}` : '';
+  const n = ref.number ? `№ ${ref.number}` : '';
+
+  const bookType = (ref.resource?.keyWords || '').trim();
+  const authors  = (ref.resource?.authors  || '').trim();
+
+  const src = [bookType, authors].filter(Boolean).join(' — ');
+  return [src, p, n].filter(Boolean).join(' · ');
+}
+
+async function updateRefTable(){
+  if (!refWrap) return;
+
+  const snIds = [...snWrap.querySelectorAll('tr.row-item')]
+    .map(r => +r.dataset.id).filter(Number.isInteger);
+
+  const exIds = [...exWrap.querySelectorAll('tr.row-item')]
+    .map(r => +r.dataset.id).filter(Number.isInteger);
+
+  const [snMap, exMap] = await Promise.all([
+    fetchSnippetRefs(snIds),
+    fetchExerciseRefs(exIds)
+  ]);
+
+  refWrap.innerHTML = '';
+
+  snIds.forEach(id => {
+    const sn = snMap.get(id);
+    const nm = (sn && sn.name) ? String(sn.name).trim() : '';
+    const us = truncateText((sn && sn.uslovie) ? sn.uslovie : '', 200);
+    const info = [nm, us].filter(Boolean).join(' — ');
+    refWrap.insertAdjacentHTML('beforeend',
+      `<tr><td>${id}</td><td>snippet</td><td>${escapeHtml(info)}</td></tr>`
+    );
+  });
+
+  exIds.forEach(id => {
+    const txt = formatExercise(exMap.get(id));
+    refWrap.insertAdjacentHTML('beforeend',
+      `<tr><td>${id}</td><td>exercise</td><td>${escapeHtml(txt)}</td></tr>`
+    );
+  });
+}
 // --- Snippet table rendering with meta (duration, difficulty)
 async function fetchSnippetMetaBulk(ids){
   // Snippets meta идва от lesson_scripted (GET /lesson-scripted/:id връща snippets),
@@ -303,6 +386,7 @@ function buildSnippetRow(meta, index){
   btn.addEventListener('click', ()=> {
     tr.remove();
     persistOrderFor(snWrap);
+    updateRefTable();
   });
   tdAct.appendChild(btn);
 
@@ -317,6 +401,7 @@ async function setSnippetsTable(ids){
     snWrap.appendChild(buildSnippetRow(m, i));
   });
   makeTableDraggable(snWrap);
+  updateRefTable();
 }
 // --- Exercise table rendering with meta (duration, difficulty)
 async function fetchExerciseMetaBulk(ids){
@@ -423,6 +508,7 @@ function buildExerciseRow(meta, index){
   btn.addEventListener('click', ()=> {
     tr.remove();
     persistOrderFor(exWrap);
+    updateRefTable();
   });
   tdAct.appendChild(btn);
 
@@ -439,6 +525,7 @@ async function setExercisesTable(ids){
     exWrap.appendChild(buildExerciseRow(m, i));
   });
   makeTableDraggable(exWrap);
+  updateRefTable();
 }
   // Helper: set a list (int[] or text[]) into the dynamic list UI
   function setList(wrap, arr){
@@ -498,25 +585,53 @@ async function setExercisesTable(ids){
   $('#addTheory').addEventListener('click', async ()=>{
     const v = snAddInput && snAddInput.value ? parseInt(snAddInput.value,10) : NaN;
     if (!Number.isInteger(v) || v <= 0) return;
-    const current = collectList(snWrap, false);
-    if (!current.includes(v)) current.push(v);
-    await setSnippetsTable(current);
+
+    // if already present -> do nothing
+    const existing = Array.from(snWrap.querySelectorAll('tr.row-item'))
+      .map(tr => parseInt(tr.dataset.id,10))
+      .filter(Number.isInteger);
+    if (existing.includes(v)) {
+      snAddInput.value = '';
+      return;
+    }
+
+    // Append ONLY the new row, keep existing inputs as-is (no rebuild)
+    snWrap.appendChild(buildSnippetRow({ snippet_id: v, timeInMinutes: 0, difficulty: 0 }, snWrap.children.length));
+    makeTableDraggable(snWrap);
+
     snAddInput.value = '';
     persistOrderFor(snWrap);
+    updateRefTable();
   });
   $('#addEx').addEventListener('click', async ()=>{
     const v = exAddInput && exAddInput.value ? parseInt(exAddInput.value,10) : NaN;
     if (!Number.isInteger(v) || v <= 0) return;
-    const current = collectList(exWrap, false);
-    if (!current.includes(v)) current.push(v);
-    await setExercisesTable(current);
+
+    // if already present -> do nothing
+    const existing = Array.from(exWrap.querySelectorAll('tr.row-item'))
+      .map(tr => parseInt(tr.dataset.id,10))
+      .filter(Number.isInteger);
+    if (existing.includes(v)) {
+      exAddInput.value = '';
+      return;
+    }
+
+    // Fetch meta only for the NEW id (so we don't rebuild existing rows)
+    const metas = await fetchExerciseMetaBulk([v]);
+    const meta = (metas && metas[0]) ? metas[0] : { exercise_id: v, timeInMinutes: 0, duration_minutes: 0, difficulty: 0, comment: '' };
+
+    exWrap.appendChild(buildExerciseRow(meta, exWrap.children.length));
+    makeTableDraggable(exWrap);
+
     exAddInput.value = '';
     persistOrderFor(exWrap);
+    updateRefTable();
   });
 
     // init: snippets/exercises tables start empty; render on load/add
     setSnippetsTable([]);
-
+    setExercisesTable([]);
+    
   function collectList(wrap, toInt){
     if (wrap === exWrap){
       return Array.from(exWrap.querySelectorAll('tr.row-item'))
@@ -556,11 +671,39 @@ async function setExercisesTable(ids){
       lessonsTbody.innerHTML = '';
       (data.lessons||[]).forEach(row=>{
         const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${row.lesson_id}</td>`+
-                       `<td>${row.name||''}</td>`+
-                       `<td>${row.description||''}</td>`+
-                       `<td>${row.class??''}</td>`;
+        tr.innerHTML =
+          `<td>${row.lesson_id}</td>`+
+          `<td>${row.tripplet_id||''}</td>`+
+          `<td>${row.name||''}</td>`+
+          `<td>${row.class??''}</td>`+
+          `<td>
+            <button class="btn btn-small btn-snippet-info" data-snippet-id="${row.lesson_id}" type="button">Инфо</button>
+          </td>`;
         lessonsTbody.appendChild(tr);
+      });
+      // Add info button listeners
+      lessonsTbody.querySelectorAll('.btn-snippet-info').forEach(btn=>{
+        btn.addEventListener('click', async (e)=>{
+          const lessonId = btn.getAttribute('data-snippet-id');
+          if (!lessonId) return;
+          try{
+            // Fetch snippet meta
+            const r = await fetch(`/snippet-ref?id=${encodeURIComponent(lessonId)}`);
+            if (!r.ok) { alert('Грешка при зареждане на инфо'); return; }
+            const info = await r.json();
+            // Render info table
+            let html = '<table style="width:100%; border-collapse:collapse;">';
+            html += '<tr><th>Поле</th><th>Стойност</th></tr>';
+            Object.entries(info).forEach(([k,v])=>{
+              html += `<tr><td>${k}</td><td>${v==null?'':v}</td></tr>`;
+            });
+            html += '</table>';
+            // Show in modal or alert
+            const w = window.open('', '', 'width=600,height=400');
+            w.document.write('<html><head><title>Инфо за снипет</title></head><body>'+html+'</body></html>');
+            w.document.close();
+          }catch(e){ alert('Грешка при зареждане на инфо'); }
+        });
       });
     }catch(e){ console.error(e); }
   }
@@ -601,11 +744,13 @@ async function setExercisesTable(ids){
     // reset dynamic lists to one blank row each
     snWrap.innerHTML = '';
     exWrap.innerHTML = '';
+
     setSnippetsTable([]);
     // also clear the snippet search input and results
     if (snippetInp) snippetInp.value = '';
     if (completionsUl) completionsUl.innerHTML = '';
     if (lessonsTbody) lessonsTbody.innerHTML = '';
+    if (refWrap) refWrap.innerHTML = '';
     // switch back to NEW mode
     setModeEditing(null);
   }
