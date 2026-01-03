@@ -1,12 +1,24 @@
 // public/threadHistory.js
 (function(){
   let rowsCache = [];
+  let detailSortMode = 'entry'; // 'entry' | 'added'
+  let lastThreadId = null;
 
   const threadSummaryBody = document.querySelector('#threadSummaryTable tbody');
   const threadDetailHeader = document.getElementById('threadDetailHeader');
   const threadDetailId = document.getElementById('threadDetailId');
   const threadDetailWrap = document.getElementById('threadDetailWrap');
   const threadDetailBody = document.querySelector('#threadDetailTable tbody');
+  const threadDetailSort = document.getElementById('threadDetailSort');
+  const threadDetailDateTh = document.querySelector('#threadDetailTable thead th'); // първата колона
+ 
+ 
+ function updateDateHeaderLabel(){
+  if (!threadDetailDateTh) return;
+  threadDetailDateTh.textContent = (detailSortMode === 'added')
+    ? 'Добавено в нишка'
+    : 'Създадено';
+}
 
   function setRows(rows){
     rowsCache = Array.isArray(rows) ? rows.slice() : [];
@@ -36,18 +48,142 @@
     });
   }
 
+  function parseTimeMs(v){
+    if (!v) return 0;
+    const t = new Date(v).getTime();
+    return Number.isFinite(t) ? t : 0;
+  }
+  function getEntryMs(r){
+    return parseTimeMs(r.entrytime || r.entryTime || r.entry_time);
+  }
+  function getAddedMs(r){
+    return parseTimeMs(r.threadAddedAt || r.thread_added_at || r.threadAdded_at || r.thread_addedAt);
+  }
+  function hasAddedTime(r){
+    const v = r.threadAddedAt || r.thread_added_at || r.threadAdded_at || r.thread_addedAt;
+    return !!(v && String(v).trim() !== '');
+  }
 function showDetail(threadId){
   if (!threadId || !threadDetailBody) return;
   threadDetailBody.innerHTML = '';
 
   const rows = rowsCache.filter(x => (x.threadid || x.threadID) === threadId);
 
-  // 1) Хронологично (стар -> нов)
-  rows.sort((a, b) => {
-    const ta = new Date(a.entrytime || a.entryTime || 0).getTime();
-    const tb = new Date(b.entrytime || b.entryTime || 0).getTime();
-    return ta - tb;
-  });
+   lastThreadId = threadId;
+   updateDateHeaderLabel();
+    // 1) Подредба
+    if (detailSortMode !== 'added') {
+      // entryTime: стар -> нов
+      rows.sort((a, b) => {
+        const ta = getEntryMs(a);
+        const tb = getEntryMs(b);
+        if (ta !== tb) return ta - tb;
+        return Number(a.id ?? a.ID ?? 0) - Number(b.id ?? b.ID ?? 0);
+      });
+    } else {
+      // added mode: keep chronological where possible, but preserve Previous chain.
+      // Rows without thread_added_at should remain visible; if they can't be placed via Previous,
+      // they are treated as newest (pushed to the end).
+
+      const getId = (r) => Number(r.id ?? r.ID);
+      const getPrev = (r) => {
+        const p = Number(r.followup_id);
+        return Number.isFinite(p) ? p : null;
+      };
+
+      const ids = new Set();
+      for (const r of rows) {
+        const id = getId(r);
+        if (Number.isFinite(id)) ids.add(id);
+      }
+
+      // Build graph: prev -> child (where child.followup_id = prev)
+      const indeg = new Map();
+      const out = new Map();
+      const nodeById = new Map();
+      for (const r of rows) {
+        const id = getId(r);
+        if (!Number.isFinite(id)) continue;
+        nodeById.set(id, r);
+        indeg.set(id, 0);
+        out.set(id, []);
+      }
+      for (const r of rows) {
+        const id = getId(r);
+        if (!Number.isFinite(id)) continue;
+        const prev = getPrev(r);
+        if (prev == null) continue;
+        if (!ids.has(prev)) continue; // prev outside this thread
+        // edge prev -> id
+        indeg.set(id, (indeg.get(id) || 0) + 1);
+        out.get(prev)?.push(id);
+      }
+
+      // Comparator for "available" nodes:
+      // 1) has added time first; earlier added time first
+      // 2) if no added time -> treated as Infinity (newest, goes last)
+      // 3) tie-break by entryTime then id
+      function timeKey(r){
+        if (hasAddedTime(r)) return getAddedMs(r);
+        return Number.POSITIVE_INFINITY;
+      }
+      function cmpId(aId, bId){
+        const a = nodeById.get(aId);
+        const b = nodeById.get(bId);
+        const ta = timeKey(a);
+        const tb = timeKey(b);
+        if (ta !== tb) return ta - tb;
+        const ea = getEntryMs(a);
+        const eb = getEntryMs(b);
+        if (ea !== eb) return ea - eb;
+        return aId - bId;
+      }
+
+      // Kahn topological sort with priority queue (implemented as sorted array)
+      const avail = [];
+      for (const [id, d] of indeg.entries()) {
+        if (d === 0) avail.push(id);
+      }
+      avail.sort(cmpId);
+
+      const orderedIds = [];
+      while (avail.length) {
+        const id = avail.shift();
+        orderedIds.push(id);
+
+        const kids = out.get(id) || [];
+        for (const kid of kids) {
+          indeg.set(kid, (indeg.get(kid) || 0) - 1);
+          if (indeg.get(kid) === 0) {
+            avail.push(kid);
+          }
+        }
+        // keep avail ordered
+        avail.sort(cmpId);
+      }
+
+      // If we detected a cycle or missing ids (shouldn't happen), fall back to stable sort:
+      if (orderedIds.length !== nodeById.size) {
+        rows.sort((a, b) => {
+          const ha = hasAddedTime(a) ? 1 : 0;
+          const hb = hasAddedTime(b) ? 1 : 0;
+          if (ha !== hb) return hb - ha;
+          const ta = hasAddedTime(a) ? getAddedMs(a) : Number.POSITIVE_INFINITY;
+          const tb = hasAddedTime(b) ? getAddedMs(b) : Number.POSITIVE_INFINITY;
+          if (ta !== tb) return ta - tb;
+          const ea = getEntryMs(a);
+          const eb = getEntryMs(b);
+          if (ea !== eb) return ea - eb;
+          return Number(a.id ?? a.ID ?? 0) - Number(b.id ?? b.ID ?? 0);
+        });
+      } else {
+        // Rebuild rows in the computed order; keep any rows without numeric id (rare) at the end.
+        const ordered = orderedIds.map(id => nodeById.get(id)).filter(Boolean);
+        const noId = rows.filter(r => !Number.isFinite(getId(r)));
+        rows.length = 0;
+        rows.push(...ordered, ...noId);
+      }
+    }
 
   // 2) Root ред = този, към който НИКОЙ в нишката не сочи с followup_id
   const pointed = new Set(
@@ -69,8 +205,21 @@ function showDetail(threadId){
         tr.classList.add('thread-root');
       }
     }
+    const when = (() => {
+      if (detailSortMode === 'added') {
+        const s = String(
+          x.threadAddedAt ||
+          x.thread_added_at ||
+          x.threadAdded_at ||
+          x.thread_addedAt ||
+          ''
+        ).trim();
+        return s ? s : '— няма дата —';
+      }
 
-    const when  = x.entrytime || x.entryTime || '';
+      const e = String(x.entrytime || x.entryTime || '').trim();
+      return e ? e : '— няма дата —';
+    })();
     const rowId = x.id ?? x.ID ?? '';
     const kind  = (x.issnippet || x.isSnippet) ? 'Умение' : 'Задача';
     const comp  = x.componentid ?? x.componentID ?? '';
@@ -208,7 +357,24 @@ threadDetailBody.appendChild(tr);
   try { threadDetailHeader.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch(e) {}
 }
 
-  function init(){ /* reserved for future hooks */ }
-
-  window.ThreadHistory = { setRows, renderSummary, showDetail, init };
+  function init(){
+    if (!threadDetailSort) return;
+    threadDetailSort.value = detailSortMode;
+    updateDateHeaderLabel();
+    threadDetailSort.addEventListener('change', ()=>{
+      const v = String(threadDetailSort.value || '').trim();
+      detailSortMode = (v === 'added') ? 'added' : 'entry';
+      updateDateHeaderLabel();
+      if (lastThreadId) showDetail(lastThreadId);
+    });
+  }
+  window.ThreadHistory = {
+    setRows,
+    renderSummary,
+    showDetail,
+    init,
+    get lastThreadId() {
+      return lastThreadId;
+    }
+  };
 })();

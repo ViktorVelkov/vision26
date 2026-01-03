@@ -42,6 +42,18 @@
   const newActionHeader = document.getElementById('newActionHeader');
   const historyToggleRow = document.getElementById('historyToggleRow');
   const studentArea = document.getElementById('studentArea');
+  // Delete-by-id UI
+  const deleteRowHeader = document.getElementById('deleteRowHeader');
+  const deleteRowWrap   = document.getElementById('deleteRowWrap');
+  const deleteRowId     = document.getElementById('deleteRowId');
+  const deleteRowBtn    = document.getElementById('deleteRowBtn');
+
+  // Previous-by-id UI
+  const prevEditHeader = document.getElementById('prevEditHeader');
+  const prevEditWrap   = document.getElementById('prevEditWrap');
+  const prevEditRowId  = document.getElementById('prevEditRowId');
+  const prevEditValue  = document.getElementById('prevEditValue');
+  const prevEditBtn    = document.getElementById('prevEditBtn');
 
   const closeThreadDetailBtn = document.getElementById('closeThreadDetailBtn');
   const threadDetailWrap = document.getElementById('threadDetailWrap');
@@ -210,8 +222,66 @@
     if (unthreadedWrap) unthreadedWrap.toggleAttribute('hidden', !visible);
     if (threadsWrap) threadsWrap.toggleAttribute('hidden', !visible);
     if (newActionForm) newActionForm.toggleAttribute('hidden', !visible);
+    if (deleteRowHeader) deleteRowHeader.toggleAttribute('hidden', !visible);
+    if (deleteRowWrap) deleteRowWrap.toggleAttribute('hidden', !visible);
+    if (prevEditHeader) prevEditHeader.toggleAttribute('hidden', !visible);
+    if (prevEditWrap) prevEditWrap.toggleAttribute('hidden', !visible);
     if (historyToggleRow) historyToggleRow.toggleAttribute('hidden', !visible);
   }
+// Update previous_id by row id
+if (prevEditBtn){
+  prevEditBtn.addEventListener('click', async ()=>{
+    if(!currentStudent){ alert('Избери ученик.'); return; }
+
+    const idNum = prevEditRowId && prevEditRowId.value ? parseInt(prevEditRowId.value, 10) : NaN;
+    if(!Number.isInteger(idNum)){ alert('Въведи валидно ID на ред.'); return; }
+
+    // Allow empty -> NULL
+    const rawPrev = prevEditValue ? String(prevEditValue.value || '').trim() : '';
+    let prevVal = null;
+    if (rawPrev !== '') {
+      const p = parseInt(rawPrev, 10);
+      if (!Number.isInteger(p)) { alert('Въведи валиден Previous ID или остави празно за NULL.'); return; }
+      prevVal = p;
+    }
+
+    const ok = confirm(`Записваме Previous за ред #${idNum} -> ${prevVal == null ? 'NULL' : '#'+prevVal}?`);
+    if(!ok) return;
+
+    try{
+      const r = await fetch(`/student-assessment-skills-exercises/${idNum}?studentID=${encodeURIComponent(currentStudent.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ previous_id: prevVal })
+      });
+
+      const data = await r.json().catch(()=> ({}));
+      if(!r.ok){
+        throw new Error(data && data.error ? data.error : 'Грешка при запис');
+      }
+
+      // refresh tables from server (no full reload)
+      await loadHistory(currentStudent.id);
+
+      // ако е отворена история на нишка – обнови я веднага
+      if (window.ThreadHistory && window.ThreadHistory.showDetail) {
+        try {
+          const last = window.ThreadHistory.lastThreadId || null;
+          if (last) {
+            window.ThreadHistory.showDetail(last);
+          }
+        } catch (_) {}
+      }
+
+      // clear inputs
+      if (prevEditRowId) prevEditRowId.value = '';
+      if (prevEditValue) prevEditValue.value = '';
+
+    }catch(e){
+      alert('Неуспешен запис на Previous: ' + (e?.message||''));
+    }
+  });
+}
 
   // Hide all student-dependent sections on initial load
   setStudentSectionsVisible(false);
@@ -233,8 +303,37 @@
   const f_followup_exp = document.getElementById('f_followup_exp');
   const saveActionBtn = document.getElementById('saveActionBtn');
 
+
+
   let currentStudent = null;
 
+// Delete a row/component by id
+if (deleteRowBtn){
+  deleteRowBtn.addEventListener('click', async ()=>{
+    if(!currentStudent){ alert('Избери ученик.'); return; }
+
+    const idNum = deleteRowId && deleteRowId.value ? parseInt(deleteRowId.value, 10) : NaN;
+    if(!Number.isInteger(idNum)){ alert('Въведи валидно ID.'); return; }
+
+    const ok = confirm(`Сигурен ли си, че искаш да изтриеш ред #${idNum}? Това е необратимо.`);
+    if(!ok) return;
+
+    try{
+      const r = await fetch(`/student-assessment-skills-exercises/${idNum}?studentID=${encodeURIComponent(currentStudent.id)}`, {
+        method: 'DELETE'
+      });
+
+      const data = await r.json().catch(()=> ({}));
+      if(!r.ok){
+        throw new Error(data && data.error ? data.error : 'Грешка при изтриване');
+      }
+
+      window.location.reload();
+    }catch(e){
+      alert('Неуспешно изтриване: ' + (e?.message||''));
+    }
+  });
+}
 
   function normalizeThreadId(v){
     if (v == null) return '';
@@ -262,32 +361,13 @@
     if (f_thread_mode_old) f_thread_mode_old.checked = isOld;
     if (f_thread_mode_new) f_thread_mode_new.checked = !isOld;
 
-    if (f_thread_select) f_thread_select.toggleAttribute('hidden', !isOld);
-
-    if (f_thread){
-      f_thread.readOnly = isOld; // в стара нишка избираш, не пишеш
-      if (isOld){
-        const v = f_thread_select ? (f_thread_select.value || '') : (f_thread.value || '');
-        f_thread.value = v;
-      }
-    }
-    if (!isOld){
-      if (f_thread) f_thread.readOnly = false;
-    }
+    // Dropdown removed: always type into the input
+    if (f_thread) f_thread.readOnly = false;
   }
 
   function wireThreadPick(){
     if (f_thread_mode_old) f_thread_mode_old.addEventListener('change', ()=> setThreadMode('old'));
     if (f_thread_mode_new) f_thread_mode_new.addEventListener('change', ()=> setThreadMode('new'));
-
-    if (f_thread_select){
-      f_thread_select.addEventListener('change', ()=>{
-        if (f_thread_mode_old && f_thread_mode_old.checked){
-          const v = f_thread_select.value || '';
-          if (f_thread) f_thread.value = v;
-        }
-      });
-    }
     setThreadMode('old');
   }
 
@@ -297,32 +377,13 @@
     if (g2_thread_mode_old) g2_thread_mode_old.checked = isOld;
     if (g2_thread_mode_new) g2_thread_mode_new.checked = !isOld;
 
-    if (g2_thread_select) g2_thread_select.toggleAttribute('hidden', !isOld);
-
-    if (g2_thread){
-      g2_thread.readOnly = isOld;
-      if (isOld){
-        const v = g2_thread_select ? (g2_thread_select.value || '') : (g2_thread.value || '');
-        g2_thread.value = v;
-      }
-    }
-    if (!isOld){
-      if (g2_thread) g2_thread.readOnly = false;
-    }
+    // Dropdown removed: always type into the input
+    if (g2_thread) g2_thread.readOnly = false;
   }
 
   function wireGroupThreadPick(){
     if (g2_thread_mode_old) g2_thread_mode_old.addEventListener('change', ()=> setGroupThreadMode('old'));
     if (g2_thread_mode_new) g2_thread_mode_new.addEventListener('change', ()=> setGroupThreadMode('new'));
-
-    if (g2_thread_select){
-      g2_thread_select.addEventListener('change', ()=>{
-        if (g2_thread_mode_old && g2_thread_mode_old.checked){
-          const v = g2_thread_select.value || '';
-          if (g2_thread) g2_thread.value = v;
-        }
-      });
-    }
     setGroupThreadMode('old');
   }
   async function searchStudents(q){
@@ -361,7 +422,7 @@ async function loadHistory(studentID){
 
   rows.sort((a,b)=> String(b.entrytime||b.entryTime||'').localeCompare(String(a.entrytime||a.entryTime||'')));
   if (window.ThreadHistory) { window.ThreadHistory.setRows(rows); }
-  
+  if (window.ThreadHistory) { try { window.ThreadHistory.init(); } catch(_){ } }
   const threads = collectThreads(rows);
 
   // ако има точно една нишка, авто-избери я (по желание)
@@ -384,7 +445,8 @@ async function loadHistory(studentID){
   // Пълна хронология
   for(const x of rows){
     const tr = document.createElement('tr');
-    const when = fmtDDMMYY(x.entrytime || x.entryTime || '');
+    const whenRaw = x.entrytime || x.entryTime || null;
+    const when = whenRaw ? fmtDDMMYY(whenRaw) : '— няма дата —';
     const trip = x.lessontriplet || x.lessonTriplet || '';
     const kind = (x.issnippet || x.isSnippet) ? 'Умение' : 'Задача';
     const comp = (()=>{
@@ -427,7 +489,8 @@ async function loadHistory(studentID){
     const tr = document.createElement('tr');
     tr.className = isChild ? 'group-child' : 'group-root';
 
-    const when = fmtDDMMYY(x.entrytime || x.entryTime || '');
+    const whenRaw = x.entrytime || x.entryTime || null;
+    const when = whenRaw ? fmtDDMMYY(whenRaw) : '— няма дата —';
     const trip = (x.id ?? x.ID ?? '');
     const kind = (x.issnippet || x.isSnippet) ? 'Умение' : 'Задача';
     const comp = (()=>{
@@ -530,7 +593,8 @@ function updateGroupCheckboxUI(gKey){
       // else: single-row group -> no color (transparent/white)
     }
 
-    const when = fmtDDMMYY(row.entrytime || row.entryTime || '');
+    const whenRaw = row.entrytime || row.entryTime || null;
+    const when = whenRaw ? fmtDDMMYY(whenRaw) : '— няма дата —';
     const kind = (row.issnippet || row.isSnippet) ? 'Умение' : 'Задача';
     const comp = (() => {
       const n = Number(row.componentID ?? row.componentid);
@@ -692,6 +756,40 @@ for (const rootId of groupMembers.keys()){
       followup_id: f_followup_id.value ? parseInt(f_followup_id.value,10) : null,
       followup_exp: f_followup_exp.value.trim()
     };
+    // Delete a row/component by id
+    if (deleteRowBtn){
+      deleteRowBtn.addEventListener('click', async ()=>{
+        if(!currentStudent){ alert('Избери ученик.'); return; }
+
+        const idNum = deleteRowId && deleteRowId.value ? parseInt(deleteRowId.value, 10) : NaN;
+        if(!Number.isInteger(idNum)){ alert('Въведи валидно ID.'); return; }
+
+        const ok = confirm(`Сигурен ли си, че искаш да изтриеш ред #${idNum}? Това е необратимо.`);
+        if(!ok) return;
+
+        try{
+          const r = await fetch(`/student-assessment-skills-exercises/${idNum}?studentID=${encodeURIComponent(currentStudent.id)}`, {
+            method: 'DELETE'
+          });
+          const data = await r.json().catch(()=> ({}));
+          if(!r.ok){
+            throw new Error(data && data.error ? data.error : 'Грешка при изтриване');
+          }
+
+          // Keep selected student after refresh
+          try {
+            localStorage.setItem('vc_last_student', JSON.stringify({
+              id: currentStudent.id,
+              name: currentStudent.name || (studentSearch ? studentSearch.value.trim() : '') || ''
+            }));
+          } catch(_){}
+
+          window.location.reload();
+        }catch(e){
+          alert('Неуспешно изтриване: ' + (e?.message||''));
+        }
+      });
+    }
 
     const r = await fetch('/student-assessment-skills-exercises',{
       method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ rows:[row] })

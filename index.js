@@ -18,8 +18,9 @@ app.patch('/student-assessment-skills-exercises/:id', async (req, res) => {
     if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
 
     const body = req.body || {};
+    const sid = (req.query.studentID != null) ? parseInt(req.query.studentID, 10) : null;
 
-    // allow PATCH of comment and/or assessment
+    // allow PATCH of comment and/or assessment/previous_id
     const sets = [];
     const params = [];
 
@@ -46,7 +47,31 @@ app.patch('/student-assessment-skills-exercises/:id', async (req, res) => {
       sets.push(`"assessment" = $${params.length}`);
     }
 
+    if (Object.prototype.hasOwnProperty.call(body, 'previous_id')) {
+      let p = body.previous_id;
+      if (typeof p === 'string') p = p.trim();
+      if (p === '' || p == null) {
+        p = null;
+      } else {
+        p = parseInt(p, 10);
+        if (!Number.isInteger(p)) return res.status(400).json({ error: 'Invalid previous_id' });
+      }
+      // If sid is provided, check that previous_id (if not null) belongs to same student
+      if (Number.isInteger(sid) && Number.isInteger(p)) {
+        const chkPrev = await pool.query(`SELECT id FROM "student_assessment_skills_exercises" WHERE id = $1 AND "studentID" = $2`, [p, sid]);
+        if (!chkPrev.rowCount) return res.status(409).json({ error: `Previous id ${p} не е за този ученик.` });
+      }
+      params.push(p);
+      sets.push(`"previous_id" = $${params.length}`);
+    }
+
     if (!sets.length) return res.status(400).json({ error: 'No fields to update' });
+
+    // If sid is provided, check that id belongs to that student
+    if (Number.isInteger(sid)) {
+      const chk = await pool.query(`SELECT id FROM "student_assessment_skills_exercises" WHERE id = $1 AND "studentID" = $2`, [id, sid]);
+      if (!chk.rowCount) return res.status(404).json({ error: 'Row not found' });
+    }
 
     params.push(id);
 
@@ -54,7 +79,7 @@ app.patch('/student-assessment-skills-exercises/:id', async (req, res) => {
       `UPDATE "student_assessment_skills_exercises"
           SET ${sets.join(', ')}
         WHERE id = $${params.length}
-        RETURNING id, "comment", "assessment"`,
+        RETURNING id, "comment", "assessment", "previous_id"`,
       params
     );
 
@@ -98,6 +123,19 @@ app.patch('/student-assessment-skills-exercises', async (req, res) => {
       sets.push(`"assessment" = $${params.length}`);
     }
 
+    if (Object.prototype.hasOwnProperty.call(body, 'previous_id')) {
+      let p = body.previous_id;
+      if (typeof p === 'string') p = p.trim();
+      if (p === '' || p == null) {
+        p = null;
+      } else {
+        p = parseInt(p, 10);
+        if (!Number.isInteger(p)) return res.status(400).json({ error: 'Invalid previous_id' });
+      }
+      params.push(p);
+      sets.push(`"previous_id" = $${params.length}`);
+    }
+
     if (!sets.length) return res.status(400).json({ error: 'No fields to update' });
 
     params.push(id);
@@ -106,7 +144,7 @@ app.patch('/student-assessment-skills-exercises', async (req, res) => {
       `UPDATE "student_assessment_skills_exercises"
           SET ${sets.join(', ')}
         WHERE id = $${params.length}
-        RETURNING id, "comment", "assessment"`,
+        RETURNING id, "comment", "assessment", "previous_id"`,
       params
     );
 
@@ -1855,7 +1893,9 @@ app.get('/student-assessment-skills-exercises', async (req, res) => {
       `SELECT id, "lessonTriplet","isSnippet","componentID","assessment","comment",
               "studentID","followup_exp","previous_id", "previous_id" AS "followup_id",
               COALESCE(NULLIF(TRIM("threadID"),''), NULL) AS "threadID",
-              TO_CHAR("entryTime", 'YYYY-MM-DD HH24:MI') AS entryTime
+              TO_CHAR("entryTime", 'YYYY-MM-DD HH24:MI') AS entryTime,
+              "thread_added_at",
+              TO_CHAR("thread_added_at", 'YYYY-MM-DD HH24:MI') AS "threadAddedAt"
          FROM "student_assessment_skills_exercises"
         WHERE "studentID" = $1
         ORDER BY "entryTime" DESC, id DESC
@@ -1869,6 +1909,42 @@ app.get('/student-assessment-skills-exercises', async (req, res) => {
   }
 });
 
+// DELETE /student-assessment-skills-exercises/:id?studentID=123
+// - deletes exactly one row, optionally guarded by studentID
+app.delete('/student-assessment-skills-exercises/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
+
+    const sid = (req.query.studentID != null) ? parseInt(req.query.studentID, 10) : null;
+
+    let r;
+    if (Number.isInteger(sid)) {
+      r = await pool.query(
+        `DELETE FROM "student_assessment_skills_exercises"
+          WHERE id = $1 AND "studentID" = $2
+          RETURNING id`,
+        [id, sid]
+      );
+    } else {
+      r = await pool.query(
+        `DELETE FROM "student_assessment_skills_exercises"
+          WHERE id = $1
+          RETURNING id`,
+        [id]
+      );
+    }
+
+    if (!r.rowCount) {
+      return res.status(404).json({ error: 'Row not found (or belongs to different student)' });
+    }
+
+    return res.json({ ok: true, deletedId: r.rows[0].id });
+  } catch (e) {
+    console.error('DELETE /student-assessment-skills-exercises/:id failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  }
+});
 
 // GET /lessons/by-grade?className=9 Ж  -> returns all Lessons for grade 9 (ignores division)
 app.get('/lessons/by-grade', async (req, res) => {

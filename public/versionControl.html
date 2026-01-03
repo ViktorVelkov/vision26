@@ -65,7 +65,9 @@
       color:var(--text);
       cursor:pointer;
       transition: background .15s ease, color .15s ease, border-color .15s ease, transform .03s ease;
+      white-space: nowrap;
     }
+    
     .btn:hover{background:#fff; border-color:#cdd6e2}
     .btn:active{transform: translateY(1px)}
     .btn.primary{background:var(--blue); color:#fff; border-color:var(--blue-600)}
@@ -195,6 +197,42 @@
       font-weight: 600;
       border-left: 4px solid #0284c7;
     }
+
+      .btn.danger{
+        background:#dc2626;        /* червено */
+        color:#fff;
+        border-color:#b91c1c;
+      }
+
+      .btn.danger:hover{
+        background:#b91c1c;
+      }
+
+      .btn.warn{
+        background:#f59e0b;        /* amber */
+        color:#111827;
+        border-color:#d97706;
+      }
+      .btn.warn:hover{
+        background:#d97706;
+        color:#111827;
+      }
+
+      /* Ensure red/yellow buttons fit exactly the input height */
+      .btn.danger,
+      .btn.warn{
+        height: 42px;        /* matches input height */
+        padding: 0 14px;    /* remove vertical overflow */
+        line-height: 42px;  /* center text vertically */
+      }
+
+      /* Group tab: 'Зареди' да не се клипва */
+      #g_load{
+        height: 42px;
+        line-height: 42px;
+        padding: 0 10px;
+        font-size: 13px;
+      }
   </style>
 </head>
 <body>
@@ -229,7 +267,7 @@
       <input id="mergeThreadId"
             type="text"
             placeholder="нишка ID (празно = нова)"
-            style="min-width:240px; max-width:320px;" />
+            style="min-width:180px; max-width:240px;" />
 
     </div>
     <table class="table" id="unthreadedTable">
@@ -262,9 +300,16 @@
     </table>
   </div>
   <h3 id="threadDetailHeader" hidden>
-      История на нишка: <span id="threadDetailId"></span>
-      <button id="closeThreadDetailBtn" class="btn" style="margin-left: 12px;">✖</button>
-    </h3>
+    История на нишка: <span id="threadDetailId"></span>
+
+    <span class="muted small" style="margin-left:12px;">Подредба:</span>
+    <select id="threadDetailSort" style="width:auto; min-width:210px; margin-left:8px;">
+      <option value="entry">по време на създаване (entryTime)</option>
+      <option value="added">по време на добавяне в нишката (thread_added_at)</option>
+    </select>
+
+    <button id="closeThreadDetailBtn" class="btn" style="margin-left: 12px;">✖</button>
+  </h3>
   <div id="threadDetailWrap" hidden>
       <table class="table" id="threadDetailTable">
        <thead>
@@ -314,7 +359,6 @@
           </label>
         </div>
 
-        <select id="f_thread_select" style="margin-top:6px;" title="Избери съществуваща нишка"></select>
       </div>
         <div>
           <label>Previous (ID)</label>
@@ -328,7 +372,57 @@
           <button id="saveActionBtn" class="btn primary">Запази</button>
         </div>
       </div>
+      <h3 id="deleteRowHeader" hidden>Изтриване на компонент</h3>
+      <div id="deleteRowWrap"
+          style="margin-top:18px; display:flex; gap:10px; align-items:end; width:100%;"
+          hidden>
 
+      <div style="flex:0 0 80%;">
+        <label for="deleteRowId">ID на ред (компонент)</label>
+        <input id="deleteRowId"
+              type="number"
+              placeholder="например: 123"
+              class="no-spin"
+              style="width:100%;" />     
+        
+      </div>
+
+      <div style="flex:0 0 10%;">
+        <button id="deleteRowBtn" class="btn danger" style="width:100%;">
+          Изтрий
+        </button>
+      </div>
+    </div>
+
+      <h3 id="prevEditHeader" hidden>Промяна на Previous</h3>
+      <div id="prevEditWrap"
+           style="margin-top:14px; display:flex; gap:10px; align-items:end; width:100%;"
+           hidden>
+
+        <div style="flex:0 0 40%;">
+          <label for="prevEditRowId">ID на ред (компонент)</label>
+          <input id="prevEditRowId"
+                 type="number"
+                 placeholder="например: 123"
+                 class="no-spin"
+                 style="width:100%;" />
+        </div>
+
+        <div style="flex:0 0 40%;">
+          <label for="prevEditValue">Нов Previous (ID)</label>
+          <input id="prevEditValue"
+                 type="number"
+                 placeholder="например: 120 (празно = NULL)"
+                 class="no-spin"
+                 style="width:100%;" />
+        </div>
+
+        <div style="flex:0 0 10%;">
+          <button id="prevEditBtn" class="btn warn" style="width:100%;" title="Записва previous_id за реда">
+            Поправи
+          </button>
+        </div>
+      </div>
       <div id="historyToggleRow" class="row" style="margin-top:24px; align-items:center;" hidden>
         <button id="toggleHistoryBtn" class="btn" type="button">Покажи хронология</button>
       </div>
@@ -356,9 +450,7 @@
 
     <div id="pageGroup" hidden>
       <div style="display:grid; grid-template-columns: 1fr; gap:12px;">
-        <div class="row" style="grid-template-columns: 1fr 1fr auto; align-items:end;">
-          <div>
-            <label>Клас</label>
+      <div class="row" style="grid-template-columns: 1fr 1fr 140px; align-items:end;">            <label>Клас</label>
             <select id="g_class">
               <option value="">— избери клас —</option>
             </select>
@@ -368,8 +460,7 @@
             <input id="g_lessonSearch" type="text" placeholder="001001001 или 27001…" />
           </div>
           <div>
-            <button id="g_load" class="btn">Зареди</button>
-          </div>
+            <button id="g_load" class="btn" style="width:100%;">Зареди</button>          </div>
         </div>
 
         <div class="row" style="grid-template-columns: 1fr 2fr; gap:12px; align-items:start;">
