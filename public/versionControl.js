@@ -138,6 +138,63 @@
     return `${dd}-${mm}-${yy}`;
   }
 
+  function makeAssessmentEditable(td, rowObj){
+    if (!td || !rowObj) return;
+    td.classList.add('cell-editable');
+    td.setAttribute('contenteditable','true');
+    td.setAttribute('spellcheck','false');
+
+    const cur = (rowObj.assessment == null) ? '' : String(rowObj.assessment);
+    td.textContent = cur;
+    td.dataset.prev = cur;
+
+    // prevent newline
+    td.addEventListener('keydown', (e)=>{
+      if (e.key === 'Enter'){
+        e.preventDefault();
+        td.blur();
+      }
+    });
+
+    td.addEventListener('blur', async ()=>{
+      const nextRaw = (td.textContent || '').trim();
+      const prevRaw = (td.dataset.prev || '').trim();
+      if (nextRaw === prevRaw) return;
+
+      // normalize value
+      let nextVal = null;
+      if (nextRaw !== ''){
+        const n = parseInt(nextRaw, 10);
+        if (!Number.isInteger(n)){
+          td.textContent = prevRaw;
+          return;
+        }
+        nextVal = n;
+      }
+
+      // optimistic
+      td.dataset.prev = nextRaw;
+
+      try{
+        const idNum = Number(rowObj.id ?? rowObj.ID);
+        if (!Number.isFinite(idNum)) throw new Error('Invalid row id');
+
+        const r = await fetch(`/student-assessment-skills-exercises/${idNum}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ assessment: nextVal })
+        });
+        if (!r.ok) throw new Error('Save failed');
+
+        rowObj.assessment = nextVal;
+      }catch(e){
+        td.textContent = prevRaw;
+        td.dataset.prev = prevRaw;
+        alert('Неуспешен запис на оценката.');
+      }
+    });
+  }
+
   function setStudentSectionsVisible(visible){
     // Primary: toggle the whole area wrapper
     if (studentArea) studentArea.toggleAttribute('hidden', !visible);
@@ -164,12 +221,110 @@
   const f_component = document.getElementById('f_component');
   const f_assessment = document.getElementById('f_assessment');
   const f_thread = document.getElementById('f_thread');
+  const f_thread_mode_old = document.getElementById('f_thread_mode_old');
+  const f_thread_mode_new = document.getElementById('f_thread_mode_new');
+  const f_thread_select = document.getElementById('f_thread_select');
+
+  const g2_thread = document.getElementById('g2_thread');
+  const g2_thread_mode_old = document.getElementById('g2_thread_mode_old');
+  const g2_thread_mode_new = document.getElementById('g2_thread_mode_new');
+  const g2_thread_select = document.getElementById('g2_thread_select');
   const f_followup_id = document.getElementById('f_followup_id');
   const f_followup_exp = document.getElementById('f_followup_exp');
   const saveActionBtn = document.getElementById('saveActionBtn');
 
   let currentStudent = null;
 
+
+  function normalizeThreadId(v){
+    if (v == null) return '';
+    return String(v).trim();
+  }
+
+  function collectThreads(rows){
+    const byId = new Map(); // threadID -> latestTimeStr
+    for (const r of (rows || [])){
+      const t = normalizeThreadId(r.threadid ?? r.threadID);
+      if (!t) continue;
+      const when = String(r.entrytime || r.entryTime || '');
+      const prev = byId.get(t);
+      if (!prev || when > prev) byId.set(t, when);
+    }
+    return Array.from(byId.entries())
+      .map(([id, latest]) => ({ id, latest }))
+      .sort((a,b) => String(b.latest).localeCompare(String(a.latest)) || a.id.localeCompare(b.id));
+  }
+
+
+  // индивидуално
+  function setThreadMode(mode){
+    const isOld = (mode === 'old');
+    if (f_thread_mode_old) f_thread_mode_old.checked = isOld;
+    if (f_thread_mode_new) f_thread_mode_new.checked = !isOld;
+
+    if (f_thread_select) f_thread_select.toggleAttribute('hidden', !isOld);
+
+    if (f_thread){
+      f_thread.readOnly = isOld; // в стара нишка избираш, не пишеш
+      if (isOld){
+        const v = f_thread_select ? (f_thread_select.value || '') : (f_thread.value || '');
+        f_thread.value = v;
+      }
+    }
+    if (!isOld){
+      if (f_thread) f_thread.readOnly = false;
+    }
+  }
+
+  function wireThreadPick(){
+    if (f_thread_mode_old) f_thread_mode_old.addEventListener('change', ()=> setThreadMode('old'));
+    if (f_thread_mode_new) f_thread_mode_new.addEventListener('change', ()=> setThreadMode('new'));
+
+    if (f_thread_select){
+      f_thread_select.addEventListener('change', ()=>{
+        if (f_thread_mode_old && f_thread_mode_old.checked){
+          const v = f_thread_select.value || '';
+          if (f_thread) f_thread.value = v;
+        }
+      });
+    }
+    setThreadMode('old');
+  }
+
+  // групово
+  function setGroupThreadMode(mode){
+    const isOld = (mode === 'old');
+    if (g2_thread_mode_old) g2_thread_mode_old.checked = isOld;
+    if (g2_thread_mode_new) g2_thread_mode_new.checked = !isOld;
+
+    if (g2_thread_select) g2_thread_select.toggleAttribute('hidden', !isOld);
+
+    if (g2_thread){
+      g2_thread.readOnly = isOld;
+      if (isOld){
+        const v = g2_thread_select ? (g2_thread_select.value || '') : (g2_thread.value || '');
+        g2_thread.value = v;
+      }
+    }
+    if (!isOld){
+      if (g2_thread) g2_thread.readOnly = false;
+    }
+  }
+
+  function wireGroupThreadPick(){
+    if (g2_thread_mode_old) g2_thread_mode_old.addEventListener('change', ()=> setGroupThreadMode('old'));
+    if (g2_thread_mode_new) g2_thread_mode_new.addEventListener('change', ()=> setGroupThreadMode('new'));
+
+    if (g2_thread_select){
+      g2_thread_select.addEventListener('change', ()=>{
+        if (g2_thread_mode_old && g2_thread_mode_old.checked){
+          const v = g2_thread_select.value || '';
+          if (g2_thread) g2_thread.value = v;
+        }
+      });
+    }
+    setGroupThreadMode('old');
+  }
   async function searchStudents(q){
     const r = await fetch(`/students/search?name=${encodeURIComponent(q)}`);
     if(!r.ok) return [];
@@ -206,6 +361,21 @@ async function loadHistory(studentID){
 
   rows.sort((a,b)=> String(b.entrytime||b.entryTime||'').localeCompare(String(a.entrytime||a.entryTime||'')));
   if (window.ThreadHistory) { window.ThreadHistory.setRows(rows); }
+  
+  const threads = collectThreads(rows);
+
+  // ако има точно една нишка, авто-избери я (по желание)
+  if (threads.length === 1){
+    if (f_thread_mode_old && f_thread_mode_old.checked && f_thread_select){
+      f_thread_select.value = threads[0].id;
+      if (f_thread) f_thread.value = threads[0].id;
+    }
+    if (g2_thread_mode_old && g2_thread_mode_old.checked && g2_thread_select){
+      g2_thread_select.value = threads[0].id;
+      if (g2_thread) g2_thread.value = threads[0].id;
+    }
+  }
+
   // Prepare snippet and exercise labels for component IDs (fail-safe)
   const compIdsSnippet = rows.filter(x => (x.issnippet || x.isSnippet)).map(x=> Number(x.componentID ?? x.componentid)).filter(Number.isFinite);
   const compIdsTask    = rows.filter(x => !(x.issnippet || x.isSnippet)).map(x=> Number(x.componentID ?? x.componentid)).filter(Number.isFinite);
@@ -226,8 +396,13 @@ async function loadHistory(studentID){
     const ass = x.assessment ?? '';
     const note = x.comment || '';
     const thread = x.threadid ?? x.threadID ?? '';
-    const fup = x.followup_id ? `#${x.followup_id}` : '';
-    tr.innerHTML = `<td>${when}</td><td>${trip}</td><td>${kind}</td><td>${comp}</td><td>${ass}</td><td>${note}</td><td>${thread}</td><td>${fup}</td>`;
+    const fup = x.followup_id ? `← #${x.followup_id}` : '';
+    tr.innerHTML = `<td>${when}</td><td>${trip}</td><td>${kind}</td><td>${comp}</td><td></td><td>${note}</td><td>${thread}</td><td>${fup}</td>`;
+
+    // Make assessment editable (5th column)
+    const assTd = tr.children[4];
+    makeAssessmentEditable(assTd, x);
+
     historyTableBody.appendChild(tr);
   }
 
@@ -335,9 +510,9 @@ function updateGroupCheckboxUI(gKey){
 }
 // помощна функция за рендериране
   function renderUnRow(row, isChild, groupKey, hasChildren) {
-  const tr = document.createElement('tr');
-  const cn = isChild ? 'group-child' : (hasChildren ? 'group-root has-children' : 'group-root');
-  tr.className = cn;
+    const tr = document.createElement('tr');
+    const cn = isChild ? 'group-child' : (hasChildren ? 'group-root has-children' : 'group-root');
+    tr.className = cn;
 
     // Color ONLY if this root truly represents a multi-row group (root + at least one follow-up)
     if (Number.isFinite(Number(groupKey))) {
@@ -355,65 +530,67 @@ function updateGroupCheckboxUI(gKey){
       // else: single-row group -> no color (transparent/white)
     }
 
-  const when = fmtDDMMYY(row.entrytime || row.entryTime || '');
-  const kind = (row.issnippet || row.isSnippet) ? 'Умение' : 'Задача';
-  const comp = (() => {
-    const n = Number(row.componentID ?? row.componentid);
-    if (!Number.isFinite(n)) return '';
-    return (row.issnippet || row.isSnippet) ? snippetLabel(n) : exerciseLabel(n);
-  })();
+    const when = fmtDDMMYY(row.entrytime || row.entryTime || '');
+    const kind = (row.issnippet || row.isSnippet) ? 'Умение' : 'Задача';
+    const comp = (() => {
+      const n = Number(row.componentID ?? row.componentid);
+      if (!Number.isFinite(n)) return '';
+      return (row.issnippet || row.isSnippet) ? snippetLabel(n) : exerciseLabel(n);
+    })();
 
-const tdSel = document.createElement('td');
-const cb = document.createElement('input');
-cb.type = 'checkbox';
-cb.dataset.id = String(row.id ?? row.ID);
-const gk = Number.isFinite(Number(groupKey)) ? Number(groupKey) : Number(cb.dataset.id);
-cb.dataset.group = String(gk);
-// role: root toggles whole group, child toggles only itself
-cb.dataset.role = isChild ? 'child' : 'root';
+    const tdSel = document.createElement('td');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.dataset.id = String(row.id ?? row.ID);
+    const gk = Number.isFinite(Number(groupKey)) ? Number(groupKey) : Number(cb.dataset.id);
+    cb.dataset.group = String(gk);
+    // role: root toggles whole group, child toggles only itself
+    cb.dataset.role = isChild ? 'child' : 'root';
 
-const idNum = Number(cb.dataset.id);
-if (selectedUnthreaded.has(idNum)) cb.checked = true;
+    const idNum = Number(cb.dataset.id);
+    if (selectedUnthreaded.has(idNum)) cb.checked = true;
 
-cb.addEventListener('change', () => {
-  const gKey = Number(cb.dataset.group);
-  const members = groupMembersList(gKey);
-  const thisId = Number(cb.dataset.id);
-  const isRoot = (cb.dataset.role === 'root');
+    cb.addEventListener('change', () => {
+      const gKey = Number(cb.dataset.group);
+      const members = groupMembersList(gKey);
+      const thisId = Number(cb.dataset.id);
+      const isRoot = (cb.dataset.role === 'root');
 
-  if (isRoot){
-    // Root toggles entire group
-    if (cb.checked){ members.forEach(mid => selectedUnthreaded.add(mid)); }
-    else { members.forEach(mid => selectedUnthreaded.delete(mid)); }
-    // Sync all checkboxes in group and reset root indeterminate
-    document.querySelectorAll('input[type="checkbox"][data-group="'+String(gKey)+'"]').forEach(inp => {
-      const idNum = Number(inp.dataset.id);
-      const checked = selectedUnthreaded.has(idNum);
-      inp.checked = checked;
-      if (inp.dataset.role === 'root'){ inp.indeterminate = false; }
+      if (isRoot){
+        // Root toggles entire group
+        if (cb.checked){ members.forEach(mid => selectedUnthreaded.add(mid)); }
+        else { members.forEach(mid => selectedUnthreaded.delete(mid)); }
+        // Sync all checkboxes in group and reset root indeterminate
+        document.querySelectorAll('input[type="checkbox"][data-group="'+String(gKey)+'"]').forEach(inp => {
+          const idNum = Number(inp.dataset.id);
+          const checked = selectedUnthreaded.has(idNum);
+          inp.checked = checked;
+          if (inp.dataset.role === 'root'){ inp.indeterminate = false; }
+        });
+      } else {
+        // Child toggles only itself
+        if (cb.checked) selectedUnthreaded.add(thisId); else selectedUnthreaded.delete(thisId);
+        cb.checked = selectedUnthreaded.has(thisId);
+      }
+      // Update the root checkbox UI to show partial selection if needed
+      updateGroupCheckboxUI(gKey);
     });
-  } else {
-    // Child toggles only itself
-    if (cb.checked) selectedUnthreaded.add(thisId); else selectedUnthreaded.delete(thisId);
-    cb.checked = selectedUnthreaded.has(thisId);
+    tdSel.appendChild(cb);
+
+    function td(text){ const el = document.createElement('td'); el.textContent = text; return el; }
+
+    tr.appendChild(tdSel);
+    tr.appendChild(td(when));
+    tr.appendChild(td(String(row.id ?? row.ID ?? ''))); // визуално „Умение ID“ – реално id на реда
+    tr.appendChild(td(kind));
+    tr.appendChild(td(comp));
+    const assTd = td(row.assessment ?? '');
+    tr.appendChild(assTd);
+    makeAssessmentEditable(assTd, row);
+    tr.appendChild(td(row.comment || ''));
+
+    unthreadedBody && unthreadedBody.appendChild(tr);
   }
-  // Update the root checkbox UI to show partial selection if needed
-  updateGroupCheckboxUI(gKey);
-});
-tdSel.appendChild(cb);
-
-  function td(text){ const el = document.createElement('td'); el.textContent = text; return el; }
-
-  tr.appendChild(tdSel);
-  tr.appendChild(td(when));
-  tr.appendChild(td(String(row.id ?? row.ID ?? ''))); // визуално „Умение ID“ – реално id на реда
-  tr.appendChild(td(kind));
-  tr.appendChild(td(comp));
-  tr.appendChild(td(row.assessment ?? ''));
-  tr.appendChild(td(row.comment || ''));
-
-  unthreadedBody && unthreadedBody.appendChild(tr);
-}
 
 // 1) корени: записи, към които никой не сочи
 for (const r of unthreaded) {
@@ -488,7 +665,20 @@ for (const rootId of groupMembers.keys()){
       runStudentSearch();
     }
   });
+  // Auto-restore last selected student after a page reload (e.g., after saving a new action)
+  (async function restoreLastStudent(){
+    try {
+      const raw = localStorage.getItem('vc_last_student');
+      if (!raw) return;
+      const obj = JSON.parse(raw);
+      const id = obj && obj.id != null ? parseInt(obj.id, 10) : null;
+      const name = obj && typeof obj.name === 'string' ? obj.name : '';
+      if (!Number.isInteger(id)) return;
 
+      await selectStudent({ id, name: name || String(id) });
+    } catch(_) {}
+  })();
+  
   saveActionBtn.addEventListener('click', async ()=>{
     if(!currentStudent){ alert('Избери ученик.'); return; }
     const row = {
@@ -506,10 +696,19 @@ for (const rootId of groupMembers.keys()){
     const r = await fetch('/student-assessment-skills-exercises',{
       method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ rows:[row] })
     });
-    if(r.ok){
-      // clear minimal fields and reload history
-      f_component.value=''; f_assessment.value=''; f_followup_id.value=''; f_followup_exp.value='';
-      await loadHistory(currentStudent.id);
+      if (r.ok){
+      // Запази текущия ученик за автоматично възстановяване след refresh
+      try {
+        if (currentStudent && currentStudent.id) {
+          localStorage.setItem('vc_last_student', JSON.stringify({
+            id: currentStudent.id,
+            name: currentStudent.name || (studentSearch ? studentSearch.value.trim() : '') || ''
+          }));
+        }
+      } catch(_) {}
+
+      // Най-сигурно: пълен refresh + нов GET
+      window.location.reload();
     } else {
       alert('Грешка при запис.');
     }
@@ -536,23 +735,46 @@ for (const rootId of groupMembers.keys()){
   }
 
   if (makeThreadBtn){
-    makeThreadBtn.addEventListener('click', async ()=>{
-      if(!currentStudent){ alert('Избери ученик.'); return; }
-      const ids = Array.from(selectedUnthreaded);
-      if(ids.length === 0){ alert('Маркирай един или повече реда.'); return; }
-      // optional: confirm
-      try{
-        const r = await fetch('/threads/create', {
-          method: 'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ studentID: currentStudent.id, baseIds: ids })
-        });
-        const data = await r.json();
-        if(!r.ok){ throw new Error(data && data.error ? data.error : 'Грешка при създаване на нишка'); }
-        // refresh
-        await loadHistory(currentStudent.id);
-      }catch(e){
-        alert('Неуспешно обединяване: ' + (e?.message||''));
+  makeThreadBtn.addEventListener('click', async ()=>{
+    if(!currentStudent){ alert('Избери ученик.'); return; }
+    const ids = Array.from(selectedUnthreaded);
+    if(ids.length === 0){ alert('Маркирай един или повече реда.'); return; }
+
+    // Text input: empty => NEW thread, non-empty => EXISTING thread
+    const threadID = (mergeThreadId && mergeThreadId.value)
+      ? String(mergeThreadId.value).trim()
+      : '';
+
+    try{
+      const r = await fetch('/threads/create', {
+        method: 'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          studentID: currentStudent.id,
+          baseIds: ids,
+          threadID: threadID ? threadID : null
+        })
+      });
+
+      const data = await r.json().catch(()=> ({}));
+      if(!r.ok){
+        throw new Error(data && data.error ? data.error : 'Грешка при обединяване в нишка');
       }
-    });
-  }
+
+      // Keep selected student after refresh
+      try {
+        localStorage.setItem('vc_last_student', JSON.stringify({
+          id: currentStudent.id,
+          name: currentStudent.name || (studentSearch ? studentSearch.value.trim() : '') || ''
+        }));
+      } catch(_){}
+
+      window.location.reload();
+    }catch(e){
+      alert('Неуспешно обединяване: ' + (e?.message||''));
+    }
+  });
+}
+  wireThreadPick();
+  wireGroupThreadPick();
 })();

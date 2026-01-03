@@ -81,7 +81,21 @@
       box-shadow: var(--shadow);
       padding:14px 14px 10px;
     }
-
+      /* editable cell affordance (thread detail note) */
+      td.cell-editable {
+        cursor: text;
+      }
+      td.cell-editable:focus {
+        outline: 2px solid #93c5fd;
+        outline-offset: -2px;
+        background: #f8fbff;
+      }
+      .edit-ico{
+        font-size: 0.85em;
+        opacity: 0.75;
+        margin-left: 6px;
+        vertical-align: middle;
+      }
     /* Tables */
     .table{
       width:100%;
@@ -110,7 +124,12 @@
 
     /* Checkbox column */
     .table th:first-child, .table td:first-child{ width:42px; }
-
+    /* Root row highlight in thread history */
+    #threadDetailTable tr.thread-root {
+      background: #e0f2fe;
+      font-weight: 600;
+      border-left: 4px solid #0284c7;
+    }
     /* Unthreaded grouping visuals (kept, but polished) */
     #unthreadedTable tr.group-root { background: #ffffff; }
     #unthreadedTable tr.group-root.has-children { background: var(--amber-50); }
@@ -169,6 +188,13 @@
       .form-grid{ grid-template-columns: 1fr 1fr; }
       .table th,.table td{ white-space:normal; }
     }
+
+        /* Root row highlight in thread history */
+    #threadDetailTable tr.thread-root {
+      background: #e0f2fe;
+      font-weight: 600;
+      border-left: 4px solid #0284c7;
+    }
   </style>
 </head>
 <body>
@@ -196,19 +222,24 @@
       <div id="meta" class="muted small" hidden></div>
 
       <h3 id="unthreadedHeader" hidden>Без нишка</h3>
-  <div id="unthreadedWrap" hidden>
-    <div style="margin:6px 0; display:flex; gap:8px; align-items:center;">
+      <div id="unthreadedWrap" hidden>
+      <div style="margin:6px 0; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
       <button id="makeThreadBtn" class="btn">Обедини в нишка</button>
-      <span class="muted small">(избери един или повече реда по‑долу)</span>
+
+      <input id="mergeThreadId"
+            type="text"
+            placeholder="нишка ID (празно = нова)"
+            style="min-width:240px; max-width:320px;" />
+
     </div>
     <table class="table" id="unthreadedTable">
       <thead>
         <tr>
           <th style="width:36px;">✔</th>
           <th>Дата</th>
-          <th>Умение ID</th>
-          <th>Тип</th>
           <th>Компонент</th>
+          <th>Тип</th>
+          <th>Умение ID</th>
           <th>Оценка</th>
           <th>Бележка</th>
         </tr>
@@ -236,15 +267,15 @@
     </h3>
   <div id="threadDetailWrap" hidden>
       <table class="table" id="threadDetailTable">
-        <thead>
+       <thead>
           <tr>
-            <th>Време</th>
-            <th>Triplet</th>
-            <th>Тип</th>
+            <th>Дата</th>
             <th>Компонент</th>
+            <th>Тип</th>
+            <th>Умение ID</th>
             <th>Оценка</th>
-            <th>Бележка</th>
-            <th>Follow-up</th>
+            <th>Бележка <span class="edit-ico" title="Редактира се">✏️</span></th>
+            <th>Previous</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -261,7 +292,7 @@
           <input id="f_isSnippet" type="checkbox" />
         </div>
         <div>
-          <label>Компонент ID</label>
+          <label>Умение ID</label>
           <input id="f_component" type="number" />
         </div>
         <div>
@@ -269,11 +300,24 @@
           <input id="f_assessment" type="number" />
         </div>
         <div>
-          <label>Нишка (ID)</label>
-          <input id="f_thread" type="text" />
+        <label>Нишка (ID)</label>
+        <input id="f_thread" type="text" />
+
+        <div class="muted small" style="margin-top:6px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+          <label style="display:flex; gap:6px; align-items:center; margin:0;">
+            <input type="radio" name="f_thread_mode" id="f_thread_mode_old" checked />
+            стара нишка
+          </label>
+          <label style="display:flex; gap:6px; align-items:center; margin:0;">
+            <input type="radio" name="f_thread_mode" id="f_thread_mode_new" />
+            нова нишка
+          </label>
         </div>
+
+        <select id="f_thread_select" style="margin-top:6px;" title="Избери съществуваща нишка"></select>
+      </div>
         <div>
-          <label>Follow‑up на (ID)</label>
+          <label>Previous (ID)</label>
           <input id="f_followup_id" type="number" />
         </div>
         <div style="grid-column: 1 / -1;">
@@ -301,7 +345,7 @@
               <th>Оценка</th>
               <th>Бележка</th>
               <th>Нишка</th>
-              <th>Follow‑up</th>
+              <th>Previous</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -371,12 +415,25 @@
                 <label>Оценка</label>
                 <input id="g2_assessment" type="number" />
               </div>
-              <div>
-                <label>Нишка (ID)</label>
-                <input id="g2_thread" type="text" />
+             <div>
+              <label>Нишка (ID)</label>
+              <input id="g2_thread" type="text" />
+
+              <div class="muted small" style="margin-top:6px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                <label style="display:flex; gap:6px; align-items:center; margin:0;">
+                  <input type="radio" name="g2_thread_mode" id="g2_thread_mode_old" checked />
+                  стара нишка
+                </label>
+                <label style="display:flex; gap:6px; align-items:center; margin:0;">
+                  <input type="radio" name="g2_thread_mode" id="g2_thread_mode_new" />
+                  нова нишка
+                </label>
               </div>
+
+              <select id="g2_thread_select" style="margin-top:6px;" title="Избери съществуваща нишка"></select>
+            </div>
               <div>
-                <label>Follow‑up на (ID)</label>
+                <label>Previous (ID)</label>
                 <input id="g2_followup_id" type="number" />
               </div>
               <div style="grid-column: 1 / -1;">

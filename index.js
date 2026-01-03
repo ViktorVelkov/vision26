@@ -9,7 +9,114 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 // === Sticky Notes file storage ===
-// POST /threads/create { studentID:number, baseIds:number[], threadID?:string }
+
+// === Student assessment skills/exercises: update comment (used by versionControl thread detail editable note) ===
+// PATCH /student-assessment-skills-exercises/:id  body: { comment: string }
+app.patch('/student-assessment-skills-exercises/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
+
+    const body = req.body || {};
+
+    // allow PATCH of comment and/or assessment
+    const sets = [];
+    const params = [];
+
+    if (Object.prototype.hasOwnProperty.call(body, 'comment')) {
+      const comment = (body.comment == null) ? '' : String(body.comment);
+      params.push(comment);
+      sets.push(`"comment" = $${params.length}`);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, 'assessment')) {
+      let a = body.assessment;
+      // normalize: '' -> null, strings -> int
+      if (typeof a === 'string') a = a.trim();
+      if (a === '' || a == null) {
+        a = null;
+      } else {
+        a = parseInt(a, 10);
+        if (!Number.isInteger(a)) return res.status(400).json({ error: 'Invalid assessment' });
+        // keep existing scale rules (0..3) if desired
+        if (a < 0) a = 0;
+        if (a > 3) a = 3;
+      }
+      params.push(a);
+      sets.push(`"assessment" = $${params.length}`);
+    }
+
+    if (!sets.length) return res.status(400).json({ error: 'No fields to update' });
+
+    params.push(id);
+
+    const r = await pool.query(
+      `UPDATE "student_assessment_skills_exercises"
+          SET ${sets.join(', ')}
+        WHERE id = $${params.length}
+        RETURNING id, "comment", "assessment"`,
+      params
+    );
+
+    if (!r.rowCount) return res.status(404).json({ error: 'Row not found' });
+    return res.json({ ok: true, row: r.rows[0] });
+  } catch (e) {
+    console.error('PATCH /student-assessment-skills-exercises/:id failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  }
+});
+
+// Fallback shape used by some front-end code:
+// PATCH /student-assessment-skills-exercises  body: { id: number, comment: string }
+app.patch('/student-assessment-skills-exercises', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const id = parseInt(body.id, 10);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
+
+    const sets = [];
+    const params = [];
+
+    if (Object.prototype.hasOwnProperty.call(body, 'comment')) {
+      const comment = (body.comment == null) ? '' : String(body.comment);
+      params.push(comment);
+      sets.push(`"comment" = $${params.length}`);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, 'assessment')) {
+      let a = body.assessment;
+      if (typeof a === 'string') a = a.trim();
+      if (a === '' || a == null) {
+        a = null;
+      } else {
+        a = parseInt(a, 10);
+        if (!Number.isInteger(a)) return res.status(400).json({ error: 'Invalid assessment' });
+        if (a < 0) a = 0;
+        if (a > 3) a = 3;
+      }
+      params.push(a);
+      sets.push(`"assessment" = $${params.length}`);
+    }
+
+    if (!sets.length) return res.status(400).json({ error: 'No fields to update' });
+
+    params.push(id);
+
+    const r = await pool.query(
+      `UPDATE "student_assessment_skills_exercises"
+          SET ${sets.join(', ')}
+        WHERE id = $${params.length}
+        RETURNING id, "comment", "assessment"`,
+      params
+    );
+
+    if (!r.rowCount) return res.status(404).json({ error: 'Row not found' });
+    return res.json({ ok: true, row: r.rows[0] });
+  } catch (e) {
+    console.error('PATCH /student-assessment-skills-exercises failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  }
+});
 
 
 // === Sticky Notes file storage ===
@@ -1588,6 +1695,8 @@ app.post('/lesson-skills', async (req, res) => {
 
 // POST /student-assessment-skills-exercises — save detailed assessment rows
 // Expects: { rows: [ {lessonTriplet,isSnippet,componentID,assessment,comment,studentID,threadID,followup_id,followup_exp} ] }
+// Semantics: followup_id == Previous (ID)  (current row points to previous row)
+// DB: column is renamed to previous_id; we keep compat by returning previous_id AS followup_id.
 app.post('/student-assessment-skills-exercises', async (req, res) => {
   const { rows } = req.body || {};
   if (!Array.isArray(rows) || rows.length === 0) {
@@ -1598,13 +1707,12 @@ app.post('/student-assessment-skills-exercises', async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // New SQL: do not insert followup_exp nor followup_id into the new row
     const sql = `
 WITH src AS (
-  SELECT 
+  SELECT
     COALESCE(NULLIF(TRIM(x->>'lessonTriplet'), ''), '')::text                AS "lessonTriplet",
-    CASE 
-      WHEN (x ? 'isSnippet') THEN 
+    CASE
+      WHEN (x ? 'isSnippet') THEN
         CASE LOWER(NULLIF(TRIM(x->>'isSnippet'), ''))
           WHEN 'true'  THEN TRUE
           WHEN '1'     THEN TRUE
@@ -1619,15 +1727,37 @@ WITH src AS (
     COALESCE(x->>'comment','')::text                                 AS "comment",
     NULLIF(TRIM(x->>'studentID'),  '')::int                          AS "studentID",
     COALESCE(NULLIF(TRIM(x->>'followup_exp'), ''), '')::text         AS "followup_exp",
-    NULLIF(TRIM(x->>'followup_id'), '')::int                         AS "followup_id",
+    /* Frontend still sends followup_id; DB column is previous_id */
+    NULLIF(TRIM(x->>'followup_id'), '')::int                         AS "previous_id",
     NULLIF(TRIM(x->>'threadID'), '')::text                           AS "threadID"
   FROM jsonb_array_elements($1::jsonb) AS x
 )
 INSERT INTO "student_assessment_skills_exercises"
-  ("lessonTriplet","isSnippet","componentID","assessment","comment","studentID","threadID","entryTime")
-SELECT "lessonTriplet","isSnippet","componentID","assessment","comment","studentID","threadID", NOW()
+  ("lessonTriplet","isSnippet","componentID","assessment","comment","studentID","threadID","entryTime","previous_id")
+SELECT
+  "lessonTriplet",
+  "isSnippet",
+  "componentID",
+  "assessment",
+  /* Route followup_exp into comment if present */
+  CASE WHEN COALESCE(TRIM("followup_exp"), '') <> '' THEN "followup_exp" ELSE "comment" END AS "comment",
+  "studentID",
+  NULLIF(TRIM("threadID"), ''),
+  NOW(),
+  "previous_id"
 FROM src
-RETURNING id,"lessonTriplet","isSnippet","componentID","assessment","comment","studentID","threadID","entryTime";
+RETURNING
+  id,
+  "lessonTriplet",
+  "isSnippet",
+  "componentID",
+  "assessment",
+  "comment",
+  "studentID",
+  "threadID",
+  "entryTime",
+  previous_id,
+  previous_id AS followup_id;
 `;
 
     // Normalize keys coming from client so fields have expected names and types
@@ -1648,27 +1778,52 @@ RETURNING id,"lessonTriplet","isSnippet","componentID","assessment","comment","s
       var studentID = (r.studentID != null ? r.studentID
                      : (r.studentId != null ? r.studentId
                      : (r.student_id != null ? r.student_id : null)));
-      // Add followup_exp, followup_id, threadID normalization
+
       return {
         lessonTriplet: lessonTriplet != null ? String(lessonTriplet) : "",
         isSnippet: isSnippet,
         componentID: componentID == null ? null : componentID,
         assessment: assessment == null ? null : assessment,
+        // UI textarea uses followup_exp; backend SQL will prefer followup_exp over comment
         comment: comment || "",
         studentID: studentID == null ? null : studentID,
         followup_exp: (typeof r.followup_exp === 'string' ? r.followup_exp : ''),
-        followup_id:  (r.followup_id != null ? parseInt(r.followup_id,10) : (r.parentId != null ? parseInt(r.parentId,10) : null)),
-        threadID:     (typeof r.threadID === 'string' ? r.threadID: (typeof r.thread_id === 'string' ? r.thread_id : null))
-        };
+        // Compat: accept followup_id OR previous_id from client; store as followup_id in payload for SQL extraction
+        followup_id: (r.followup_id != null ? parseInt(r.followup_id,10)
+                  : (r.previous_id != null ? parseInt(r.previous_id,10)
+                  : (r.parentId != null ? parseInt(r.parentId,10) : null))),
+        threadID: (typeof r.threadID === 'string' ? r.threadID
+               : (typeof r.thread_id === 'string' ? r.thread_id : null))
+      };
     });
 
-    // Always route followup_exp into the NEW row's comment; base row should NOT receive it.
+    // Validate Previous (followup_id) belongs to same student (when provided)
     for (const nr of normRows) {
-      if (typeof nr.followup_exp === 'string' && nr.followup_exp.trim() !== '') {
-        nr.comment = nr.followup_exp; // ensure the note goes to the inserted row
+      const sid = parseInt(nr.studentID, 10);
+      if (!Number.isInteger(sid)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Invalid studentID' });
       }
-      // Never carry followup_exp forward to base row update; we don't update base comment
-      nr.followup_exp = '';
+      if (nr.followup_id != null) {
+        const prevId = parseInt(nr.followup_id, 10);
+        if (!Number.isInteger(prevId)) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'Invalid previous id' });
+        }
+        const chk = await client.query(
+          `SELECT id, "studentID" FROM "student_assessment_skills_exercises" WHERE id = $1 LIMIT 1`,
+          [prevId]
+        );
+        if (!chk.rowCount) {
+          await client.query('ROLLBACK');
+          return res.status(409).json({ error: `Previous id ${prevId} not found` });
+        }
+        const prevStudent = parseInt(chk.rows[0].studentID, 10);
+        if (prevStudent !== sid) {
+          await client.query('ROLLBACK');
+          return res.status(409).json({ error: `Previous id ${prevId} belongs to different student` });
+        }
+      }
     }
 
     console.log("POST /student-assessment-skills-exercises sample row:",
@@ -1678,29 +1833,7 @@ RETURNING id,"lessonTriplet","isSnippet","componentID","assessment","comment","s
     console.log("normalized sample:", normRows[0], "keys=", Object.keys(normRows[0] || {}));
 
     const payloadJson = JSON.stringify(normRows);
-
     const result = await client.query(sql, [payloadJson]);
-
-    // After insert, if a payload row carried followup_id (meaning: new row is a follow-up to base row with that id),
-    // then link the BASE row to the newly created row. The follow-up link lives on the base row.
-    const inserted = result.rows || [];
-    for (let i = 0; i < normRows.length; i++) {
-      const baseId = normRows[i] && normRows[i].followup_id ? parseInt(normRows[i].followup_id, 10) : null;
-      const newId  = inserted[i] && inserted[i].id ? parseInt(inserted[i].id, 10) : null;
-      const sid    = normRows[i] && normRows[i].studentID ? parseInt(normRows[i].studentID, 10) : null;
-      if (Number.isInteger(baseId) && Number.isInteger(newId)) {
-        // NOTE: We ONLY link the base row to the new follow-up here.
-        // We do NOT touch componentID/assessment/threadID/triplet/isSnippet on the base row.
-        // Update only if the base row exists and currently has no follow-up set
-        await client.query(
-          `UPDATE "student_assessment_skills_exercises"
-             SET "followup_id" = $2
-           WHERE id = $1
-             AND ("followup_id" IS NULL)`,
-          [baseId, newId]
-        );
-      }
-    }
 
     await client.query('COMMIT');
     res.json({ ok: true, inserted: result.rowCount, rows: result.rows });
@@ -1720,7 +1853,8 @@ app.get('/student-assessment-skills-exercises', async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT id, "lessonTriplet","isSnippet","componentID","assessment","comment",
-              "studentID","followup_exp","followup_id","threadID",
+              "studentID","followup_exp","previous_id", "previous_id" AS "followup_id",
+              COALESCE(NULLIF(TRIM("threadID"),''), NULL) AS "threadID",
               TO_CHAR("entryTime", 'YYYY-MM-DD HH24:MI') AS entryTime
          FROM "student_assessment_skills_exercises"
         WHERE "studentID" = $1
@@ -3201,46 +3335,101 @@ app.post('/student-threads/new', express.json(), async (req, res) => {
 });
 
 // POST /threads/create { studentID:number, baseIds:number[], threadID?:string }
+// POST /threads/create
+// Body: { studentID:number, baseIds?:number[], ids?:number[], threadID?:string, includeChain?:boolean }
+// - If threadID is missing/blank -> generates a new thread id.
+// - If includeChain is true -> also attaches all descendants in the follow-up chain.
+// - Default behavior: ONLY the explicitly provided ids/baseIds are attached.
 app.post('/threads/create', async (req, res) => {
-  const { studentID, baseIds, threadID } = req.body || {};
-  const sid = parseInt(studentID, 10);
-  const ids = Array.isArray(baseIds) ? baseIds.map(n=>parseInt(n,10)).filter(Number.isInteger) : [];
+  const body = req.body || {};
+  const sid = parseInt(body.studentID, 10);
+  const baseIds = Array.isArray(body.baseIds) ? body.baseIds : (Array.isArray(body.ids) ? body.ids : []);
+  const ids = baseIds.map(n => parseInt(n, 10)).filter(Number.isInteger);
+  const includeChain = !!body.includeChain;
+  let tid = (typeof body.threadID === 'string') ? body.threadID.trim() : '';
+
   if (!Number.isInteger(sid) || ids.length === 0) {
     return res.status(400).json({ error: 'Missing studentID or baseIds' });
   }
+
   // Generate thread id if missing: <studentID>-<10alnum>
   function randomKey(len){
     const abc = 'abcdefghijklmnopqrstuvwxyz0123456789';
     let s=''; for(let i=0;i<len;i++) s += abc[Math.floor(Math.random()*abc.length)];
     return s;
   }
-  const tid = (typeof threadID === 'string' && threadID.trim() !== ''
-              ? threadID.trim()
-              : `${sid}-${randomKey(10)}`);
+  if (!tid) tid = `${sid}-${randomKey(10)}`;
 
-  // recursive closure of follow-ups chain restricted to this student
   const client = await pool.connect();
   try{
     await client.query('BEGIN');
-    const sql = `
-      WITH RECURSIVE chain AS (
-        SELECT id, "followup_id"
-          FROM "student_assessment_skills_exercises"
-         WHERE "studentID" = $1 AND id = ANY($2::int[])
-        UNION ALL
-        SELECT s.id, s."followup_id"
-          FROM "student_assessment_skills_exercises" s
-          JOIN chain c ON s."followup_id" = c.id
-         WHERE s."studentID" = $1
-      )
-      UPDATE "student_assessment_skills_exercises" AS t
-         SET "threadID" = $3
-        FROM (SELECT id FROM chain) u
-       WHERE t.id = u.id
-       RETURNING t.id;`;
-    const r = await client.query(sql, [sid, ids, tid]);
+
+    // Validate: all ids belong to this student
+    const chk = await client.query(
+      `SELECT id, "studentID"
+         FROM "student_assessment_skills_exercises"
+        WHERE id = ANY($1::int[])
+        LIMIT 500`,
+      [ids]
+    );
+    if (!chk.rowCount){
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'No rows found' });
+    }
+    for (const r of chk.rows){
+      if (parseInt(r.studentID,10) !== sid){
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: `Row ${r.id} belongs to different student` });
+      }
+    }
+
+    // Register thread id once (safe, idempotent)
+    // If you don't have a `threads` table in some environments, we ignore the insert.
+    try {
+      await client.query(
+        `INSERT INTO threads(thread_id, created_by) VALUES ($1, $2)
+         ON CONFLICT (thread_id) DO NOTHING`,
+        [tid, sid]
+      );
+    } catch(_e) {}
+
+    let updatedIds = [];
+
+    if (!includeChain){
+      // Attach ONLY explicit ids
+      const r = await client.query(
+        `UPDATE "student_assessment_skills_exercises"
+            SET "threadID" = $2
+          WHERE "studentID" = $1
+            AND id = ANY($3::int[])
+          RETURNING id`,
+        [sid, tid, ids]
+      );
+      updatedIds = r.rows.map(x => x.id);
+    } else {
+      // Attach explicit ids AND their descendants (rows that point to them via followup_id)
+      const sql = `
+        WITH RECURSIVE chain AS (
+          SELECT id, "followup_id"
+            FROM "student_assessment_skills_exercises"
+           WHERE "studentID" = $1 AND id = ANY($2::int[])
+          UNION ALL
+          SELECT s.id, s."followup_id"
+            FROM "student_assessment_skills_exercises" s
+            JOIN chain c ON s."followup_id" = c.id
+           WHERE s."studentID" = $1
+        )
+        UPDATE "student_assessment_skills_exercises" AS t
+           SET "threadID" = $3
+          FROM (SELECT DISTINCT id FROM chain) u
+         WHERE t.id = u.id
+         RETURNING t.id;`;
+      const r = await client.query(sql, [sid, ids, tid]);
+      updatedIds = r.rows.map(x => x.id);
+    }
+
     await client.query('COMMIT');
-    return res.json({ ok:true, threadID: tid, updatedIds: r.rows.map(x=>x.id) });
+    return res.json({ ok:true, threadID: tid, updatedIds });
   }catch(e){
     await client.query('ROLLBACK');
     console.error('threads/create failed:', e);
@@ -3250,6 +3439,7 @@ app.post('/threads/create', async (req, res) => {
   }
 });
 
+// (removed duplicate /threads/create route; unified implementation is defined below)
 // =========================
 // Lessons Library Updated API
 // =========================
