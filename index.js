@@ -5,9 +5,117 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const chronology = require('./public/vc_chronology');
 const app = express();
+// Serve /public as static so /vc_chronology.js, CSS, etc. load correctly
+app.use(express.static(path.join(__dirname, 'public')));
+
+// === Snippets & Exercises UI (local tools) ===
+// Files are under ./public/snippetsexercises
+app.use('/se', express.static(path.join(__dirname, 'snippets+Exercises')));
+
+// Convenience route to open the Snippets form
+app.get('/snippets-form', (req, res) => {
+  res.sendFile(path.join(__dirname,  'snippets+Exercises', 'se_form.html'));
+});
 app.use(cors());
 app.use(express.json());
+
+// === VC Chronology log API (audit register) ===
+// GET /vc-chronology-log?studentID=123  -> returns array of log entries (optionally filtered)
+app.get('/vc-chronology-log', (req, res) => {
+  try {
+    const sid = (req.query.studentID != null) ? parseInt(req.query.studentID, 10) : null;
+    const file = path.join(__dirname,  'vc_chronology_log.json');
+
+    if (!fs.existsSync(file)) return res.json([]);
+
+    const raw = fs.readFileSync(file, 'utf8');
+    let arr = [];
+    try { arr = JSON.parse(raw); } catch (_) { arr = []; }
+    if (!Array.isArray(arr)) arr = [];
+
+    if (Number.isInteger(sid)) {
+      arr = arr.filter(e => {
+        const es = (e && e.studentID != null) ? parseInt(e.studentID, 10) : null;
+        return Number.isInteger(es) && es === sid;
+      });
+    }
+
+    // newest first
+    arr.sort((a, b) => String(b.time || '').localeCompare(String(a.time || '')));
+
+    return res.json(arr);
+  } catch (e) {
+    console.error('GET /vc-chronology-log failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  }
+});
+// === VC Chronology UI page (standalone browser tab) ===
+app.get('/vc_chronology.html', (req, res) => {
+  res.type('html').send(`<!DOCTYPE html>
+<html lang="bg">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VC Хронология (Регистър)</title>
+  <style>
+    body{ margin:0; background:#f7faff; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color:#0f172a; }
+    .wrap{ max-width:1160px; margin:20px auto 40px; padding:0 16px; }
+    .card{ background:#fff; border:1px solid #e2e8f0; border-radius:12px; box-shadow:0 1px 2px rgba(15,23,42,.06),0 6px 24px rgba(2,6,23,.06); padding:14px; }
+    h2{ margin:0 0 10px; }
+    .muted{ color:#64748b; font-size:12px; }
+    .topbar{ display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+    .btn{ padding:10px 14px; border-radius:999px; border:1px solid #e2e8f0; background:#fff; cursor:pointer; white-space:nowrap; }
+    .btn:hover{ border-color:#cdd6e2; }
+    .table{ width:100%; border-collapse:separate; border-spacing:0; border:1px solid #e2e8f0; border-radius:10px; overflow:hidden; }
+    .table th,.table td{ padding:10px 12px; border-bottom:1px solid #e2e8f0; text-align:left; }
+    .table th{ background:#eff6ff; color:#0b2a6f; position:sticky; top:0; }
+    .table tr:hover td{ background:#fafcff; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div>
+        <h2>Регистър (VC хронология)</h2>
+        <div class="muted">Показва се целият лог файл</div>
+      </div>
+      <div style="display:flex; gap:10px;">
+        <button class="btn" id="refreshBtn">Опресни</button>
+        <button class="btn" id="closeBtn">Затвори таба</button>
+      </div>
+    </div>
+    <div class="card">
+      <table class="table" id="vcChronoTable">
+        <thead>
+          <tr>
+            <th style="width:220px;">Време</th>
+            <th style="width:120px;">Действие</th>
+            <th>Описание</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div id="vcHint" class="muted" style="margin-top:8px;"></div>
+    </div>
+  </div>
+
+  <script>
+    document.getElementById('closeBtn').onclick = () => {
+      window.close();
+      setTimeout(() => {
+        if (!document.hidden) {
+          document.getElementById('vcHint').textContent = 'Ако табът не се затваря автоматично, затвори го ръчно.';
+        }
+      }, 200);
+    };
+    document.getElementById('refreshBtn').onclick = () => location.reload();
+  </script>
+  <script src="/vc_chronology.js"></script>
+</body>
+</html>`);
+});
 // === Sticky Notes file storage ===
 
 // === Student assessment skills/exercises: update comment (used by versionControl thread detail editable note) ===
@@ -84,8 +192,16 @@ app.patch('/student-assessment-skills-exercises/:id', async (req, res) => {
     );
 
     if (!r.rowCount) return res.status(404).json({ error: 'Row not found' });
-    return res.json({ ok: true, row: r.rows[0] });
-  } catch (e) {
+
+    // ✅ STEP 3: log update
+    chronology.update({
+      id,
+      studentID: Number.isInteger(sid) ? sid : null,
+      changes: body,
+      row: r.rows[0], // полезно е да имаш какво реално се е записало
+    });
+
+    return res.json({ ok: true, row: r.rows[0] });  } catch (e) {
     console.error('PATCH /student-assessment-skills-exercises/:id failed:', e);
     return res.status(500).json({ error: 'DB error' });
   }
@@ -149,9 +265,65 @@ app.patch('/student-assessment-skills-exercises', async (req, res) => {
     );
 
     if (!r.rowCount) return res.status(404).json({ error: 'Row not found' });
+
+    // ✅ STEP 4: log update (fallback)
+    chronology.update({
+      id,
+      changes: body,
+      row: r.rows[0],
+    });
+
     return res.json({ ok: true, row: r.rows[0] });
   } catch (e) {
     console.error('PATCH /student-assessment-skills-exercises failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  }
+});
+
+// DELETE /student-assessment-skills-exercises/:id
+app.delete('/student-assessment-skills-exercises/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const sid = (req.query.studentID != null) ? parseInt(req.query.studentID, 10) : null;
+
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ error: 'Invalid id' });
+    }
+
+    const params = [id];
+    let where = 'id = $1';
+
+    if (Number.isInteger(sid)) {
+      params.push(sid);
+      where += ` AND "studentID" = $2`;
+    }
+
+    const { rows } = await pool.query(
+      `DELETE FROM "student_assessment_skills_exercises"
+        WHERE ${where}
+        RETURNING id, "studentID", "componentID", "previous_id",
+                  COALESCE(NULLIF(TRIM("threadID"),''), NULL) AS "threadID"`,
+      params
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Row not found' });
+    }
+
+    const r = rows[0];
+
+    // ✅ STEP 5: log delete
+    chronology.remove({
+      id: r.id,
+      studentID: r.studentID,
+      componentID: r.componentID,
+      previous_id: r.previous_id,
+      threadID: r.threadID
+    });
+
+    return res.json({ ok: true, id: r.id });
+  } catch (e) {
+    console.error('DELETE /student-assessment-skills-exercises/:id failed:', e);
     return res.status(500).json({ error: 'DB error' });
   }
 });
@@ -1374,14 +1546,78 @@ app.get('/lesson-skills', async (req, res) => {
  * - GET /snippets/bulk?ids=1,2 -> array of {id,name,uslovie}
  * - GET /snippets?ids=1,2      -> same as bulk (fallback)
  */
+// === Snippets search API ===
+// GET /snippets/search?q=<text>  -> searches in name/uslovie/keyWords
+// === Snippets search API ===
+// GET /snippets/search?q=<text>&mode=meta|uslovie
+// mode=meta    -> search in name + keyWords
+// mode=uslovie -> search in uslovie only
+app.get('/snippets/search', async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    const mode = String(req.query.mode || 'meta').trim().toLowerCase(); // default meta
+    if (!q) return res.json([]);
+
+    let sql = '';
+    let params = [q];
+
+    if (mode === 'uslovie') {
+      sql = `
+        SELECT s."id", s."name", s."class", s."keyWords", s."uslovie"
+          FROM "Snippets" s
+         WHERE s."uslovie" ILIKE '%' || $1 || '%'
+         ORDER BY s."id" ASC
+         LIMIT 400`;
+    } else {
+      // meta: name + keyWords
+      sql = `
+        SELECT s."id", s."name", s."class", s."keyWords", s."uslovie"
+          FROM "Snippets" s
+         WHERE (s."name" ILIKE '%' || $1 || '%')
+            OR EXISTS (
+                 SELECT 1
+                   FROM unnest(COALESCE(s."keyWords", '{}'::text[])) kw
+                  WHERE kw ILIKE '%' || $1 || '%'
+               )
+         ORDER BY s."id" ASC
+         LIMIT 400`;
+    }
+
+    const { rows } = await pool.query(sql, params);
+
+    return res.json(rows.map(r => ({
+      id: r.id == null ? null : parseInt(r.id, 10),
+      name: r.name == null ? '' : String(r.name),
+      class: (r.class == null ? null : parseInt(r.class, 10)),
+      keyWords: Array.isArray(r.keyWords) ? r.keyWords.map(String) : [],
+      uslovie: r.uslovie == null ? '' : String(r.uslovie)
+    })).filter(x => Number.isInteger(x.id)));
+  } catch (e) {
+    console.error('GET /snippets/search failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  }
+});
 app.get('/snippets/:id', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
   try {
     const { rows } = await pool.query(
-      `SELECT "id","name","uslovie" FROM "Snippets" WHERE "id" = $1 LIMIT 1`,
-      [id]
-    );
+  `SELECT
+     "id",
+     "name",
+     "keyWords",
+     "tripplet_lesson",
+     "order",
+     "relatedTopic",
+     "lessons_in_tripplets",
+     "associatedSnippets",
+     "uslovie",
+     "class"
+   FROM "Snippets"
+   WHERE "id" = $1
+   LIMIT 1`,
+  [id]
+);
     if (!rows.length) return res.status(404).json({ error: 'Not found' });
     return res.json(rows[0]);
   } catch (e) {

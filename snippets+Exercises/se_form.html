@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="bg">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Snippets – Търсене</title>
+  <style>
+    :root{ --bg:#f6f8fc; --card:#fff; --border:#e2e8f0; --text:#0f172a; --muted:#64748b; --accent:#0b2a6f; }
+    *{ box-sizing:border-box; }
+    body{ margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; background:var(--bg); color:var(--text); }
+    .wrap{ max-width:1100px; margin:22px auto 40px; padding:0 16px; }
+    .card{ background:var(--card); border:1px solid var(--border); border-radius:12px; box-shadow:0 1px 2px rgba(15,23,42,.06),0 10px 30px rgba(2,6,23,.05); padding:16px; }
+    h1{ margin:0 0 10px; font-size:20px; }
+    .top{ display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-end; }
+    .muted{ color:var(--muted); font-size:12px; }
+    label{ font-size:12px; color:var(--muted); display:block; margin-bottom:6px; }
+    input{ width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:10px; outline:none; }
+    input:focus{ border-color:#94a3b8; }
+    .row{ display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; }
+    .btn{ padding:10px 14px; border-radius:999px; border:1px solid var(--border); background:#fff; cursor:pointer; }
+    .btn.primary{ background:var(--accent); border-color:var(--accent); color:#fff; }
+    .btn:hover{ border-color:#cbd5e1; }
+    .btn:disabled{ opacity:.55; cursor:not-allowed; }
+
+    /* 3-mode switch (animated) */
+    .seg{
+      position:relative;
+      display:inline-flex;
+      border:1px solid var(--border);
+      border-radius:999px;
+      overflow:hidden;
+      background:#fff;
+      padding:3px;
+      gap:3px;
+      min-width: 320px;
+    }
+    .seg button{
+      position:relative;
+      z-index:2;
+      border:0;
+      background:transparent;
+      padding:9px 12px;
+      cursor:pointer;
+      font-size:12px;
+      color:var(--muted);
+      border-radius:999px;
+      flex:1;
+      white-space:nowrap;
+      transition: color .18s ease;
+    }
+    .seg button:focus{ outline: none; }
+    .seg button.active{ color:var(--accent); font-weight:700; }
+
+    .seg-indicator{
+      position:absolute;
+      z-index:1;
+      top:3px;
+      bottom:3px;
+      left:3px;
+      width: calc((100% - 6px - 6px) / 3); /* 3 segments, 2 gaps of 3px */
+      border-radius:999px;
+      background:#dbeafe;
+      border:1px solid #bfdbfe;
+      box-shadow:0 1px 2px rgba(15,23,42,.10);
+      transform: translateX(0%);
+      transition: transform .22s ease;
+    }
+
+    @media (max-width: 560px){
+      .seg{ min-width: 260px; }
+      .seg button{ font-size:11px; padding:9px 10px; }
+    }
+
+    table{ width:100%; border-collapse:separate; border-spacing:0; margin-top:14px; border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+    th,td{ padding:10px 12px; border-bottom:1px solid var(--border); text-align:left; vertical-align:top; }
+    th{ background:#eff6ff; color:var(--accent); position:sticky; top:0; }
+    tr:last-child td{ border-bottom:none; }
+    tbody tr:hover td{ background:#fafcff; cursor:pointer; }
+
+    .viewer{ margin-top:14px; padding:12px; background:#f8fafc; border:1px solid var(--border); border-radius:12px; white-space:pre-wrap; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="top">
+        <div>
+          <h1>Snippets – търсачка</h1>
+          <div class="muted">Режим: <b>ID</b> / <b>Име+Ключови</b> / <b>Uslovie</b></div>
+        </div>
+        <div class="muted">Отвори: <b>http://localhost:3001/snippets-form</b></div>
+      </div>
+
+      <div style="height:1px;background:var(--border);margin:12px 0;"></div>
+
+      <div class="row">
+        <div style="flex: 1 1 520px; min-width:260px;">
+          <label id="qLabel">Име / ключови думи</label>
+          <input id="q" type="text" placeholder="напр. питагор, подобие, триъгълник" />
+        </div>
+
+        <div>
+          <div class="muted" style="margin-bottom:6px;">Режим</div>
+          <div class="seg" role="tablist" aria-label="Режим търсене">
+            <div class="seg-indicator" aria-hidden="true"></div>
+            <button id="modeIdBtn" type="button" data-mode="id">ID</button>
+            <button id="modeMetaBtn" type="button" data-mode="meta" class="active">Име+Ключови</button>
+            <button id="modeUslovieBtn" type="button" data-mode="uslovie">Uslovie</button>
+          </div>
+        </div>
+
+        <div style="display:flex; gap:10px;">
+          <button class="btn primary" id="searchBtn">Търси</button>
+          <button class="btn" id="clearBtn">Clear</button>
+        </div>
+      </div>
+
+      <div id="hint" class="muted" style="margin-top:10px;">—</div>
+
+      <table id="resultsTable" style="display:none;">
+        <thead>
+          <tr>
+            <th style="width:90px;">ID</th>
+            <th style="width:220px;">Име</th>
+            <th style="width:90px;">Клас</th>
+            <th style="width:220px;">Ключови думи</th>
+            <th>Условие (преглед)</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <div id="pager" class="muted" style="display:none; margin-top:10px; display:flex; gap:10px; align-items:center;">
+        <button class="btn" id="prevBtn" type="button">Prev</button>
+        <div id="pageInfo" class="muted">—</div>
+        <button class="btn" id="nextBtn" type="button">Next</button>
+      </div>
+
+      <div id="viewer" class="viewer" style="display:none;"></div>
+    </div>
+  </div>
+
+  <script src="/se/se_form.js"></script>
+</body>
+</html>

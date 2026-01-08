@@ -37,6 +37,13 @@
   let groupColorNext = 0;
   const groupColorTotal = 6; // must match count of .gcN classes in CSS
 
+  if (toggleHistoryBtn) {
+    toggleHistoryBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      window.open('/vc_chronology.html', '_blank', 'noopener');
+    });
+  }
+
   const unthreadedHeader = document.getElementById('unthreadedHeader');
   const threadsHeader = document.getElementById('threadsHeader');
   const newActionHeader = document.getElementById('newActionHeader');
@@ -306,6 +313,8 @@ if (prevEditBtn){
 
 
   let currentStudent = null;
+  // Expose selected student for the chronology UI module (vc_chronology)
+  window.VC_CURRENT_STUDENT = null;
 
 // Delete a row/component by id
 if (deleteRowBtn){
@@ -404,6 +413,7 @@ if (deleteRowBtn){
 
   async function selectStudent(st){
     currentStudent = st;
+    window.VC_CURRENT_STUDENT = st;
     meta.textContent = `Избран ученик: ${st.name} (ID ${st.id})`;
     if (studentSearch) studentSearch.value = st.name;
     if (searchRow) searchRow.setAttribute('hidden','');
