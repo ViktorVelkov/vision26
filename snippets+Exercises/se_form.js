@@ -10,6 +10,9 @@
   let allRows = [];
   let page = 1;
 
+  let currentSnippetId = null;
+  let originalSnapshot = null; // stringified snapshot to detect changes
+
   async function apiJson(url){
     const res = await fetch(url);
     const txt = await res.text();
@@ -37,22 +40,18 @@
 
     // order must match the buttons: id | meta | uslovie
     const idx = (mode === 'id') ? 0 : (mode === 'meta') ? 1 : 2;
-
-    // translate by 0%, 100%, 200% of its own width
     ind.style.transform = `translateX(${idx * 100}%)`;
   }
 
   function setMode(newMode){
     mode = newMode;
 
-    // active button
     $('modeIdBtn').classList.toggle('active', mode === 'id');
     $('modeMetaBtn').classList.toggle('active', mode === 'meta');
     $('modeUslovieBtn').classList.toggle('active', mode === 'uslovie');
 
     updateIndicator();
 
-    // input label/type
     const label = $('qLabel');
     const input = $('q');
 
@@ -77,8 +76,10 @@
   }
 
   function hideViewer(){
-    $('viewer').style.display = 'none';
-    $('viewer').textContent = '';
+    const wrap = document.getElementById('viewerWrap');
+    if (wrap) wrap.style.display = 'none';
+    const st = document.getElementById('saveStatus');
+    if (st) st.textContent = '—';
   }
 
   function hideTable(){
@@ -96,33 +97,65 @@
     setHint('—');
   }
 
-  function formatFullRow(sn){
-    const lines = [];
-    const add = (k, v) => {
-      if (Array.isArray(v)) lines.push(`${k}: ${csv(v)}`);
-      else if (v === null || typeof v === 'undefined') lines.push(`${k}: `);
-      else lines.push(`${k}: ${String(v)}`);
-    };
+  function splitCSV(text){
+    const s = String(text || '').trim();
+    if (!s) return [];
+    return s.split(/[,\n]+/).map(x => x.trim()).filter(Boolean);
+  }
 
-    add('id', sn.id);
-    add('name', sn.name);
-    add('class', sn.class);
-    add('keyWords', sn.keyWords);
-    add('tripplet_lesson', sn.tripplet_lesson);
-    add('order', sn.order);
-    add('relatedTopic', sn.relatedTopic);
-    add('lessons_in_tripplets', sn.lessons_in_tripplets);
-    add('associatedSnippets', sn.associatedSnippets);
-    add('uslovie', sn.uslovie);
+  function splitIntCSV(text){
+    return splitCSV(text).map(x => parseInt(x, 10)).filter(n => Number.isInteger(n));
+  }
 
-    return lines.join('\n');
+  function snapshotFromUI(){
+    return JSON.stringify({
+      name: $('v_name').value,
+      class: $('v_class').value,
+      order: $('v_order').value,
+      keyWords: $('v_keywords').value,
+      relatedTopic: $('v_related').value,
+      lessons_in_tripplets: $('v_lessons').value,
+      associatedSnippets: $('v_assoc').value,
+      uslovie: $('v_uslovie').value
+    });
+  }
+
+  function setDirty(isDirty){
+    const btn = $('saveChangesBtn');
+    if (!btn) return;
+    btn.style.display = isDirty ? '' : 'none';
+  }
+
+  function checkDirty(){
+    if (!originalSnapshot) { setDirty(false); return; }
+    setDirty(snapshotFromUI() !== originalSnapshot);
+  }
+
+  function fillEditor(sn){
+    currentSnippetId = sn.id;
+    $('v_id').textContent = String(sn.id);
+
+    $('v_name').value = sn.name || '';
+    $('v_class').value = (sn.class ?? '') === null ? '' : (sn.class ?? '');
+    $('v_order').value = (sn.order ?? '') === null ? '' : (sn.order ?? '');
+
+    $('v_keywords').value = Array.isArray(sn.keyWords) ? sn.keyWords.join(', ') : '';
+    $('v_related').value = Array.isArray(sn.relatedTopic) ? sn.relatedTopic.join(', ') : '';
+    $('v_lessons').value = Array.isArray(sn.lessons_in_tripplets) ? sn.lessons_in_tripplets.join(', ') : '';
+    $('v_assoc').value = Array.isArray(sn.associatedSnippets) ? sn.associatedSnippets.join(', ') : '';
+
+    $('v_uslovie').value = sn.uslovie || '';
+
+    originalSnapshot = snapshotFromUI();
+    setDirty(false);
+
+    $('saveStatus').textContent = '—';
+    document.getElementById('viewerWrap').style.display = '';
   }
 
   async function showSnippetById(id){
     const sn = await apiJson(`/snippets/${id}`);
-    const v = $('viewer');
-    v.style.display = '';
-    v.textContent = formatFullRow(sn);
+    fillEditor(sn);
   }
 
   function totalPages(){
@@ -201,8 +234,7 @@
         allRows = [sn];
         page = 1;
         renderPage();
-        $('viewer').style.display = '';
-        $('viewer').textContent = formatFullRow(sn);
+        fillEditor(sn);
       } else {
         const rows = await apiJson(`/snippets/search?q=${encodeURIComponent(qRaw)}&mode=${encodeURIComponent(mode)}`);
         allRows = Array.isArray(rows) ? rows : [];
@@ -232,6 +264,146 @@
   $('prevBtn').addEventListener('click', () => { if (page > 1) { page--; renderPage(); } });
   $('nextBtn').addEventListener('click', () => { if (page < totalPages()) { page++; renderPage(); } });
 
+  const editIds = ['v_name','v_class','v_order','v_keywords','v_related','v_lessons','v_assoc','v_uslovie'];
+  editIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', checkDirty);
+  });
+
+  $('saveChangesBtn').addEventListener('click', async () => {
+    try {
+      if (!currentSnippetId) return;
+      $('saveStatus').textContent = 'Запазване…';
+
+      const payload = {
+        name: $('v_name').value.trim(),
+        class: $('v_class').value === '' ? null : parseInt($('v_class').value, 10),
+        order: $('v_order').value === '' ? null : parseInt($('v_order').value, 10),
+        keyWords: splitCSV($('v_keywords').value),
+        relatedTopic: splitCSV($('v_related').value),
+        lessons_in_tripplets: splitCSV($('v_lessons').value),
+        associatedSnippets: splitIntCSV($('v_assoc').value),
+        uslovie: $('v_uslovie').value
+      };
+
+      const res = await fetch(`/snippets/${currentSnippetId}` , {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const txt = await res.text();
+      let data = null;
+      try { data = txt ? JSON.parse(txt) : null; } catch(_){ data = { raw: txt }; }
+
+      if (!res.ok) throw new Error((data && data.error) ? data.error : (res.status + ' ' + res.statusText));
+
+      fillEditor(data);
+      $('saveStatus').textContent = '✅ Запазено';
+      originalSnapshot = snapshotFromUI();
+      setDirty(false);
+    } catch (e) {
+      $('saveStatus').textContent = 'Грешка при запис';
+      console.error(e);
+    }
+  });
+
+
+function openAddModal(){
+  const m = document.getElementById('addModal');
+  if (!m) return;
+  m.classList.add('show');
+  m.setAttribute('aria-hidden','false');
+  const st = document.getElementById('createStatus');
+  if (st) st.textContent = '—';
+  const nm = document.getElementById('n_name');
+  if (nm) setTimeout(()=>nm.focus(), 0);
+}
+function closeAddModal(){
+  const m = document.getElementById('addModal');
+  if (!m) return;
+  m.classList.remove('show');
+  m.setAttribute('aria-hidden','true');
+}
+function clearNewForm(){
+  ['n_name','n_class','n_order','n_keywords','n_related','n_lessons','n_assoc','n_uslovie'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  const st = document.getElementById('createStatus');
+  if (st) st.textContent = '—';
+}
+
+// open/close hooks
+const addBtn = document.getElementById('addSnippetBtn');
+if (addBtn) addBtn.addEventListener('click', openAddModal);
+
+const addClose = document.getElementById('addModalClose');
+if (addClose) addClose.addEventListener('click', closeAddModal);
+
+const overlay = document.getElementById('addModal');
+if (overlay) {
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeAddModal();
+  });
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeAddModal();
+});
+
+const clr = document.getElementById('clearNewBtn');
+if (clr) clr.addEventListener('click', clearNewForm);
+
+const confirmBtn = document.getElementById('confirmCreateBtn');
+if (confirmBtn) confirmBtn.addEventListener('click', async () => {
+  try {
+    document.getElementById('createStatus').textContent = 'Създаване…';
+
+    const payload = {
+      name: document.getElementById('n_name').value.trim(),
+      class: document.getElementById('n_class').value === '' ? null : parseInt(document.getElementById('n_class').value, 10),
+      order: document.getElementById('n_order').value === '' ? null : parseInt(document.getElementById('n_order').value, 10),
+      keyWords: splitCSV(document.getElementById('n_keywords').value),
+      relatedTopic: splitCSV(document.getElementById('n_related').value),
+      lessons_in_tripplets: splitCSV(document.getElementById('n_lessons').value),
+      associatedSnippets: splitIntCSV(document.getElementById('n_assoc').value),
+      uslovie: document.getElementById('n_uslovie').value
+    };
+
+    if (!payload.name) {
+      document.getElementById('createStatus').textContent = 'Моля въведи заглавие.';
+      return;
+    }
+
+    const res = await fetch('/snippets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const txt = await res.text();
+    let data = null;
+    try { data = txt ? JSON.parse(txt) : null; } catch(_) { data = { raw: txt }; }
+    if (!res.ok) throw new Error((data && data.error) ? data.error : (res.status + ' ' + res.statusText));
+
+    const newId = data && (data.id || (data.row && data.row.id));
+    document.getElementById('createStatus').textContent = `✅ Създаден (id=${newId ?? '?'})`;
+
+    // автоматично: затвори модала и отвори новия snippet в search
+    if (newId != null) {
+      closeAddModal();
+      setMode('id');
+      document.getElementById('q').value = String(newId);
+      await search();
+    }
+  } catch (e) {
+    console.error(e);
+    document.getElementById('createStatus').textContent = 'Грешка: ' + (e?.message || 'unknown');
+  }
+});
+
   // init
   setMode('meta');
 })();
+

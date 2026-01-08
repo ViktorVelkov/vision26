@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="bg">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body{
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      margin: 20px;
+      background-color: #f0faf3; /* very light green */
+    }
+    .page-wrap{
+      max-width: 60vw;        /* max 60% of viewport width */
+      margin: 0 auto;        /* center horizontally */
+    }
+
+    @media (max-width: 900px){
+      .page-wrap{
+        max-width: 95vw;     /* almost full width on small screens */
+      }
+    }
+    h1{ margin: 0 0 12px; font-size: 20px; }
+    .bar{ display:flex; gap:10px; align-items:center; margin: 10px 0 14px; }
+    .bar .spacer{ flex: 1; }
+    .bar select{
+      max-width: 220px;
+    }
+    .bar button{ padding: 8px 12px; border: 1px solid #ddd; background: #fff; border-radius: 8px; cursor: pointer; }
+    .bar button:hover{ border-color:#bbb; }
+    .hint{ color:#666; font-size: 13px; }
+
+    table{
+      width: 100%;
+      border-collapse: collapse;
+      background-color: #ffffff; /* keep table white */
+    }
+    #dailyLogTbl{
+      box-shadow: 0 4px 12px rgba(0,0,0,0.04);
+    }
+    th, td{ border: 1px solid #e5e5e5; padding: 8px; vertical-align: middle; }
+    th{ background:#fafafa; text-align:left; font-weight:600; }
+
+    input[type="text"], input[type="number"], select{
+      width: 100%;
+      box-sizing: border-box;
+      padding: 6px 8px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      outline: none;
+    }
+    input[type="text"]:focus, input[type="number"]:focus, select:focus{ border-color:#bbb; }
+
+    .existsBadge{
+      display:inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid #ddd;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+    .b-unk{ color:#666; }
+    .b-yes{ color:#0a7; border-color:#0a7; }
+    .b-no{ color:#c33; border-color:#c33; }
+    .b-warn{ color:#b80; border-color:#b80; }
+
+    .center{ text-align:center; }
+    /* Редове, които са били записвани и в други дни (повторения) */
+tr.dupRow td { background: #fff7cc; }
+
+#saveStatus { margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+
+    <div class="bar">
+      <button id="addRowBtn" type="button">+ Добави ред</button>
+      <div class="spacer"></div>
+      <button id="checkDupBtn" type="button" title="Проверява дали тези задачи са били записвани и в други дни (по ресурс + страница + номер)">Провери повторения</button>
+      <button id="saveDailyBtn" type="button">Запази</button>
+    </div>
+
+    <table id="dailyLogTbl">
+      <thead>
+        <tr>
+          <th style="width:140px;">№</th>
+          <th style="width:120px;">Страница</th>
+          <th>Ресурс</th>
+          <th style="width:160px;">В БД?</th>
+          <th style="width:110px;">Сесия</th>
+          <th style="width:120px;">Решена</th>
+          <th style="width:44px; text-align:center;">✕</th>
+        </tr>
+      </thead>
+      <tbody id="dailyLogBody"></tbody>
+    </table>
+
+    <div class="hint" style="margin: 10px 0 0 0;"></div>
+    <div id="saveStatus" class="hint"></div>
+
+    <script src="/exe_log.js"></script>
+  </div>
+</body>
+</html>

@@ -5,6 +5,7 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { execFile } = require('child_process');
 const chronology = require('./public/vc_chronology');
 const app = express();
 // Serve /public as static so /vc_chronology.js, CSS, etc. load correctly
@@ -20,6 +21,127 @@ app.get('/snippets-form', (req, res) => {
 });
 app.use(cors());
 app.use(express.json());
+
+// === Local file proxy (for previewing stored filepaths in the browser) ===
+// GET /file-proxy?path=/abs/path/to/file.pdf
+// Security: only allows files under a small allowlist of folders (and optional single allowed files).
+const FILE_PROXY_ROOTS = [
+  path.resolve('/Users/viktorvelkov/Documents/AssignementConditions+Solutions'),
+  path.resolve('/Users/viktorvelkov/Documents/AssignmentConditions+Solutions'),
+  path.resolve('/Users/viktorvelkov/Documents/Solutions+AssignementConditions-E'),
+];
+
+// If you have a few legacy files outside those folders (example: Scan 1.pdf), allow them explicitly:
+const FILE_PROXY_ALLOWED_FILES = new Set([
+  path.resolve('/Users/viktorvelkov/Documents/Scan 1.pdf'),
+]);
+
+app.get('/file-proxy', (req, res) => {
+  try {
+    let raw = (req.query.path == null) ? '' : String(req.query.path);
+    raw = raw.trim();
+    if (!raw) return res.status(400).send('Missing path');
+
+    // Strip wrapping quotes if present
+    if ((raw.startsWith("'") && raw.endsWith("'")) || (raw.startsWith('"') && raw.endsWith('"'))) {
+      raw = raw.slice(1, -1).trim();
+    }
+
+    const abs = path.resolve(raw);
+
+    // Explicit allow-list for a few single files
+    if (FILE_PROXY_ALLOWED_FILES.has(abs)) {
+      if (!fs.existsSync(abs)) return res.status(404).send('File not found');
+      return res.sendFile(abs);
+    }
+
+    // Allow-list roots
+    const ok = FILE_PROXY_ROOTS.some(root => abs === root || abs.startsWith(root + path.sep));
+    if (!ok) return res.status(403).send('Forbidden path');
+
+    if (!fs.existsSync(abs)) return res.status(404).send('File not found');
+    return res.sendFile(abs);
+  } catch (e) {
+    console.error('GET /file-proxy failed:', e);
+    return res.status(500).send('Server error');
+  }
+});
+
+// === File preview route (converts some formats like TIFF/HEIC to PNG for browser preview) ===
+const PREVIEW_CACHE_DIR = path.join(__dirname, 'public', '__preview_cache');
+try { fs.mkdirSync(PREVIEW_CACHE_DIR, { recursive: true }); } catch (e) { console.warn('preview cache mkdir failed:', e && e.message ? e.message : e); }
+
+function extLower(p){
+  const m = String(p||'').toLowerCase().match(/\.([a-z0-9]+)$/i);
+  return m ? m[1] : '';
+}
+
+function isPdfExt(e){ return e === 'pdf'; }
+function isWebImageExt(e){ return ['jpg','jpeg','png','gif','webp','bmp','svg'].includes(e); }
+function isConvertableToPngExt(e){ return ['tif','tiff','heic','heif'].includes(e); }
+
+// GET /file-preview?path=/abs/path/to/file
+// - Serves PDF directly
+// - Serves web-friendly images directly
+// - Converts TIFF/HEIC to PNG using `sips` (macOS) and serves the PNG
+app.get('/file-preview', (req, res) => {
+  try {
+    let raw = (req.query.path == null) ? '' : String(req.query.path);
+    raw = raw.trim();
+    if (!raw) return res.status(400).send('Missing path');
+
+    // Strip wrapping quotes if present
+    if ((raw.startsWith("'") && raw.endsWith("'")) || (raw.startsWith('"') && raw.endsWith('"'))) {
+      raw = raw.slice(1, -1).trim();
+    }
+
+    const abs = path.resolve(raw);
+
+    // Same security as /file-proxy
+    if (FILE_PROXY_ALLOWED_FILES.has(abs)) {
+      if (!fs.existsSync(abs)) return res.status(404).send('File not found');
+    } else {
+      const ok = FILE_PROXY_ROOTS.some(root => abs === root || abs.startsWith(root + path.sep));
+      if (!ok) return res.status(403).send('Forbidden path');
+      if (!fs.existsSync(abs)) return res.status(404).send('File not found');
+    }
+
+    const e = extLower(abs);
+
+    // PDF and web images can be served as-is
+    if (isPdfExt(e) || isWebImageExt(e)) {
+      return res.sendFile(abs);
+    }
+
+    // Convert TIFF/HEIC -> PNG for preview
+    if (isConvertableToPngExt(e)) {
+      const key = crypto.createHash('sha1').update(abs + '|' + String(fs.statSync(abs).mtimeMs)).digest('hex');
+      const out = path.join(PREVIEW_CACHE_DIR, key + '.png');
+
+      if (fs.existsSync(out)) {
+        return res.sendFile(out);
+      }
+
+      // Use macOS `sips` to convert
+      execFile('sips', ['-s', 'format', 'png', abs, '--out', out], (err) => {
+        if (err) {
+          console.error('file-preview convert failed:', err);
+          return res.status(415).send('Cannot preview this file type');
+        }
+        if (!fs.existsSync(out)) return res.status(500).send('Preview generation failed');
+        return res.sendFile(out);
+      });
+      return; // prevent fallthrough
+    }
+
+    // Fallback: not previewable
+    return res.status(415).send('Cannot preview this file type');
+
+  } catch (e) {
+    console.error('GET /file-preview failed:', e);
+    return res.status(500).send('Server error');
+  }
+});
 
 // === VC Chronology log API (audit register) ===
 // GET /vc-chronology-log?studentID=123  -> returns array of log entries (optionally filtered)
@@ -838,6 +960,42 @@ if (typeof global.client === 'undefined') {
     console.error('ensureExercisesExtraCols failed:', e);
   }
 })();
+
+// GET /exercise-by-id?id=123  -> returns the exercise row (for Manage Records search by ID)
+app.get('/exercise-by-id', async (req, res) => {
+  try {
+    const id = parseInt(req.query.id, 10);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
+
+    const { rows } = await pool.query(
+      `SELECT
+         "ID",
+         "Page",
+         "Number",
+         "ResourceID",
+         "difficulty",
+         "date_last_solved",
+         "for_revision",
+         "comments",
+         "has_solution",
+         "has_assignmentCondition",
+         "text_filepath",
+         "solution_filepath",
+         "topic",
+         "keyWords"
+       FROM "Exercises"
+       WHERE "ID" = $1
+       LIMIT 1`,
+      [id]
+    );
+
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    return res.json(rows[0]);
+  } catch (e) {
+    console.error('GET /exercise-by-id failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  }
+});
 /**
  * POST /exercises
  * Body: { number, page, resourceID, difficulty, date_last_solved, for_revision,
@@ -1606,7 +1764,6 @@ app.get('/snippets/:id', async (req, res) => {
      "id",
      "name",
      "keyWords",
-     "tripplet_lesson",
      "order",
      "relatedTopic",
      "lessons_in_tripplets",
@@ -1625,6 +1782,83 @@ app.get('/snippets/:id', async (req, res) => {
     return res.status(500).json({ error: 'DB error' });
   }
 });
+
+
+// PATCH /snippets/:id (save edits from UI)
+app.patch('/snippets/:id', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
+
+  try {
+    const b = req.body || {};
+
+    const name = (b.name == null) ? null : String(b.name);
+    const klass = (b.class === null || typeof b.class === 'undefined' || b.class === '') ? null : parseInt(b.class, 10);
+    const ord = (b.order === null || typeof b.order === 'undefined' || b.order === '') ? null : parseInt(b.order, 10);
+    const keyWords = Array.isArray(b.keyWords) ? b.keyWords.map(x => String(x)) : [];
+    const relatedTopic = Array.isArray(b.relatedTopic) ? b.relatedTopic.map(x => String(x)) : [];
+    const lessons_in_tripplets = Array.isArray(b.lessons_in_tripplets) ? b.lessons_in_tripplets.map(x => String(x)) : [];
+    const associatedSnippets = Array.isArray(b.associatedSnippets) ? b.associatedSnippets.map(x => parseInt(x, 10)).filter(Number.isInteger) : [];
+    const uslovie = (b.uslovie == null) ? '' : String(b.uslovie);
+
+    const sql = `
+      UPDATE "Snippets"
+         SET "name" = $2,
+             "class" = $3,
+             "order" = $4,
+             "keyWords" = $5,
+             "relatedTopic" = $6,
+             "lessons_in_tripplets" = $7,
+             "associatedSnippets" = $8,
+             "uslovie" = $9
+       WHERE "id" = $1
+       RETURNING "id", "name", "keyWords", "order", "relatedTopic", "lessons_in_tripplets", "associatedSnippets", "uslovie", "class"
+    `;
+    const params = [id, name, klass, ord, keyWords, relatedTopic, lessons_in_tripplets, associatedSnippets, uslovie];
+    const { rows } = await pool.query(sql, params);
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    return res.json(rows[0]);
+  } catch (e) {
+    console.error('PATCH /snippets/:id failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  }
+});
+
+// POST /snippets (create new snippet)
+app.post('/snippets', async (req, res) => {
+  try {
+    const b = req.body || {};
+
+    const name = (b.name == null) ? '' : String(b.name).trim();
+    if (!name) return res.status(400).json({ error: 'Missing name' });
+
+    const klass = (b.class === null || typeof b.class === 'undefined' || b.class === '') ? null : parseInt(b.class, 10);
+    const ord = (b.order === null || typeof b.order === 'undefined' || b.order === '') ? null : parseInt(b.order, 10);
+
+    const keyWords = Array.isArray(b.keyWords) ? b.keyWords.map(String) : [];
+    const relatedTopic = Array.isArray(b.relatedTopic) ? b.relatedTopic.map(String) : [];
+    const lessons_in_tripplets = Array.isArray(b.lessons_in_tripplets) ? b.lessons_in_tripplets.map(String) : [];
+    const associatedSnippets = Array.isArray(b.associatedSnippets)
+      ? b.associatedSnippets.map(x => parseInt(x, 10)).filter(Number.isInteger)
+      : [];
+
+    const uslovie = (b.uslovie == null) ? '' : String(b.uslovie);
+
+    const { rows } = await pool.query(
+      `INSERT INTO "Snippets"
+        ("name","class","order","keyWords","relatedTopic","lessons_in_tripplets","associatedSnippets","uslovie")
+       VALUES ($1,$2,$3,$4::text[],$5::text[],$6::text[],$7::int[],$8)
+       RETURNING "id"`,
+      [name, klass, ord, keyWords, relatedTopic, lessons_in_tripplets, associatedSnippets, uslovie]
+    );
+
+    return res.status(201).json({ ok: true, id: rows[0].id });
+  } catch (e) {
+    console.error('POST /snippets failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  }
+});
+
 
 function parseIdsParam(q) {
   if (!q) return [];
@@ -2489,6 +2723,147 @@ app.post('/upload-b', upload.single("uploadedFileB"), (req, res) => {
 // Примерен маркшрут за решенията на задачите. 
 app.get('/upload', (req, res) => {
     res.sendFile(__dirname + '/public/exe_solutions.html');
+});
+
+// Daily exercise log page
+app.get('/exe-log-daily', (req, res) => {
+  res.sendFile(__dirname + '/public/exe_log_daily.html');
+});
+
+app.post('/daily-exe-log/check-duplicates', async (req, res) => {
+  try {
+    const rowsIn = (req.body && Array.isArray(req.body.rows)) ? req.body.rows : [];
+    if (!rowsIn.length) return res.status(400).json({ ok:false, error:'rows missing' });
+
+    // normalize + unique
+    const norm = [];
+    const seen = new Set();
+    for (const r of rowsIn) {
+      const resource_id = parseInt(r.resource_id, 10);
+      const page = parseInt(r.page, 10);
+      const number = (r.number == null) ? '' : String(r.number).trim();
+      if (!Number.isInteger(resource_id) || !Number.isInteger(page) || !number) continue;
+      const key = `${resource_id}|${page}|${number}`.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      norm.push({ resource_id, page, number, key });
+      if (norm.length >= 800) break;
+    }
+
+    if (!norm.length) return res.json({ ok:true, duplicates: [] });
+
+    // build VALUES list
+    const vals = [];
+    const params = [];
+    let i = 1;
+    for (const r of norm) {
+      vals.push(`($${i++}::int, $${i++}::int, $${i++}::text)`);
+      params.push(r.resource_id, r.page, r.number);
+    }
+
+    const sql = `
+      WITH inp(resource_id, page, number) AS (
+        VALUES ${vals.join(',')}
+      )
+      SELECT
+        inp.resource_id,
+        inp.page,
+        inp.number,
+        COUNT(l.*)::int AS cnt,
+        MAX(l.log_date) AS last_date
+      FROM inp
+      JOIN daily_exe_log l
+        ON l.resource_id = inp.resource_id
+       AND l.page = inp.page
+       AND lower(l.number) = lower(inp.number)
+      GROUP BY inp.resource_id, inp.page, inp.number
+      HAVING COUNT(l.*) > 0
+      ORDER BY cnt DESC, last_date DESC NULLS LAST;
+    `;
+
+    const q = await pool.query(sql, params);
+
+    const duplicates = (q.rows || []).map(r => {
+      const resource_id = parseInt(r.resource_id, 10);
+      const page = parseInt(r.page, 10);
+      const number = (r.number == null) ? '' : String(r.number);
+      const key = `${resource_id}|${page}|${number}`.toLowerCase();
+      return { key, cnt: parseInt(r.cnt, 10) || 0, last_date: r.last_date };
+    });
+
+    return res.json({ ok:true, duplicates });
+  } catch (e) {
+    console.error('POST /daily-exe-log/check-duplicates failed:', e);
+    return res.status(500).json({ ok:false, error:'DB error' });
+  }
+});
+
+app.post('/daily-exe-log/save', async (req, res) => {
+  const body = req.body || {};
+  const log_date = (typeof body.log_date === 'string' && body.log_date.trim())
+    ? body.log_date.trim()
+    : new Date().toISOString().slice(0,10);
+
+  const rowsIn = Array.isArray(body.rows) ? body.rows : [];
+  if (!rowsIn.length) return res.status(400).json({ ok:false, error:'rows missing' });
+
+  const errors = [];
+  const rows = rowsIn.map((r, idx) => {
+  const session_no =
+    (r.session_no === 1 || r.session_no === 2)
+      ? r.session_no
+      : null;    
+    const resource_id = parseInt(r.resource_id, 10);
+    const page = parseInt(r.page, 10);
+    const number = (r.number == null) ? '' : String(r.number).trim();
+    const solved = !!r.solved;
+    const exercise_id = (r.exercise_id == null || r.exercise_id === '') ? null : parseInt(r.exercise_id, 10);
+
+    if (!Number.isInteger(resource_id)) errors.push(`Row ${idx+1}: invalid resource_id`);
+    if (!Number.isInteger(page) || page <= 0) errors.push(`Row ${idx+1}: invalid page`);
+    if (!number) errors.push(`Row ${idx+1}: missing number`);
+
+    return {
+      session_no,
+      resource_id,
+      page,
+      number,
+      solved,
+      exercise_id: Number.isInteger(exercise_id) ? exercise_id : null
+    };
+  });
+
+  if (errors.length) return res.status(400).json({ ok:false, error:'validation', details: errors });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const sql = `
+      INSERT INTO daily_exe_log
+        (log_date, session_no, resource_id, page, number, exercise_id, solved, updated_at)
+      VALUES
+        ($1::date, $2::smallint, $3::int, $4::int, $5::text, $6::bigint, $7::boolean, NOW())
+      ON CONFLICT (log_date, session_no, resource_id, page, number)
+      DO UPDATE SET
+        exercise_id = EXCLUDED.exercise_id,
+        solved = EXCLUDED.solved,
+        updated_at = NOW();
+    `;
+
+    for (const r of rows) {
+      await client.query(sql, [log_date, r.session_no, r.resource_id, r.page, r.number, r.exercise_id, r.solved]);
+    }
+
+    await client.query('COMMIT');
+    return res.json({ ok:true, saved: rows.length });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('POST /daily-exe-log/save failed:', e);
+    return res.status(500).json({ ok:false, error:'DB error' });
+  } finally {
+    client.release();
+  }
 });
 
 // Примерен маршрут: взимане на всички домашни
@@ -3371,6 +3746,35 @@ app.get("/exercise-details", async (req, res) => {
   } catch (err) {
     console.error("DB error:", err);
     res.status(500).json({ error: "Failed to retrieve exercise." });
+  }
+});
+
+// GET /exercises/exists?resourceID=..&page=..&number=..
+// Returns: { ok:true, exists:boolean, count:number, ids:number[] }
+app.get('/exercises/exists', async (req, res) => {
+  const resourceID = parseInt(req.query.resourceID, 10);
+  const page = parseInt(req.query.page, 10);
+  const number = (req.query.number ?? '').toString().trim();
+
+  if (!Number.isInteger(resourceID) || !Number.isInteger(page) || !number) {
+    return res.status(400).json({ ok: false, error: 'Missing/invalid resourceID, page or number' });
+  }
+
+  try {
+    const r = await pool.query(
+      `SELECT "ID" AS id
+         FROM "Exercises"
+        WHERE "ResourceID" = $1
+          AND "Page" = $2
+          AND "Number" = $3`,
+      [resourceID, page, number]
+    );
+
+    const ids = (r.rows || []).map(x => parseInt(x.id, 10)).filter(Number.isInteger);
+    return res.json({ ok: true, exists: ids.length > 0, count: ids.length, ids });
+  } catch (e) {
+    console.error('GET /exercises/exists failed:', e);
+    return res.status(500).json({ ok: false, error: 'DB error' });
   }
 });
 

@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="bg">
 <head>
@@ -20,9 +21,36 @@
     .btn{ padding:10px 14px; border-radius:999px; border:1px solid var(--border); background:#fff; cursor:pointer; }
     .btn.primary{ background:var(--accent); border-color:var(--accent); color:#fff; }
     .btn:hover{ border-color:#cbd5e1; }
+
     .btn:disabled{ opacity:.55; cursor:not-allowed; }
 
-    /* 3-mode switch (animated) */
+    /* Title hover button */
+    .titleWrap{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      width:100%;
+    }
+    .titleWrap h1{
+      margin-right:auto;
+    }
+    .addHoverBtn{
+      opacity:0;
+      pointer-events:none;
+      padding:6px 10px;
+      font-size:12px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:#fff;
+      cursor:pointer;
+      transition: opacity .18s ease;
+    }
+    .titleWrap:hover .addHoverBtn{
+      opacity:1;
+      pointer-events:auto;
+    }
+
+    /* 3-mode segmented control */
     .seg{
       position:relative;
       display:inline-flex;
@@ -48,16 +76,13 @@
       white-space:nowrap;
       transition: color .18s ease;
     }
-    .seg button:focus{ outline: none; }
+    .seg button:focus{ outline:none; }
     .seg button.active{ color:var(--accent); font-weight:700; }
-
     .seg-indicator{
       position:absolute;
       z-index:1;
-      top:3px;
-      bottom:3px;
-      left:3px;
-      width: calc((100% - 6px - 6px) / 3); /* 3 segments, 2 gaps of 3px */
+      top:3px; bottom:3px; left:3px;
+      width: calc((100% - 6px - 6px) / 3);
       border-radius:999px;
       background:#dbeafe;
       border:1px solid #bfdbfe;
@@ -65,7 +90,6 @@
       transform: translateX(0%);
       transition: transform .22s ease;
     }
-
     @media (max-width: 560px){
       .seg{ min-width: 260px; }
       .seg button{ font-size:11px; padding:9px 10px; }
@@ -77,18 +101,67 @@
     tr:last-child td{ border-bottom:none; }
     tbody tr:hover td{ background:#fafcff; cursor:pointer; }
 
-    .viewer{ margin-top:14px; padding:12px; background:#f8fafc; border:1px solid var(--border); border-radius:12px; white-space:pre-wrap; }
+    /* Editable viewer */
+    .viewer{ margin-top:14px; padding:12px; background:#f8fafc; border:1px solid var(--border); border-radius:12px; }
+    .vGrid{ display:grid; grid-template-columns: 2fr 1fr 1fr; gap:10px; margin-bottom:10px; }
+    .vInput{ width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:10px; outline:none; background:#fff; }
+    .vText{ width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:10px; outline:none; background:#fff; margin-top:10px; resize:vertical; }
+    .vInput:focus, .vText:focus{ border-color:#94a3b8; }
+    @media (max-width: 760px){ .vGrid{ grid-template-columns: 1fr 1fr; } 
+  }
+
+      /* Modal (Add snippet) */
+    .modalOverlay{
+      position:fixed;
+      inset:0;
+      background: rgba(15,23,42,.45);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      padding:18px;
+      z-index:9999;
+    }
+    .modalOverlay.show{ display:flex; }
+    .modal{
+      width:min(980px, 100%);
+      max-height: 90vh;
+      overflow:auto;
+      background: var(--card);
+      border:1px solid var(--border);
+      border-radius:14px;
+      box-shadow:0 20px 60px rgba(2,6,23,.35);
+      padding:16px;
+    }
+    .modalHeader{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      justify-content:space-between;
+      margin-bottom:10px;
+    }
+    .modalTitle{ font-size:14px; font-weight:700; color:var(--accent); }
+    .modalClose{
+      border:1px solid var(--border);
+      background:#fff;
+      border-radius:999px;
+      padding:6px 10px;
+      cursor:pointer;
+    }
+    .modalActions{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      margin-top:10px;
+    }
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="card">
       <div class="top">
-        <div>
-          <h1>Snippets – търсачка</h1>
-          <div class="muted">Режим: <b>ID</b> / <b>Име+Ключови</b> / <b>Uslovie</b></div>
-        </div>
-        <div class="muted">Отвори: <b>http://localhost:3001/snippets-form</b></div>
+        <div class="titleWrap">
+          <h1>Търсачка теореми</h1>
+      <button id="addSnippetBtn" class="addHoverBtn" type="button">Добави Т</button>          </div>
       </div>
 
       <div style="height:1px;background:var(--border);margin:12px 0;"></div>
@@ -103,9 +176,9 @@
           <div class="muted" style="margin-bottom:6px;">Режим</div>
           <div class="seg" role="tablist" aria-label="Режим търсене">
             <div class="seg-indicator" aria-hidden="true"></div>
-            <button id="modeIdBtn" type="button" data-mode="id">ID</button>
-            <button id="modeMetaBtn" type="button" data-mode="meta" class="active">Име+Ключови</button>
-            <button id="modeUslovieBtn" type="button" data-mode="uslovie">Uslovie</button>
+            <button id="modeIdBtn" type="button">ID</button>
+            <button id="modeMetaBtn" type="button" class="active">Име+Ключови</button>
+            <button id="modeUslovieBtn" type="button">Условие</button>
           </div>
         </div>
 
@@ -136,10 +209,55 @@
         <button class="btn" id="nextBtn" type="button">Next</button>
       </div>
 
-      <div id="viewer" class="viewer" style="display:none;"></div>
+      <div id="viewerWrap" class="viewer" style="display:none;">
+        <div class="muted" style="margin-bottom:8px;">Snippet <span id="v_id"></span></div>
+
+        <div class="vGrid">
+          <input id="v_name" class="vInput" type="text" placeholder="Заглавие" />
+          <input id="v_class" class="vInput" type="number" step="1" placeholder="Клас" />
+          <input id="v_order" class="vInput" type="number" step="1" placeholder="Ред" />
+        </div>
+
+        <textarea id="v_keywords" class="vText" rows="2" placeholder="Ключови думи (разделени със запетая)"></textarea>
+        <textarea id="v_related" class="vText" rows="2" placeholder="Свързани теми (запетая)"></textarea>
+        <textarea id="v_lessons" class="vText" rows="2" placeholder="Уроци в триплети (запетая)"></textarea>
+        <textarea id="v_assoc" class="vText" rows="2" placeholder="Свързани snippets ID-та (запетая)"></textarea>
+        <textarea id="v_uslovie" class="vText" rows="8" placeholder="Условие / текст"></textarea>
+
+        <div style="display:flex; gap:10px; align-items:center; margin-top:10px;">
+          <button id="saveChangesBtn" class="btn primary" type="button" style="display:none;">Запази промените</button>
+          <div id="saveStatus" class="muted">—</div>
+        </div>
+      </div>
     </div>
   </div>
+<!-- Add Snippet Modal -->
+<div id="addModal" class="modalOverlay" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="Добави нов snippet">
+    <div class="modalHeader">
+      <div class="modalTitle">Добави нов snippet</div>
+      <button id="addModalClose" class="modalClose" type="button">Затвори</button>
+    </div>
 
+    <div class="vGrid">
+      <input id="n_name" class="vInput" type="text" placeholder="Заглавие" />
+      <input id="n_class" class="vInput" type="number" step="1" placeholder="Клас" />
+      <input id="n_order" class="vInput" type="number" step="1" placeholder="Ред" />
+    </div>
+
+    <textarea id="n_keywords" class="vText" rows="2" placeholder="Ключови думи (запетая/нов ред)"></textarea>
+    <textarea id="n_related" class="vText" rows="2" placeholder="Свързани теми (запетая/нов ред)"></textarea>
+    <textarea id="n_lessons" class="vText" rows="2" placeholder="Уроци в триплети (кодове, запетая/нов ред)"></textarea>
+    <textarea id="n_assoc" class="vText" rows="2" placeholder="Свързани snippets ID-та (само числа, запетая/нов ред)"></textarea>
+    <textarea id="n_uslovie" class="vText" rows="10" placeholder="Условие / текст"></textarea>
+
+    <div class="modalActions">
+      <button id="confirmCreateBtn" class="btn primary" type="button">Потвърди</button>
+      <button id="clearNewBtn" class="btn" type="button">Clear</button>
+      <div id="createStatus" class="muted">—</div>
+    </div>
+  </div>
+</div>
   <script src="/se/se_form.js"></script>
 </body>
 </html>

@@ -129,20 +129,19 @@
 
 </head>
 <body>
-    <script>
-        document.querySelectorAll('.switch-btn').forEach(btn => {
-          btn.addEventListener('click', () => {
-            document.querySelectorAll('.switch-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
+<script>
+  document.querySelectorAll('#viewSwitch .switch-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#viewSwitch .switch-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
 
-            const mode = btn.getAttribute('data-mode');
+      const mode = btn.getAttribute('data-mode');
 
-            document.getElementById('uploadSection').style.display = mode === 'upload' ? 'block' : 'none';
-            document.getElementById('manageSection').style.display = mode === 'manage' ? 'block' : 'none';
+      document.getElementById('uploadSection').style.display = mode === 'upload' ? 'block' : 'none';
+      document.getElementById('manageSection').style.display = mode === 'manage' ? 'block' : 'none';
+    });
   });
-});
-
-    </script>
+</script>
     <!-- View Switch -->
     <div id="viewSwitch" class="switch-container">
         <button class="switch-btn active" data-mode="upload">Upload File</button>
@@ -245,13 +244,32 @@
             <div class="manage-left">
                 <div>
                    
-                    <input type="text" id="Number_MR" placeholder="Задача Номер" /><br>
-                    <input type="text" id="Page_MR" placeholder="Страница" /><br>
-                    <select id="keywordDropdown_MR">
-                        <option disabled selected>-- Избери ресурс --</option>
-                    </select><br>
-                    <div><button id="searchBtnA" style="width:300px">Search</button><button id="clear_MR" style="width:300px">Clear</button></div><br>
-                    
+                    <!-- Manage search mode switch -->
+<div class="switch-container" style="justify-content:flex-start; gap:10px; margin: 0 0 10px 0;">
+  <button class="switch-btn active" id="mrModeTuple" type="button"
+    style="flex:0 0 auto; padding:10px 12px; font-size:14px;">Търси по параметри</button>
+  <button class="switch-btn" id="mrModeId" type="button"
+    style="flex:0 0 auto; padding:10px 12px; font-size:14px;">Търси по ID</button>
+</div>
+
+<!-- Tuple search fields -->
+<div id="tupleSearchFields">
+  <input type="text" id="Number_MR" placeholder="Задача Номер" /><br>
+  <input type="text" id="Page_MR" placeholder="Страница" /><br>
+  <select id="keywordDropdown_MR">
+    <option disabled selected>-- Избери ресурс --</option>
+  </select><br>
+</div>
+
+<!-- ID search field -->
+<div id="idSearchField" style="display:none;">
+  <input type="text" id="ExerciseID_MR" placeholder="ID на упражнението" /><br>
+</div>
+
+<div>
+  <button id="searchBtnA" style="width:300px">Search</button>
+  <button id="clear_MR" style="width:300px">Clear</button>
+</div><br>
                     <!-- 
                     <h5>Полета за промяна:</h5>
                     <div class="upload-box">
@@ -290,6 +308,7 @@
                             <th>Comments</th>
                             <th>Solution</th>
                             <th>Text</th>
+                            
                             <!-- <th>Multiple Solutions</th>. -->
                             </tr>
                         </thead>
@@ -365,9 +384,32 @@
                             </tr>
 
                         </tbody>
-                    </table>
-                    <button id="saveAllBtn">Save Changes</button>
-                </div>
+                        </table>
+                        <button id="saveAllBtn">Save Changes</button>
+
+                        <div id="managePreviewWrap" style="
+                            margin-top:20px;
+                            display:flex;
+                            flex-direction:column;
+                            gap:20px;
+                        ">                        
+                        <div style="flex:1 1 600px;">
+                            <h3>Условие</h3>
+                            <div id="previewTextBox"
+                                style="height:600px;border:1px solid #ccc;border-radius:10px;overflow:hidden;background:white">
+                            </div>
+                        </div>
+
+                        <div style="flex:1 1 600px;">
+                            <h3>Решение</h3>
+                            <div id="previewSolutionBox"
+                                style="height:600px;border:1px solid #ccc;border-radius:10px;overflow:hidden;background:white">
+                            </div>
+                        </div>
+                        </div>
+
+                                    
+            </div>
             </div>
 
 

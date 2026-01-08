@@ -1,13 +1,41 @@
-﻿document.querySelectorAll('.switch-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-        document.querySelectorAll('.switch-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
+﻿document.querySelectorAll('#viewSwitch .switch-btn').forEach(btn => {    btn.addEventListener('click', () => {
+    document.querySelectorAll('#viewSwitch .switch-btn').forEach(b => b.classList.remove('active'));        btn.classList.add('active');
 
         const mode = btn.getAttribute('data-mode');
 
         document.getElementById('uploadSection').style.display = mode === 'upload' ? 'block' : 'none';
         document.getElementById('manageSection').style.display = mode === 'manage' ? 'block' : 'none';
     });
+});
+
+// === Manage Records: search mode switch (tuple vs id) ===
+let manageSearchMode = 'tuple';
+
+function setManageSearchMode(mode) {
+  manageSearchMode = (mode === 'id') ? 'id' : 'tuple';
+
+  const btnTuple = document.getElementById('mrModeTuple');
+  const btnId = document.getElementById('mrModeId');
+  const tupleWrap = document.getElementById('tupleSearchFields');
+  const idWrap = document.getElementById('idSearchField');
+
+  if (btnTuple && btnId) {
+    btnTuple.classList.toggle('active', manageSearchMode === 'tuple');
+    btnId.classList.toggle('active', manageSearchMode === 'id');
+  }
+
+  if (tupleWrap) tupleWrap.style.display = (manageSearchMode === 'tuple') ? 'block' : 'none';
+  if (idWrap) idWrap.style.display = (manageSearchMode === 'id') ? 'block' : 'none';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const btnTuple = document.getElementById('mrModeTuple');
+  const btnId = document.getElementById('mrModeId');
+
+  if (btnTuple) btnTuple.addEventListener('click', () => setManageSearchMode('tuple'));
+  if (btnId) btnId.addEventListener('click', () => setManageSearchMode('id'));
+
+  setManageSearchMode('tuple');
 });
 
 document.getElementById("fileClear1").addEventListener("click", async() => {
@@ -348,6 +376,94 @@ async function handleUploadAndInsert(paths = {}) {
 }
 
 
+function normalizePath(fp) {
+  let s = (fp == null) ? '' : String(fp);
+  s = s.trim();
+  // Strip wrapping single/double quotes if the DB value includes them, e.g. '/Users/.../Scan 1.pdf'
+  if ((s.startsWith("'") && s.endsWith("'")) || (s.startsWith('"') && s.endsWith('"'))) {
+    s = s.slice(1, -1).trim();
+  }
+  return s;
+}
+
+function getProxyUrl(fp) {
+  const s = normalizePath(fp);
+  if (!s) return '';
+  return `/file-proxy?path=${encodeURIComponent(s)}`;
+}
+
+function getPreviewUrl(fp) {
+  const s = normalizePath(fp);
+  if (!s) return '';
+  return `/file-preview?path=${encodeURIComponent(s)}`;
+}
+
+function isPdf(fp) {
+  const s = normalizePath(fp).toLowerCase();
+  return s.endsWith('.pdf');
+}
+
+function isImage(fp) {
+  const s = normalizePath(fp).toLowerCase();
+  return s.endsWith('.jpg') || s.endsWith('.jpeg') || s.endsWith('.png') || s.endsWith('.gif') || s.endsWith('.webp') || s.endsWith('.bmp');
+}
+
+function previewHtmlBig(fp) {
+  if (!fp) {
+    return '<div style="padding:20px;color:#777">— няма файл —</div>';
+  }
+
+  const openUrl = getProxyUrl(fp);     // original file
+  const viewUrl = getPreviewUrl(fp);   // converted/previewable version when needed
+
+  // PDF preview
+  if (isPdf(fp)) {
+    return `
+      <div style="width:100%; height:100%; background:#fff;">
+        <iframe src="${viewUrl}" style="width:100%; height:100%; border:0"></iframe>
+      </div>
+      <div style="padding:8px 12px; border-top:1px solid #e2e8f0;">
+        <a href="${openUrl}" target="_blank" rel="noopener">Open</a>
+      </div>
+    `;
+  }
+
+  // Images (including TIFF/HEIC after conversion)
+  return `
+    <div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:#fff;">
+      <img src="${viewUrl}" alt="preview" style="max-width:100%; max-height:100%; object-fit:contain;" />
+    </div>
+    <div style="padding:8px 12px; border-top:1px solid #e2e8f0;">
+      <a href="${openUrl}" target="_blank" rel="noopener">Open</a>
+    </div>
+  `;
+}
+
+function previewHtml(fp) {
+  if (!fp) return '<span style="color:#64748b;">—</span>';
+  const url = getPreviewUrl(fp);
+
+  if (isPdf(fp)) {
+    return `
+      <div style="width:260px; height:180px; border:1px solid #e2e8f0; border-radius:8px; overflow:hidden; background:#fff;">
+        <iframe src="${url}" style="width:100%; height:100%; border:0;"></iframe>
+      </div>
+      <div style="margin-top:6px;"><a href="${getProxyUrl(fp)}" target="_blank" rel="noopener">Open</a></div>
+    `;
+  }
+
+  if (isImage(fp)) {
+    return `
+      <div style="width:260px; height:180px; border:1px solid #e2e8f0; border-radius:8px; overflow:hidden; background:#fff; display:flex; align-items:center; justify-content:center;">
+        <img src="${url}" alt="preview" style="max-width:100%; max-height:100%; object-fit:contain;" />
+      </div>
+      <div style="margin-top:6px;"><a href="${getProxyUrl(fp)}" target="_blank" rel="noopener">Open</a></div>
+    `;
+  }
+
+  // TIFF and others: usually not previewable -> only link
+  return `<a href="${getProxyUrl(fp)}" target="_blank" rel="noopener">Open</a>`;
+}
 
 async function populateManageResourcesDropdown() {
     try {
@@ -372,71 +488,119 @@ async function populateManageResourcesDropdown() {
 }
 
 document.getElementById("searchBtnA").addEventListener("click", async () => {
-    const resourceID = document.getElementById("keywordDropdown_MR").value;
-    const page = document.getElementById("Page_MR").value;
-    const number = document.getElementById("Number_MR").value;
+  let url = "";
 
-    try {
-        const res = await fetch(`/exercise-details?resourceID=${resourceID}&page=${page}&number=${number}`);;
-        const data = await res.json();
-        const tbody = document.querySelector("#manageTable tbody");
-        tbody.innerHTML = ""; // Clear existing rows
-        
-         [data].forEach((exercise) => {
-            const row = document.createElement("tr");
-            const solvedDates = (exercise.date_last_solved || [])
-            .map(date => date.split("T")[0])
-            .join(" -- ");
-            const revisionDates = (exercise.for_revision || [])
-            .map(date => date.split("T")[0])
-            .join(" -- ");
-            row.innerHTML = `
-            <td>${exercise.ID}</td>
-            <td data-field="Page_MR">${exercise.Page || "empty"}</td>
-            <td data-field="Number_MR">${exercise.Number || "empty"}</td>
-            <td data-field="resourceID">${exercise.ResourceID || "empty"}</td>            <td>
-                <div class="existingDates">${solvedDates}</div>
-                <input type="date"  
-                    class="datePicker"
-                    data-id="${exercise.ID}"
-                    data-target="date_last_solved" />
-            </td>
-            <td <div class="existingDates">${revisionDates}</div>
-                <input type="date"
-                    class="datePicker"
-                    data-id="${exercise.ID}"
-                    data-target="for_revision" />
-            </td>
-            <td data-field="comments"
-                data-id="${exercise.ID}"
-                contenteditable="true"
-                data-original='${JSON.stringify(exercise.comments || [])}'>
-                ${(exercise.comments || []).join(", ")}
-            </td>
-            
-            <td data-field="has_solution"
-                data-id="${exercise.ID}"
-                contenteditable="true"
-                data-original="${exercise.has_solution}">
-                ${exercise.has_solution}
-            </td>
+  // ===== MODE: SEARCH BY ID =====
+  if (manageSearchMode === "id") {
+    const idRaw = (document.getElementById("ExerciseID_MR")?.value || "").trim();
+    const id = parseInt(idRaw, 10);
 
-            <td data-field="has_assignmentCondition"
-                data-id="${exercise.ID}"
-                data-original="${exercise.has_assignmentCondition}">
-                ${exercise.has_assignmentCondition}
-                <input type="file"
-                    class="uploadInput_MR"
-                    data-id="${exercise.ID}" />
-            </td>
-            `;
-            tbody.appendChild(row);
-        });
-
-    } catch (err) {
-        console.error("❌ Error fetching exercises:", err);
-        alert("❌ Could not fetch matching exercises.");
+    if (!Number.isInteger(id)) {
+      alert("❌ Въведи валидно ID на упражнението.");
+      return;
     }
+
+    url = `/exercise-by-id?id=${encodeURIComponent(id)}`;
+  }
+
+  // ===== MODE: SEARCH BY TUPLE =====
+  else {
+    const resourceID = (document.getElementById("keywordDropdown_MR")?.value || "").trim();
+    const page = (document.getElementById("Page_MR")?.value || "").trim();
+    const number = (document.getElementById("Number_MR")?.value || "").trim();
+
+    if (!resourceID || !page || !number) {
+      alert("❌ Попълни ресурс, страница и номер.");
+      return;
+    }
+
+    url = `/exercise-details?resourceID=${encodeURIComponent(resourceID)}&page=${encodeURIComponent(page)}&number=${encodeURIComponent(number)}`;
+  }
+
+  try {
+    const res = await fetch(url);
+
+    if (!res.ok) {
+      let msg = "Няма намерено упражнение.";
+      try {
+        const err = await res.json();
+        if (err && err.error) msg = err.error;
+      } catch (_) {}
+      alert("❌ " + msg);
+      return;
+    }
+
+    const exercise = await res.json();
+    const tbody = document.querySelector("#manageTable tbody");
+    tbody.innerHTML = "";
+
+    const solvedDates = (exercise.date_last_solved || [])
+      .map(d => String(d).split("T")[0])
+      .join(" -- ");
+
+    const revisionDates = (exercise.for_revision || [])
+      .map(d => String(d).split("T")[0])
+      .join(" -- ");
+
+    const row = document.createElement("tr");
+    row.innerHTML = `
+      <td>${exercise.ID}</td>
+      <td data-field="Page_MR">${exercise.Page || "empty"}</td>
+      <td data-field="Number_MR">${exercise.Number || "empty"}</td>
+      <td data-field="resourceID">${exercise.ResourceID || "empty"}</td>
+
+      <td>
+        <div class="existingDates">${solvedDates}</div>
+        <input type="date"
+          class="datePicker"
+          data-id="${exercise.ID}"
+          data-target="date_last_solved" />
+      </td>
+
+      <td>
+        <div class="existingDates">${revisionDates}</div>
+        <input type="date"
+          class="datePicker"
+          data-id="${exercise.ID}"
+          data-target="for_revision" />
+      </td>
+
+      <td data-field="comments"
+          data-id="${exercise.ID}"
+          contenteditable="true"
+          data-original='${JSON.stringify(exercise.comments || [])}'>
+        ${(exercise.comments || []).join(", ")}
+      </td>
+
+      <td data-field="has_solution"
+          data-id="${exercise.ID}"
+          contenteditable="true"
+          data-original="${exercise.has_solution}">
+        ${exercise.has_solution}
+      </td>
+
+      <td data-field="has_assignmentCondition"
+          data-id="${exercise.ID}"
+          data-original="${exercise.has_assignmentCondition}">
+        ${exercise.has_assignmentCondition}
+        <input type="file"
+          class="uploadInput_MR"
+          data-id="${exercise.ID}" />
+      </td>
+          `;
+
+    tbody.appendChild(row);
+    // === BIG PREVIEWS BELOW TABLE ===
+    const textBox = document.getElementById("previewTextBox");
+    const solBox  = document.getElementById("previewSolutionBox");
+
+    if (textBox) textBox.innerHTML = previewHtmlBig(exercise.text_filepath);
+    if (solBox)  solBox.innerHTML  = previewHtmlBig(exercise.solution_filepath);
+
+  } catch (err) {
+    console.error("❌ Error fetching exercise:", err);
+    alert("❌ Грешка при търсене.");
+  }
 });
 
 document.getElementById("saveAllBtn").addEventListener("click", async () => {
@@ -663,5 +827,10 @@ function resetManageForm() {
 //   document.getElementById("commentsID").value = ""
 //   const tbody = document.getElementById("manageTable").querySelector("tbody") = ""
 //     if(tbody) tbody.innerHTML = "";
+const p1 = document.getElementById("previewTextBox");
+const p2 = document.getElementById("previewSolutionBox");
+if (p1) p1.innerHTML = "";
+if (p2) p2.innerHTML = "";
+
 }
 //Filepath is: /Users/viktorvelkov/Documents/Solutions+AssignementConditions-E.
