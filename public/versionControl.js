@@ -21,7 +21,7 @@
   const findStudentBtn = document.getElementById('findStudentBtn');
   const studentPick = document.getElementById('studentPick');
   const meta = document.getElementById('meta');
-  const historyTableBody = document.querySelector('#historyTable tbody');
+  const historyTableBody = document.querySelector('#historyTable tbody') || null;
   const unthreadedBody = document.querySelector('#unthreadedTable tbody');
   const threadSummaryBody = document.querySelector('#threadSummaryTable tbody');
   const resultsWrap = document.getElementById('resultsWrap');
@@ -37,12 +37,6 @@
   let groupColorNext = 0;
   const groupColorTotal = 6; // must match count of .gcN classes in CSS
 
-  if (toggleHistoryBtn) {
-    toggleHistoryBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      window.open('/vc_chronology.html', '_blank', 'noopener');
-    });
-  }
 
   const unthreadedHeader = document.getElementById('unthreadedHeader');
   const threadsHeader = document.getElementById('threadsHeader');
@@ -422,14 +416,23 @@ if (deleteRowBtn){
     await loadHistory(st.id);
   }
 async function loadHistory(studentID){
-  historyTableBody.innerHTML = '';
+  if (historyTableBody) historyTableBody.innerHTML = '';
   if (unthreadedBody) unthreadedBody.innerHTML = '';
   if (threadSummaryBody) threadSummaryBody.innerHTML = '';
-
-  const r2 = await fetch(`/student-assessment-skills-exercises?studentID=${encodeURIComponent(studentID)}`);
-  let rows = [];
-  try{ if(r2.ok) rows = await r2.json(); }catch(e){}
-
+const r2 = await fetch(`/student-assessment-skills-exercises?studentID=${encodeURIComponent(studentID)}`);
+let rows = [];
+try{
+  if (r2.ok) {
+    rows = await r2.json();
+  } else {
+    const t = await r2.text().catch(()=> '');
+    console.error('GET /student-assessment-skills-exercises failed:', r2.status, t);
+    alert('Грешка при зареждане на записите от сървъра (student-assessment-skills-exercises). Провери конзолата/терминала.');
+  }
+}catch(e){
+  console.error('loadHistory parse/network failed:', e);
+  alert('Грешка при зареждане на записите (network/parse).');
+}
   rows.sort((a,b)=> String(b.entrytime||b.entryTime||'').localeCompare(String(a.entrytime||a.entryTime||'')));
   if (window.ThreadHistory) { window.ThreadHistory.setRows(rows); }
   if (window.ThreadHistory) { try { window.ThreadHistory.init(); } catch(_){ } }
@@ -475,8 +478,9 @@ async function loadHistory(studentID){
     const assTd = tr.children[4];
     makeAssessmentEditable(assTd, x);
 
-    historyTableBody.appendChild(tr);
-  }
+if (historyTableBody) {
+  historyTableBody.appendChild(tr);
+}  }
 
   // Разделяне
   const hasThread = (x) => {
@@ -794,7 +798,8 @@ for (const rootId of groupMembers.keys()){
             }));
           } catch(_){}
 
-          window.location.reload();
+       // soft refresh (no full page reload)
+await loadHistory(currentStudent.id);
         }catch(e){
           alert('Неуспешно изтриване: ' + (e?.message||''));
         }

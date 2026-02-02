@@ -466,25 +466,43 @@ function previewHtml(fp) {
 }
 
 async function populateManageResourcesDropdown() {
-    try {
-        const dropdown = document.getElementById("keywordDropdown_MR");
-        if (!dropdown) {
-            console.error("⛔ 'keywordDropdown_MR' not found.");
-            return;
-        }
-
-        const res = await fetch("/resources/keywords");
-        const data = await res.json();
-
-        data.forEach(resource => {
-            const option = document.createElement("option");
-            option.value = resource.ID;
-            option.textContent = `${resource.ID} -- ${resource.KeyWords} (${resource.SourceType})`;
-            dropdown.appendChild(option);
-        });
-    } catch (err) {
-        console.error("❌ Error populating manage section dropdown:", err);
+  try {
+    const dropdown = document.getElementById("keywordDropdown_MR");
+    if (!dropdown) {
+      console.error("⛔ 'keywordDropdown_MR' not found.");
+      return;
     }
+
+    // clear old options
+    dropdown.innerHTML = "";
+
+    // placeholder
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "-- избери ресурс --";
+    dropdown.appendChild(placeholder);
+
+    // cache-bust to avoid stale results
+    const res = await fetch(`/resources/keywords?t=${Date.now()}`, { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const data = await res.json();
+    if (!Array.isArray(data)) {
+      console.error("❌ /resources/keywords returned non-array:", data);
+      return;
+    }
+
+    data.forEach(resource => {
+      const option = document.createElement("option");
+      option.value = resource.ID;
+      option.textContent = `${resource.ID} -- ${resource.KeyWords} (${resource.SourceType})`;
+      dropdown.appendChild(option);
+    });
+
+    console.log("✅ MR resources loaded:", data.length);
+  } catch (err) {
+    console.error("❌ Error populating manage section dropdown:", err);
+  }
 }
 
 document.getElementById("searchBtnA").addEventListener("click", async () => {
