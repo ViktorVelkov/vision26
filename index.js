@@ -4142,3 +4142,29 @@ app.get('/api/lessons/:id/photos', async (req, res) => {
     return res.status(500).json({ error: 'DB error' });
   }
 });
+
+///scheduler 
+
+app.get('/api/scheduleentries/:term', async (req, res) => {
+  const term = Number(req.params.term);
+
+  if (![1, 2, 3].includes(term)) {
+    return res.status(400).json({
+      error: 'Invalid term. Allowed values are only 1, 2, or 3.'
+    });
+  }
+
+    const { rows } = await client.query(
+      `select term, weekday, start_time, end_time, subject, recurrence, week_parity
+       from scheduleentries
+       where term = $1
+      `,
+      [term]
+    );
+
+    res.json(rows);
+  
+});
+
+
+///// -- end of scheduler
