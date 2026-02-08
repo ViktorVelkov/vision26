@@ -35,7 +35,42 @@
         <label>Първи срок — край <input type="date" id="t1_end"></label>
       </div>
       <div id="tableTerm1"></div>
-      <div class="actions"><button class="btn" id="genTerm1" type="button">Генерирай</button></div>
+      <label style="margin-top:10px;display:flex;flex-direction:row;justify-content:center;align-items:center;gap:8px;font-size:13px">
+        <input type="checkbox" id="t1_useRecurrence" style="margin:0;" />
+        <span>Използвай Weekly/Biweekly</span>
+      </label>
+      <div style="display:flex;justify-content:center;margin-top:8px;">
+        <select id="t1_baseWeekParity" style="padding:4px 8px;font-size:12px;border:1px solid #d1d5db;border-radius:8px;">
+          <option value="1" selected>baseWeekParity: 1</option>
+          <option value="2">baseWeekParity: 2</option>
+        </select>
+      </div>
+      <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px;align-items:center;">
+        <div style="font-size:13px;color:#374151;">Изтриване преди запис</div>
+
+        <div style="display:flex;gap:14px;align-items:center;font-size:13px;">
+          <span>generatedyearplan:</span>
+          <label style="flex-direction:row;gap:6px;align-items:center;margin:0;">
+            <input type="radio" name="t1_wipe_gyp" value="0"> Не
+          </label>
+          <label style="flex-direction:row;gap:6px;align-items:center;margin:0;">
+            <input type="radio" name="t1_wipe_gyp" value="1" checked> Да
+          </label>
+        </div>
+
+        <div style="display:flex;gap:14px;align-items:center;font-size:13px;">
+          <span>distributionprogress:</span>
+          <label style="flex-direction:row;gap:6px;align-items:center;margin:0;">
+            <input type="radio" name="t1_wipe_dp" value="0"> Не
+          </label>
+          <label style="flex-direction:row;gap:6px;align-items:center;margin:0;">
+            <input type="radio" name="t1_wipe_dp" value="1" checked> Да
+          </label>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn" id="genTerm1" type="button">Генерирай</button>
+      </div>
     </section>
 
     <section class="panel" data-panel="t2" style="display:none">
@@ -44,7 +79,42 @@
         <label>Втори срок — край <input type="date" id="t2_end"></label>
       </div>
       <div id="tableTerm2"></div>
-      <div class="actions"><button class="btn" id="genTerm2" type="button">Генерирай</button></div>
+      <label style="margin-top:10px;display:flex;flex-direction:row;justify-content:center;align-items:center;gap:8px;font-size:13px">
+        <input type="checkbox" id="t2_useRecurrence" style="margin:0;" />
+        <span>Използвай Weekly/Biweekly</span>
+      </label>
+      <div style="display:flex;justify-content:center;margin-top:8px;">
+        <select id="t2_baseWeekParity" style="padding:4px 8px;font-size:12px;border:1px solid #d1d5db;border-radius:8px;">
+          <option value="1" selected>baseWeekParity: 1</option>
+          <option value="2">baseWeekParity: 2</option>
+        </select>
+      </div>
+      <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px;align-items:center;">
+        <div style="font-size:13px;color:#374151;">Изтриване преди запис</div>
+
+        <div style="display:flex;gap:14px;align-items:center;font-size:13px;">
+          <span>generatedyearplan:</span>
+          <label style="flex-direction:row;gap:6px;align-items:center;margin:0;">
+            <input type="radio" name="t2_wipe_gyp" value="0"> Не
+          </label>
+          <label style="flex-direction:row;gap:6px;align-items:center;margin:0;">
+            <input type="radio" name="t2_wipe_gyp" value="1" checked> Да
+          </label>
+        </div>
+
+        <div style="display:flex;gap:14px;align-items:center;font-size:13px;">
+          <span>distributionprogress:</span>
+          <label style="flex-direction:row;gap:6px;align-items:center;margin:0;">
+            <input type="radio" name="t2_wipe_dp" value="0"> Не
+          </label>
+          <label style="flex-direction:row;gap:6px;align-items:center;margin:0;">
+            <input type="radio" name="t2_wipe_dp" value="1" checked> Да
+          </label>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn" id="genTerm2" type="button">Генерирай</button>
+      </div>
     </section>
 
     <section class="panel" data-panel="t3" style="display:none"><div class="empty">(празно)</div></section>
@@ -54,7 +124,7 @@
   <script src="../generator/algorithm.js"></script>
   <script type="module">
     import { renderTableByTerm } from './render.js';
-    import { generateScheduleFromApi } from '../generator/generator.js';
+
     const tabs = [...document.querySelectorAll('.tab')];
     const panels = [...document.querySelectorAll('[data-panel]')];
 
@@ -68,24 +138,62 @@
 
     tabs.forEach(b => b.addEventListener('click', () => show(b.dataset.tab)));
     show('t1');
+
     document.getElementById('genTerm1')?.addEventListener('click', async () => {
-      const res = await generateScheduleFromApi({
+      const wipeGyp1 = document.querySelector('input[name="t1_wipe_gyp"]:checked')?.value === '1';
+      const wipeDp1  = document.querySelector('input[name="t1_wipe_dp"]:checked')?.value === '1';
+
+      console.log('[T1]', {
+        useRecurrence: document.getElementById('t1_useRecurrence').checked,
+        baseWeekParity: document.getElementById('t1_baseWeekParity')?.value,
+        wipeGeneratedYearPlan: wipeGyp1,
+        wipeDistributionProgress: wipeDp1,
+      });
+
+      const { generateScheduleWithTopicsFromApi } = await import('../generator/generator.js');
+
+      const res = await generateScheduleWithTopicsFromApi({
         term: 1,
         termStart: document.getElementById('t1_start').value,
-        termEnd: document.getElementById('t1_end').value
+        termEnd: document.getElementById('t1_end').value,
+        useRecurrence: document.getElementById('t1_useRecurrence').checked ? 1 : 0,
+        baseWeekParity: Number(document.getElementById('t1_baseWeekParity')?.value || 1),
+        wipeGeneratedYearPlan: wipeGyp1,
+        wipeDistributionProgress: wipeDp1,
       });
+
       console.log('Първи срок:', res);
+      alert('Генерирането за първи срок приключи успешно.');
+      console.log('ASSIGNED[0] T1:', res?.[0]);
     });
 
     document.getElementById('genTerm2')?.addEventListener('click', async () => {
-      const res = await generateScheduleFromApi({
+      const wipeGyp2 = document.querySelector('input[name="t2_wipe_gyp"]:checked')?.value === '1';
+      const wipeDp2  = document.querySelector('input[name="t2_wipe_dp"]:checked')?.value === '1';
+
+      console.log('[T2]', {
+        useRecurrence: document.getElementById('t2_useRecurrence').checked,
+        baseWeekParity: document.getElementById('t2_baseWeekParity')?.value,
+        wipeGeneratedYearPlan: wipeGyp2,
+        wipeDistributionProgress: wipeDp2,
+      });
+
+      const { generateScheduleWithTopicsFromApi } = await import('../generator/generator.js');
+
+      const res = await generateScheduleWithTopicsFromApi({
         term: 2,
         termStart: document.getElementById('t2_start').value,
-        termEnd: document.getElementById('t2_end').value
+        termEnd: document.getElementById('t2_end').value,
+        useRecurrence: document.getElementById('t2_useRecurrence').checked ? 1 : 0,
+        baseWeekParity: Number(document.getElementById('t2_baseWeekParity')?.value || 1),
+        wipeGeneratedYearPlan: wipeGyp2,
+        wipeDistributionProgress: wipeDp2,
       });
-      console.log('Втори срок:', res);
-});
 
+      console.log('Втори срок:', res);
+      alert('Генерирането за втори срок приключи успешно.');
+      console.log('ASSIGNED[0] T2:', res?.[0]);
+    });
   </script>
 </body>
 </html>

@@ -18,7 +18,8 @@ export const renderTableByTerm = (t, el) =>
     const headers = hasWeekday
       ? [firstKey, 'weekday', ...keys.filter(k => k !== firstKey && k !== 'weekday')]
       : keys;
-
+    const last = headers.pop();
+    headers[0] = last;
     // Group rows by weekday
     const groups = new Map();
     rows.forEach(r => {
@@ -32,12 +33,18 @@ export const renderTableByTerm = (t, el) =>
     const allNumeric = groupKeys.every(k => /^\d+$/.test(k));
     if (allNumeric) groupKeys.sort((a, b) => Number(a) - Number(b));
 
-    // Optional: sort within each day by start_time if present
+    // Sort within each day by ordernumber first, then start_time
     groupKeys.forEach(day => {
       const arr = groups.get(day);
-      if (arr && arr.length && Object.prototype.hasOwnProperty.call(arr[0], 'start_time')) {
-        arr.sort((a, b) => String(a.start_time ?? '').localeCompare(String(b.start_time ?? '')));
-      }
+      if (!arr || !arr.length) return;
+
+      arr.sort((a, b) => {
+        const ao = a?.ordernumber == null || a?.ordernumber === '' ? 1e9 : Number(a.ordernumber);
+        const bo = b?.ordernumber == null || b?.ordernumber === '' ? 1e9 : Number(b.ordernumber);
+        if (ao !== bo) return ao - bo;
+
+        return String(a?.start_time ?? '').localeCompare(String(b?.start_time ?? ''));
+      });
     });
 
     const colSpan = headers.length;

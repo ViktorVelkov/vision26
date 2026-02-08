@@ -91,6 +91,7 @@
   const openAssessBtn = document.getElementById('openAssessBtn');
   let currentSkillsTriplet = null; // remembers which triplet is loaded
   let currentLessonName = null; // remembers current lesson name
+  let currentLessonId = null; // remembers current lesson_id (Lessons.lesson_id)
   const yearPlanTable = document.getElementById('yearPlanTable');
   const yearPlanBody = yearPlanTable ? yearPlanTable.querySelector('tbody') : null;
 
@@ -339,21 +340,23 @@ function createDraftRow(currentClass){
             const u = await fetch(`/lessons-taken/${encodeURIComponent(r.id)}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ associatedLesson: v }) });
             if (!u.ok) throw new Error('HTTP '+u.status);
             await u.json(); r.associatedLesson = v; flash(tdAssoc2,true);
-            if (v) { currentLessonName = (r.name || '').trim() || currentLessonName; loadLessonSkills(v); }
+            if (v) { currentLessonId = null; currentLessonName = (r.name || '').trim() || currentLessonName; loadLessonSkills(v, null); }
           }catch(e){ console.error(e); flash(tdAssoc2,false); }        
         }
       });
       tdAssoc2.addEventListener('click', () => {
         const v = tdAssoc2.textContent.trim();
-        if (v) { currentLessonName = (r.name || '').trim() || currentLessonName; loadLessonSkills(v); }
+        currentLessonId = null;
+        if (v) { currentLessonName = (r.name || '').trim() || currentLessonName; loadLessonSkills(v, null); }
       });
 
       tr.append(tdId2, tdClass2, tdName2, tdDate2, tdAssoc2);
       resultsBody.prepend(tr);
       flash(tdId2,true);
       if (r.associatedLesson) {
+        currentLessonId = null;
         currentLessonName = (r.name || '').trim() || currentLessonName;
-        loadLessonSkills(r.associatedLesson);
+        loadLessonSkills(r.associatedLesson, null);
       }
     } catch (e) {
       console.error('Create lessons_taken failed:', e);
@@ -405,7 +408,11 @@ if (addBtn){
         tdAssoc.style.cursor = 'pointer';
         tdAssoc.addEventListener('click', () => {
           const v = (r.tripplet_id || '').toString().trim();
-          if (v) { currentLessonName = (r.description || '').trim() || currentLessonName; loadLessonSkills(v); }
+          currentLessonId = Number.isInteger(parseInt(r.lesson_id, 10)) ? parseInt(r.lesson_id, 10) : null;
+          if (v) {
+            currentLessonName = (r.description || '').trim() || currentLessonName;
+            loadLessonSkills(v, currentLessonId);
+          }
         });
 
         tr.append(tdId, tdClass, tdName, tdDate, tdAssoc);
@@ -424,15 +431,13 @@ if (addBtn){
       resultsWrap.hidden = true;
     }
   });
-// ---- LESSON SKILLS TABLE (for triplet) ----
+// ---- LESSON SKILLS TABLE (KeySkills, bound to lessonCode/triplet) ----
 const SKILLS_COLS = [
   {key:'id', label:'ID', editable:false, type:'text'},
   {key:'name', label:'Умение', editable:true, type:'text'},
   {key:'keyWords', label:'Ключови думи', editable:true, type:'arrayText'},
   {key:'order', label:'Подредба', editable:true, type:'int'},
   {key:'relatedTopic', label:'Свързани теми', editable:true, type:'arrayText'},
-  {key:'lessons_in_tripplets', label:'Уроци (triplets)', editable:true, type:'arrayText'},
-  {key:'associatedSnippets', label:'Other snippets (IDs)', editable:true, type:'arrayInt'},
   {key:'uslovie', label:'Текст', editable:true, type:'text'},
   {key:'class', label:'Клас', editable:true, type:'int'},
 ];
@@ -450,8 +455,8 @@ function fromDisplay(text, type){
 }
 
 
-async function loadLessonSkills(triplet){
-  const tbody = document.getElementById('lessonSkillsBody');
+async function loadLessonSkills(triplet, lessonId){
+    const tbody = document.getElementById('lessonSkillsBody');
   const wrap = document.getElementById('skillsWrap');
   const headRow = document.getElementById('lessonSkillsHeadRow');
   const toolbarTh = document.getElementById('skillsToolbarTh');
@@ -468,7 +473,11 @@ async function loadLessonSkills(triplet){
   if (toolbarTh) toolbarTh.colSpan = SKILLS_COLS.length;
 
   try {
-    const resp = await fetch(`/lesson-skills-merged?triplet=${encodeURIComponent(triplet)}`);
+    const qs = new URLSearchParams();
+    if (lessonId != null && !Number.isNaN(parseInt(lessonId,10))) qs.set('lessonId', String(parseInt(lessonId,10)));
+    else qs.set('lessonCode', String(triplet));
+
+    const resp = await fetch(`/keyskills?${qs.toString()}`);
     if (!resp.ok) throw new Error('HTTP '+resp.status);
     const data = await resp.json();
 
@@ -480,13 +489,37 @@ async function loadLessonSkills(triplet){
       td.addEventListener('keydown', ev => { if (ev.key==='Enter'){ ev.preventDefault(); td.blur(); }});
       td.addEventListener('blur', async () => {
         const newVal = fromDisplay(td.textContent, col.type);
+        const oldVal = row[col.key];
+
+        // quick equality check
+        const same = (a,b) => {
+          if (Array.isArray(a) && Array.isArray(b)) {
+            if (a.length !== b.length) return false;
+            for (let i=0;i<a.length;i++){ if (String(a[i]) !== String(b[i])) return false; }
+            return true;
+          }
+          return String(a ?? '') === String(b ?? '');
+        };
+        if (same(oldVal, newVal)) return;
+
         try{
-          const r = await fetch(`/lesson-skills/${encodeURIComponent(row.id)}`, {
-            method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ [col.key]: newVal })
+          const u = await fetch(`/keyskills/${encodeURIComponent(row.id)}`, {
+            method:'PATCH',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ [col.key]: newVal })
           });
-          if (!r.ok) throw new Error('HTTP '+r.status);
-          await r.json(); td.classList.remove('flash-error'); void td.offsetWidth; td.classList.add('flash-success');
-        }catch(e){ console.error(e); td.classList.remove('flash-success'); void td.offsetWidth; td.classList.add('flash-error'); }
+          if (!u.ok) throw new Error('HTTP '+u.status);
+          await u.json();
+          row[col.key] = newVal;
+          td.classList.remove('flash-error');
+          void td.offsetWidth;
+          td.classList.add('flash-success');
+        }catch(e){
+          console.error('Update keyskill failed:', e);
+          td.classList.remove('flash-success');
+          void td.offsetWidth;
+          td.classList.add('flash-error');
+        }
       });
       return td;
     };
@@ -498,7 +531,7 @@ async function loadLessonSkills(triplet){
     }
     if (wrap) wrap.hidden = false;
   } catch(e){
-    console.error('loadLessonSkills failed:', e);
+    console.error('keyskills failed:', e);
     tbody.innerHTML = '<tr><td colspan="'+SKILLS_COLS.length+'" style="color:red">Грешка при зареждане</td></tr>';
     if (wrap) wrap.hidden = false;
   }
@@ -518,7 +551,6 @@ function createDraftSkillRow(){
     const inp = document.createElement('input');
     inp.type = 'text';
     inp.placeholder = col.label;
-    if (col.key === 'lessons_in_tripplets') inp.value = currentSkillsTriplet || '';
     td.appendChild(inp); inputs[col.key] = {el: inp, type: col.type};
     draft.appendChild(td);
   }
@@ -534,7 +566,7 @@ function createDraftSkillRow(){
   btnCancel.addEventListener('click', ()=>{ actionsRow.remove(); draft.remove(); });
   btnSave.addEventListener('click', async ()=>{
     // Build payload with sensible defaults and coercions
-    const payload = { triplet: currentSkillsTriplet };
+    const payload = { lessonCode: currentSkillsTriplet };
     try {
       // Name is the only hard requirement
       const nameVal = inputs.name && inputs.name.el ? String(inputs.name.el.value||'').trim() : '';
@@ -545,10 +577,6 @@ function createDraftSkillRow(){
       payload.keyWords = fromDisplay(inputs.keyWords?.el.value || '', 'arrayText');
       payload.order = fromDisplay(inputs.order?.el.value || '', 'int');
       payload.relatedTopic = fromDisplay(inputs.relatedTopic?.el.value || '', 'arrayText');
-      // Ensure lessons_in_tripplets always contains current triplet if empty
-      const litRaw = inputs.lessons_in_tripplets?.el.value || currentSkillsTriplet || '';
-      payload.lessons_in_tripplets = fromDisplay(litRaw, 'arrayText');
-      payload.associatedSnippets = fromDisplay(inputs.associatedSnippets?.el.value || '', 'arrayInt');
       payload.uslovie = String(inputs.uslovie?.el.value || '').trim() || null;
 
       // Class: if empty, take numeric part from selected class (e.g. "9 Ж" -> 9)
@@ -561,7 +589,7 @@ function createDraftSkillRow(){
       }
 
       // POST
-      const r = await fetch('/lesson-skills', {
+      const r = await fetch('/keyskills', {
         method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(payload)
       });
       if (!r.ok){
@@ -573,27 +601,8 @@ function createDraftSkillRow(){
       // Remove draft
       actionsRow.remove(); draft.remove();
 
-      // Render the created row
-      const tr = document.createElement('tr');
-      for (const col of SKILLS_COLS){
-        const td = document.createElement('td');
-        if (!col.editable){ td.textContent = toDisplay(j.row[col.key], col.type); }
-        else {
-          td.contentEditable='true';
-          td.textContent = toDisplay(j.row[col.key], col.type);
-          td.addEventListener('keydown', ev => { if (ev.key==='Enter'){ ev.preventDefault(); td.blur(); }});
-          td.addEventListener('blur', async ()=>{
-            const newVal = fromDisplay(td.textContent, col.type);
-            try{
-              const u = await fetch(`/lesson-skills/${encodeURIComponent(j.row.id)}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ [col.key]: newVal }) });
-              if (!u.ok) throw new Error('HTTP '+u.status);
-              await u.json(); td.classList.remove('flash-error'); void td.offsetWidth; td.classList.add('flash-success');
-            }catch(e){ console.error('Update skill failed:', e); td.classList.remove('flash-success'); void td.offsetWidth; td.classList.add('flash-error'); }
-          });
-        }
-        tr.appendChild(td);
-      }
-      tbody.prepend(tr);
+      // Reload skills from DB (KeySkills) so the table stays in sync
+      await loadLessonSkills(currentSkillsTriplet);
     } catch(e){
       console.error('Create skill failed:', e);
       alert('Неуспешно добавяне на умение. ' + (e && e.message ? e.message : ''));
@@ -620,47 +629,30 @@ function escapeHtml(s) {
 ///// ТОВА БИЛДВАМ СЕГА
 async function openAssessmentWindow() {
   const cls = selectEl.value;
-  if (!cls) { alert('Моля, изберете клас.'); return; }
-  if (!currentSkillsTriplet) { alert('Няма избран урок (triplet). Кликни в „Свързан урок“.'); return; }
+  if (!cls) {
+    alert('Моля, изберете клас.');
+    return;
+  }
+  if (!currentSkillsTriplet) {
+    alert('Няма избран урок (triplet). Кликни в „Свързан урок“.');
+    return;
+  }
 
-  try {
-    // 1) Load template HTML
-    const tplRes = await fetch('/aw2.html');
-    if (!tplRes.ok) throw new Error('HTTP ' + tplRes.status);
-    let html = await tplRes.text();
+  const url =
+    `/aw2.html?cls=${encodeURIComponent(cls)}` +
+    `&triplet=${encodeURIComponent(currentSkillsTriplet)}` +
+    `&lessonId=${encodeURIComponent(String(currentLessonId || ''))}`;
 
-    // 2) Prepare values
-    const esc = s => String(s ?? '')
-      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-      .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
-    const lessonName = currentLessonName ? String(currentLessonName) : '';
+  const w = window.open(
+    url,
+    'assess-' + Date.now(),
+    'width=900,height=700'
+  );
 
-    // 3) Replace simple placeholders in the static template
-    html = html
-      .replace(/\{\{CLS\}\}/g, esc(cls))
-      .replace(/\{\{TRIPLET\}\}/g, esc(currentSkillsTriplet))
-      .replace(/\{\{LESSON\}\}/g, esc(lessonName));
-
-    // 4) Inject bootstrap script with runtime data for the popup scripts (class info, triplet, lesson)
-    const boot = '<script>'
-      + 'window.CLASS_INFO = ' + JSON.stringify({ className: cls }) + ';'
-      + 'window.TRIPLET = ' + JSON.stringify(currentSkillsTriplet) + ';'
-      + 'window.LESSON = ' + JSON.stringify(lessonName) + ';'
-      + '</' + 'script>';
-    html = html.replace('</body>', boot + '\n</body>');
-
-    // 5) Open popup and write the composed HTML
-    const w = window.open('', 'assess-' + Date.now(), 'width=900,height=700');
-    if (!w) { alert('Разрешете изскачащи прозорци и опитайте отново.'); return; }
-    w.document.open();
-    w.document.write(html);
-    w.document.close();
-  } catch (e) {
-    console.error('openAssessmentWindow failed:', e);
-    alert('Грешка при отваряне на прозореца за оценяване.');
+  if (!w) {
+    alert('Разрешете изскачащи прозорци и опитайте отново.');
   }
 }
-
 // Hook the main Assess button
 if (openAssessBtn) {
   openAssessBtn.addEventListener('click', openAssessmentWindow);

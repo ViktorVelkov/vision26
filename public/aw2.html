@@ -2,7 +2,7 @@
       <html lang="bg">
       <head>
         <meta charset="utf-8" />
-        <title>Оценяване — {{CLS}} — {{TRIPLET}}</title>
+        <title>Оценяване</title>
         <meta name="viewport" content="width=device-width,initial-scale=1" />
         <style>
           body{font-family: system-ui,-apple-system,Segoe UI,Roboto,sans-serif; margin:16px;}
@@ -138,8 +138,8 @@
       <body>
         <header>
           <div class="topline">
-            <div class="badge">{{CLS}}</div>
-            <div class="badge">Triplet: {{TRIPLET}}</div>
+            <div class="badge" id="clsBadge">—</div>
+            <div class="badge" id="tripletBadge">Triplet: —</div>
             <div class="badge" id="lessonBadge"></div>
             <span class="small" id="metaCount"></span>
           </div>
@@ -210,7 +210,47 @@
           </section>
         </main>
         <div class="footer-hint">Навигация: клавиши ← / → за предишен/следващ • Избор от падащото меню</div>
-</body>
+<!-- URL-driven bootstrap: set globals and badges/title from query params -->
+<script>
+// URL-driven bootstrap: set globals used by other scripts
+(function(){
+  const sp = new URLSearchParams(window.location.search || '');
+  const cls = (sp.get('cls') || '').trim();
+  const triplet = (sp.get('triplet') || '').trim();
+  const lessonIdRaw = (sp.get('lessonId') || sp.get('lesson_id') || '').trim();
+  const lessonId = lessonIdRaw ? parseInt(lessonIdRaw, 10) : null;
+
+  // Globals expected by existing scripts
+  window.CLASS_INFO = window.CLASS_INFO || {};
+  if (cls) window.CLASS_INFO.className = cls;
+  if (triplet) window.TRIPLET = triplet;
+  window.CURRENT_LESSON_ID = Number.isInteger(lessonId) ? lessonId : null;
+
+  // Fill UI (badges/title)
+  function applyUI(){
+    const clsBadge = document.getElementById('clsBadge');
+    if (clsBadge) clsBadge.textContent = cls || '—';
+
+    const tripBadge = document.getElementById('tripletBadge');
+    if (tripBadge) tripBadge.textContent = 'Triplet: ' + (triplet || '—');
+
+    const lb = document.getElementById('lessonBadge');
+    if (lb) lb.textContent = Number.isInteger(lessonId) ? ('Lesson ID: ' + lessonId) : '';
+
+    // Keep document title informative
+    const parts = ['Оценяване'];
+    if (cls) parts.push(cls);
+    if (triplet) parts.push(triplet);
+    document.title = parts.join(' — ');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', applyUI);
+  } else {
+    applyUI();
+  }
+})();
+</script>
 <script src="listOfStudentsAndSnippets.js"></script>
 <script src="sesStorage_assessment.js"></script>
 <script src="generalComment.js"></script>
@@ -454,6 +494,210 @@
   document.addEventListener('DOMContentLoaded', function(){
     var btn = document.getElementById('submitAssessBtn');
     if (btn) btn.addEventListener('click', closeAfterSubmit, { capture:false });
+  });
+})();
+</script>
+<script>
+// --- Remap assessment skills from legacy Snippets IDs (ref_id) to KeySkills IDs ---
+// The assessment UI historically used Snippets.id as the identifier.
+// Now KeySkills is the authoritative table. We map by KeySkills.ref_id -> Snippets.id.
+(function(){
+async function fetchKeySkillsByTriplet(){
+  try{
+    var trip = (window.TRIPLET == null) ? '' : String(window.TRIPLET).trim();
+
+    // Prefer lessonId passed in URL (?lessonId=8 or ?lesson_id=8)
+    var sp = new URLSearchParams(window.location.search || '');
+    var lidRaw = (sp.get('lessonId') || sp.get('lesson_id') || '').trim();
+    var lid = lidRaw ? parseInt(lidRaw, 10) : null;
+    if (!Number.isInteger(lid) && Number.isInteger(window.CURRENT_LESSON_ID)) lid = window.CURRENT_LESSON_ID;
+
+    var url = '';
+    if (Number.isInteger(lid)) url = '/keyskills?lessonId=' + encodeURIComponent(String(lid));
+    else if (trip) url = '/keyskills?lessonCode=' + encodeURIComponent(trip);
+    else return [];
+
+    var resp = await fetch(url);
+    if (!resp.ok) return [];
+    var rows = await resp.json();
+    return Array.isArray(rows) ? rows : [];
+  }catch(e){
+    console.warn('[aw2] keyskills fetch failed', e);
+    return [];
+  }
+}
+  function applyMapping(rows){
+    // map legacy snippet-id -> keyskill row
+    var byRef = new Map();
+    rows.forEach(function(r){
+      var ref = (r && r.ref_id != null) ? String(r.ref_id).trim() : '';
+      var kid = (r && r.id != null) ? String(r.id).trim() : '';
+      if (!ref || !kid) return;
+      byRef.set(ref, r);
+    });
+
+    // Update each rendered skill row
+    var list = document.getElementById('skillsList');
+    if (!list) return;
+
+    var items = list.querySelectorAll('li');
+    items.forEach(function(li){
+      // rating keeps the identifier
+      var rating = li.querySelector('.rating[data-snippet-id]');
+      if (!rating) return;
+
+      var legacy = String(rating.getAttribute('data-snippet-id') || '').trim();
+      if (!legacy) return;
+
+      var ks = byRef.get(legacy);
+      if (!ks) return;
+
+      // Update the visible label text
+      var nameEl = li.querySelector('.sk-name');
+      if (nameEl){
+        // Try to preserve the existing format "Name (ID X)"
+        var nm = (ks.name == null) ? '' : String(ks.name);
+        nameEl.textContent = nm + ' (ID ' + String(ks.id) + ')';
+      }
+
+      // Switch the identifier to KeySkills.ID for all downstream logic (submit etc.)
+      rating.setAttribute('data-old-snippet-id', legacy);
+      rating.setAttribute('data-snippet-id', String(ks.id));
+
+      // Mark as keyskill so downstream code can distinguish if needed
+      rating.setAttribute('data-component-type', 'keyskill');
+    });
+  }
+
+  function onceReady(fn){
+    if (document.readyState === 'complete' || document.readyState === 'interactive') return fn();
+    document.addEventListener('DOMContentLoaded', fn);
+  }
+
+  onceReady(function(){
+    // Wait a tick because other scripts render the list asynchronously
+    setTimeout(async function(){
+      var rows = await fetchKeySkillsByTriplet();
+      if (!rows.length) return;
+
+      // Apply now
+      applyMapping(rows);
+
+      // Also re-apply if the student card switches and the list re-renders
+      try{
+        var target = document.getElementById('skillsList');
+        if (!target || !window.MutationObserver) return;
+        var mo = new MutationObserver(function(){
+          applyMapping(rows);
+        });
+        mo.observe(target, { childList:true, subtree:true });
+      }catch(_){ }
+    }, 50);
+  });
+})();
+</script>
+<script>
+// --- Fallback: render skills directly from KeySkills when legacy Snippets rows are missing ---
+// If the list is empty (no .rating[data-snippet-id]), we fetch KeySkills for the current lesson and build the DOM.
+(function(){
+  function getLessonId(){
+    try{
+      var sp = new URLSearchParams(window.location.search || '');
+      var raw = (sp.get('lessonId') || sp.get('lesson_id') || '').trim();
+      var lid = raw ? parseInt(raw, 10) : null;
+      if (!Number.isInteger(lid) && Number.isInteger(window.CURRENT_LESSON_ID)) lid = window.CURRENT_LESSON_ID;
+      return Number.isInteger(lid) ? lid : null;
+    }catch(_){ return null; }
+  }
+
+  async function fetchKeySkills(){
+    var lid = getLessonId();
+    if (!Number.isInteger(lid)) return [];
+    try{
+      var resp = await fetch('/keyskills?lessonId=' + encodeURIComponent(String(lid)));
+      if (!resp.ok) return [];
+      var rows = await resp.json();
+      return Array.isArray(rows) ? rows : [];
+    }catch(e){
+      console.warn('[aw2] fallback keyskills fetch failed', e);
+      return [];
+    }
+  }
+
+  function listHasAnySkills(){
+    var list = document.getElementById('skillsList');
+    if (!list) return false;
+    return !!list.querySelector('.rating[data-snippet-id]');
+  }
+
+  function buildSkillLi(ks){
+    var li = document.createElement('li');
+
+    var row = document.createElement('div');
+    row.className = 'skill-row';
+
+    var nameEl = document.createElement('div');
+    nameEl.className = 'sk-name';
+    var nm = (ks && (ks.name ?? ks.Name)) != null ? String(ks.name ?? ks.Name) : '';
+    nameEl.textContent = nm + ' (ID ' + String(ks.id) + ')';
+
+    var rating = document.createElement('div');
+    rating.className = 'rating';
+    rating.setAttribute('data-snippet-id', String(ks.id));
+    rating.setAttribute('data-component-type', 'keyskill');
+
+    [0,1,2,3].forEach(function(v){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'pill pill--v' + v;
+      b.setAttribute('data-val', String(v));
+      b.textContent = String(v);
+      rating.appendChild(b);
+    });
+
+    row.appendChild(nameEl);
+    row.appendChild(rating);
+    li.appendChild(row);
+    return li;
+  }
+
+  async function renderFallbackIfNeeded(){
+    var list = document.getElementById('skillsList');
+    if (!list) return;
+
+    // Wait for legacy renderer first; if it produced skills, do nothing.
+    if (listHasAnySkills()) return;
+
+    var rows = await fetchKeySkills();
+    if (!rows.length) {
+      if (!list.textContent.trim()) list.textContent = 'Няма умения';
+      return;
+    }
+
+    list.innerHTML = '';
+    rows.forEach(function(ks){
+      if (!ks || ks.id == null) return;
+      list.appendChild(buildSkillLi(ks));
+    });
+
+    // Let other scripts react (sesStorage_assessment / inline notes)
+    try{ list.dispatchEvent(new Event('skillsRendered')); }catch(_){ }
+  }
+
+  function schedule(){
+    // small delay to allow listOfStudentsAndSnippets.js to render first
+    setTimeout(renderFallbackIfNeeded, 120);
+  }
+
+  document.addEventListener('DOMContentLoaded', function(){
+    schedule();
+
+    // Robust if something re-renders the list
+    var list = document.getElementById('skillsList');
+    if (list && window.MutationObserver){
+      var mo = new MutationObserver(function(){ schedule(); });
+      mo.observe(list, { childList:true, subtree:true });
+    }
   });
 })();
 </script>

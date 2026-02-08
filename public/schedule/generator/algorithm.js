@@ -1,4 +1,3 @@
-
 let fs, path;
 if (typeof window === 'undefined') {
   fs = require('fs');
@@ -24,6 +23,10 @@ if (typeof window === 'undefined') {
  *   - start_time, end_time (as provided, normalized to HH:MM)
  *   - start_iso, end_iso (ISO strings in local time offset)
  *   - source: the original DB row
+ *
+ * @param {number} [args.useRecurrence=0] - when 1, honors recurrence (WEEKLY/BIWEEKLY) + week_parity
+ * @param {string} [args.weekIndexBase='termStart'] - (reserved) week counting base; currently termStart-based
+ * @returns {Array<Object>} schedule instances
  */
 
 
@@ -149,9 +152,11 @@ function combineDateAndTime(ymd, hhmm) {
  * @param {string} args.termStart - YYYY-MM-DD (inclusive)
  * @param {string} args.termEnd - YYYY-MM-DD (inclusive)
  * @param {('auto'|'zeroBased'|'oneBased')} [args.weekdayMode='auto'] - how to interpret numeric weekday
+ * @param {number} [args.useRecurrence=0] - when 1, honors recurrence (WEEKLY/BIWEEKLY) + week_parity
+ * @param {string} [args.weekIndexBase='termStart'] - (reserved) week counting base; currently termStart-based
  * @returns {Array<Object>} schedule instances
  */
-function generateSchedule({ rows, termStart, termEnd, weekdayMode = 'auto', holidaysPath }) {
+function generateSchedule({ rows, termStart, termEnd, weekdayMode = 'auto', holidaysPath, useRecurrence = 0, baseWeekParity = 1 }) {
   if (!Array.isArray(rows)) throw new Error('generateSchedule: rows must be an array');
   if (!isYmd(termStart) || !isYmd(termEnd)) {
     throw new Error('generateSchedule: termStart/termEnd must be YYYY-MM-DD');
@@ -161,7 +166,41 @@ function generateSchedule({ rows, termStart, termEnd, weekdayMode = 'auto', holi
   const end = parseYmdToDate(termEnd);
   if (start.getTime() > end.getTime()) throw new Error('generateSchedule: termStart must be <= termEnd');
 
-  const holidaySet = loadHolidaysTxt(holidaysPath);
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const termStartMid = start.getTime();
+
+  function mondayStartMs(localMidnightMs) {
+    const dt = new Date(localMidnightMs);
+    // JS getDay(): 0=Sun..6=Sat. Convert to Mon-based 0..6.
+    const mon0 = (dt.getDay() + 6) % 7;
+    dt.setDate(dt.getDate() - mon0);
+    dt.setHours(0, 0, 0, 0);
+    return dt.getTime();
+  }
+
+  function weekIndexForDateYmd(ymd) {
+    const dMid = parseYmdToDate(ymd).getTime();
+    const w0 = mondayStartMs(termStartMid);
+    const w1 = mondayStartMs(dMid);
+    const weeks = Math.floor((w1 - w0) / (7 * msPerDay));
+    return weeks + 1; // 1-based
+  }
+
+  function parityForWeekIndex(weekIndex) {
+    // baseWeekParity defines the parity of weekIndex=1.
+    // If baseWeekParity=1: 1,2,1,2...
+    // If baseWeekParity=2: 2,1,2,1...
+    return (((weekIndex - 1) + (baseWeekParity - 1)) % 2) + 1;
+  }
+
+  function normRecurrence(v) {
+    if (v == null) return 'WEEKLY';
+    const s = String(v).trim().toUpperCase();
+    if (!s) return 'WEEKLY';
+    if (s === 'WEEKLY') return 'WEEKLY';
+    if (s === 'BIWEEKLY' || s === 'BI-WEEKLY' || s === 'BI_WEEKLY') return 'BIWEEKLY';
+    return 'WEEKLY';
+  }
 
   // Normalize + filter valid rows
   const normalized = rows
@@ -170,7 +209,15 @@ function generateSchedule({ rows, termStart, termEnd, weekdayMode = 'auto', holi
       const start_time = normalizeTime(r?.start_time);
       const end_time = normalizeTime(r?.end_time);
       if (weekday == null || !start_time || !end_time) return null;
-      return { source: r, weekday, start_time, end_time };
+      return {
+        source: r,
+        weekday,
+        start_time,
+        end_time,
+        recurrence: normRecurrence(r?.recurrence),
+        week_parity: (r?.week_parity == null || r?.week_parity === '') ? null : Number(r.week_parity),
+        ordernumber: (r?.ordernumber == null || r?.ordernumber === '') ? null : Number(r.ordernumber),
+      };
     })
     .filter(Boolean);
 
@@ -181,12 +228,18 @@ function generateSchedule({ rows, termStart, termEnd, weekdayMode = 'auto', holi
     byDay.get(row.weekday).push(row);
   }
 
-  // Sort within each weekday by start_time
+  // Sort ONLY inside each weekday by time (start_time, then end_time)
   for (const [wd, arr] of byDay.entries()) {
-    arr.sort((a, b) => a.start_time.localeCompare(b.start_time));
-    byDay.set(wd, arr);
+    arr.sort((a, b) => {
+      const c1 = a.start_time.localeCompare(b.start_time);
+      if (c1) return c1;
+      const c2 = a.end_time.localeCompare(b.end_time);
+      if (c2) return c2;
+      return String(a?.source?.subject ?? '').localeCompare(String(b?.source?.subject ?? ''), 'bg', { sensitivity: 'base' });
+    });
   }
 
+  const holidaySet = loadHolidaysTxt(holidaysPath) || new Set();
   const out = [];
 
   for (let d = new Date(start.getTime()); d.getTime() <= end.getTime(); d = addDays(d, 1)) {
@@ -199,7 +252,15 @@ function generateSchedule({ rows, termStart, termEnd, weekdayMode = 'auto', holi
     const dayRows = byDay.get(wd);
     if (!dayRows || dayRows.length === 0) continue;
 
+    const wIdx = useRecurrence ? weekIndexForDateYmd(ymd) : null;
+    const wParity = useRecurrence ? parityForWeekIndex(wIdx) : null;
+
     for (const rr of dayRows) {
+      if (useRecurrence && rr.recurrence === 'BIWEEKLY') {
+        const rowParity = (rr.week_parity === 1 || rr.week_parity === 2) ? rr.week_parity : 1;
+        if (rowParity !== wParity) continue;
+      }
+
       const startDt = combineDateAndTime(ymd, rr.start_time);
       const endDt = combineDateAndTime(ymd, rr.end_time);
 

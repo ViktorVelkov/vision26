@@ -1241,7 +1241,52 @@ function extractPayload(row) {
     lessonCode: (row.lessonCode || '').trim()
   };
 }
+// GET /keyskills
+// Returns key skills for a lesson/triplet (used by assessment UI).
+app.get('/keyskills', async (req, res) => {
+  try {
+    const lessonCode = (req.query.lessonCode == null) ? '' : String(req.query.lessonCode).trim();
 
+    const lidRaw = (req.query.lessonId != null)
+      ? String(req.query.lessonId).trim()
+      : ((req.query.lesson_id != null) ? String(req.query.lesson_id).trim() : '');
+
+    const lid = lidRaw ? parseInt(lidRaw, 10) : null;
+
+    let where = '';
+    let params = [];
+
+    if (Number.isInteger(lid)) {
+      where = `lesson_ref = $1`;
+      params = [lid];
+    } else if (lessonCode) {
+      where = `"lessonCode" = $1`;
+      params = [lessonCode];
+    } else {
+      return res.status(400).json({ error: 'Missing lessonId/lesson_id or lessonCode' });
+    }
+
+    const sql = `
+      SELECT
+        "ID" AS id,
+        "Name" AS name,
+        "lessonCode" AS "lessonCode",
+        "ref_id" AS "ref_id",
+        "isExercise" AS "isExercise",
+        lesson_ref AS "lesson_ref",
+        "class" AS "class"
+      FROM "KeySkills"
+      WHERE ${where}
+      ORDER BY "ID" ASC
+    `;
+
+    const { rows } = await pool.query(sql, params);
+    return res.json(rows);
+  } catch (e) {
+    console.error('GET /keyskills failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  }
+});
 // Helper: check if any payload field is non-empty
 function hasAnyContent(payload) {
   return !!(payload.unit || payload.unitetype || payload.sectioninfo || payload.notes || payload.lessonCode);
@@ -1294,6 +1339,11 @@ app.post('/lessons-calendar/generatedyearplan/:id/pull-next', async (req, res) =
       return res.status(404).json({ error: 'Current row not found' });
     }
     const cur = curRows[0];
+
+    // Compute class/division guard
+    const classId = (cur && cur.class != null) ? parseInt(cur.class, 10) : null;
+    const division = (cur && cur.division != null) ? String(cur.division) : null;
+
     // Find next row with same subject and id > currentId
     const { rows: nextRows } = await client.query(
       `SELECT * FROM "generatedyearplan"
@@ -1339,6 +1389,12 @@ app.post('/lessons-calendar/generatedyearplan/:id/pull-next', async (req, res) =
        WHERE id = $1`,
       [next.id]
     );
+
+    // Sync distributionprogress.next_index based on the max sectioninfo index for this class/division
+    if (Number.isInteger(classId) && division) {
+      await updateNextIndexForClass(client, { classId, division });
+    }
+
     await client.query('COMMIT');
     return res.json({ ok: true, id: cur.id, movedFrom: next.id });
   } catch (e) {
@@ -1366,6 +1422,11 @@ app.post('/lessons-calendar/generatedyearplan/:id/merge-prev', async (req, res) 
       return res.status(404).json({ error: 'Current row not found' });
     }
     const cur = curRows[0];
+
+    // Compute class/division guard
+    const classId = (cur && cur.class != null) ? parseInt(cur.class, 10) : null;
+    const division = (cur && cur.division != null) ? String(cur.division) : null;
+
     // Find previous row with same subject and id < currentId
     const { rows: prevRows } = await client.query(
       `SELECT * FROM "generatedyearplan"
@@ -1397,6 +1458,12 @@ app.post('/lessons-calendar/generatedyearplan/:id/merge-prev', async (req, res) 
        WHERE id = $1`,
       [cur.id]
     );
+
+    // Sync distributionprogress.next_index based on the max sectioninfo index for this class/division
+    if (Number.isInteger(classId) && division) {
+      await updateNextIndexForClass(client, { classId, division });
+    }
+
     await client.query('COMMIT');
     return res.json({ ok: true, id: cur.id, mergedInto: prev.id });
   } catch (e) {
@@ -1495,6 +1562,35 @@ async function writePayload(client, id, p){
   );
 }
 
+
+async function updateNextIndexForClass(client, { classId, division }) {
+  const { rows } = await client.query(`
+    SELECT
+      MAX(
+        CAST(
+          regexp_replace(sectioninfo, '[^0-9]', '', 'g')
+          AS INTEGER
+        )
+      ) AS max_idx
+    FROM "generatedyearplan"
+    WHERE class = $1
+      AND division = $2
+      AND sectioninfo IS NOT NULL
+      AND sectioninfo <> ''
+  `, [classId, division]);
+
+  const maxIdx = rows[0].max_idx;
+  if (maxIdx === null) return;
+
+  await client.query(`
+    UPDATE distributionprogress
+    SET next_index = $1
+    WHERE class = $2
+      AND division = $3
+  `, [maxIdx, classId, division]);
+}
+
+
 // POST /lessons-calendar/generatedyearplan/:id/shift-back-sequence
 // "<-": shift the whole chain one step back towards earlier rows.
 // Effect: for subject group, for all rows up to current index, each row takes the content of the next row (j := j+1);
@@ -1505,7 +1601,7 @@ app.post('/lessons-calendar/generatedyearplan/:id/shift-back-sequence', async (r
   const client = await pool.connect();
   try{
     await client.query('BEGIN');
-    const curRes = await client.query(`SELECT id, subject FROM "generatedyearplan" WHERE id = $1`, [id]);
+    const curRes = await client.query(`SELECT id, subject, class, division FROM "generatedyearplan" WHERE id = $1`, [id]);
     if (!curRes.rows.length){ await client.query('ROLLBACK'); return res.status(404).json({ error:'Row not found' }); }
     const subject = curRes.rows[0].subject;
     const rows = await loadSubjectRows(client, subject);
@@ -1534,6 +1630,14 @@ app.post('/lessons-calendar/generatedyearplan/:id/shift-back-sequence', async (r
     // clear current row
     await writePayload(client, rows[idx].id, { unit:'', unitetype:'', sectioninfo:'', notes:'', lessonCode:'' });
 
+    // Sync distributionprogress.next_index based on the max sectioninfo index for this class/division
+    const curRow = curRes.rows[0];
+    const classId = (curRow && curRow.class != null) ? parseInt(curRow.class, 10) : null;
+    const division = (curRow && curRow.division != null) ? String(curRow.division) : null;
+    if (Number.isInteger(classId) && division) {
+      await updateNextIndexForClass(client, { classId, division });
+    }
+
     await client.query('COMMIT');
     return res.json({ ok:true, shiftedUntil: rows[0]?.id || null, cleared: rows[idx].id });
   }catch(e){
@@ -1551,25 +1655,187 @@ app.use('/lessons-library', require('./public/lessonsLibrary'));
  * Returns all columns from "Snippets" for the given triplet.
  * Matches both the single-value "tripplet_lesson" and the array "lessons_in_tripplets".
  */
+
+
+/// whatHaveILearned center...
+async function resolveLessonIdByLessonCode(lessonCode){
+  const code = (lessonCode == null) ? '' : String(lessonCode).trim();
+  if (!code) return null;
+
+  try{
+    const r = await pool.query(
+      `SELECT lesson_id
+         FROM "Lessons"
+        WHERE tripplet_id = $1
+           OR REPLACE(tripplet_id,'.','') = REPLACE($1::text,'.','')
+        ORDER BY updated_at DESC NULLS LAST, lesson_id DESC
+        LIMIT 1`,
+      [code]
+    );
+    if (!r.rows.length) return null;
+    const id = parseInt(r.rows[0].lesson_id, 10);
+    return Number.isInteger(id) ? id : null;
+  }catch(_e){
+    return null;
+  }
+}
+
+
+
+app.get('/keyskills', async (req, res) => {
+  const lessonIdRaw = (req.query.lessonId == null) ? '' : String(req.query.lessonId).trim();
+  const lessonId = lessonIdRaw ? parseInt(lessonIdRaw, 10) : null;
+  const lessonCode = (req.query.lessonCode == null) ? '' : String(req.query.lessonCode).trim();
+
+  if (!Number.isInteger(lessonId) && !lessonCode) {
+    return res.status(400).json({ error: 'Missing lessonId or lessonCode parameter' });
+  }
+
+    let sql = `SELECT
+      "ID" AS id,
+      "Name" AS name,
+      COALESCE(TO_JSON("keyWords"), '[]'::json)       AS "keyWords",
+      COALESCE("order",0)                           AS "order",
+      COALESCE(TO_JSON("relatedTopic"), '[]'::json)  AS "relatedTopic",
+      "lessonCode"                                  AS "lessonCode",
+      "lesson_id"                                   AS "lesson_id",
+      COALESCE("uslovie", '')                       AS "uslovie",
+      "class"                                       AS "class"
+    FROM "KeySkills"`;
+
+    const params = [];
+    if (Number.isInteger(lessonId)) {
+      params.push(lessonId);
+      sql += ` WHERE lesson_ref = $1`;
+    } else {
+      params.push(lessonCode);
+      sql += ` WHERE "lessonCode" = $1`;
+    }
+
+    sql += ` ORDER BY COALESCE("order",0) ASC, "ID" ASC`;
+
+    const { rows } = await pool.query(sql, params);
+    return res.json(rows);
+   
+});
+
+app.post('/keyskills', async (req, res) => {
+  const b = req.body || {};
+  const name = (b.name == null) ? '' : String(b.name).trim();
+  const lessonCode = (b.lessonCode == null) ? '' : String(b.lessonCode).trim();
+  if (!name) return res.status(400).json({ error: 'Missing name' });
+  if (!lessonCode) return res.status(400).json({ error: 'Missing lessonCode' });
+
+  const asTextArray = (v) => Array.isArray(v)
+    ? v.map(x => String(x).trim()).filter(Boolean)
+    : (typeof v === 'string' ? v.split(',').map(s=>s.trim()).filter(Boolean) : []);
+
+  const keyWords = asTextArray(b.keyWords);
+  const relatedTopic = asTextArray(b.relatedTopic);
+  const ord = (b.order == null || b.order === '') ? 0 : parseInt(b.order, 10);
+  const uslovie = (b.uslovie == null) ? '' : String(b.uslovie);
+  const klass = (b.class == null || b.class === '') ? null : parseInt(b.class, 10);
+
+  const lesson_id = await resolveLessonIdByLessonCode(lessonCode);
+
+  try{
+    const r = await pool.query(
+      `INSERT INTO "KeySkills" ("Name","lessonCode","lesson_id","keyWords","order","relatedTopic","uslovie","class")
+       VALUES ($1,$2,$3,$4::text[],$5,$6::text[],$7,$8)
+       RETURNING "ID" AS id`,
+      [name, lessonCode, lesson_id, keyWords, (Number.isInteger(ord)?ord:0), relatedTopic, uslovie, (Number.isInteger(klass)?klass:null)]
+    );
+    return res.status(201).json({ ok:true, id: r.rows[0].id });
+  }catch(e){
+    console.error('POST /keyskills failed:', e);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+
+app.patch('/keyskills/:id', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
+
+  const b = req.body || {};
+  const asTextArray = (v) => Array.isArray(v)
+    ? v.map(x => String(x).trim()).filter(Boolean)
+    : (typeof v === 'string' ? v.split(',').map(s=>s.trim()).filter(Boolean) : []);
+
+  const sets = [];
+  const params = [];
+
+  if (Object.prototype.hasOwnProperty.call(b, 'name')) {
+    params.push(b.name == null ? '' : String(b.name));
+    sets.push(`"Name" = $${params.length}`);
+  }
+  if (Object.prototype.hasOwnProperty.call(b, 'keyWords')) {
+    params.push(asTextArray(b.keyWords));
+    sets.push(`"keyWords" = $${params.length}::text[]`);
+  }
+  if (Object.prototype.hasOwnProperty.call(b, 'order')) {
+    const ord = (b.order == null || b.order === '') ? 0 : parseInt(b.order, 10);
+    params.push(Number.isInteger(ord) ? ord : 0);
+    sets.push(`"order" = $${params.length}`);
+  }
+  if (Object.prototype.hasOwnProperty.call(b, 'relatedTopic')) {
+    params.push(asTextArray(b.relatedTopic));
+    sets.push(`"relatedTopic" = $${params.length}::text[]`);
+  }
+  if (Object.prototype.hasOwnProperty.call(b, 'uslovie')) {
+    params.push(b.uslovie == null ? '' : String(b.uslovie));
+    sets.push(`"uslovie" = $${params.length}`);
+  }
+  if (Object.prototype.hasOwnProperty.call(b, 'class')) {
+    const klass = (b.class == null || b.class === '') ? null : parseInt(b.class, 10);
+    params.push(Number.isInteger(klass) ? klass : null);
+    sets.push(`"class" = $${params.length}`);
+  }
+  if (Object.prototype.hasOwnProperty.call(b, 'lessonCode')) {
+    const lc = (b.lessonCode == null) ? '' : String(b.lessonCode).trim();
+    params.push(lc);
+    sets.push(`"lessonCode" = $${params.length}`);
+
+    const lid = await resolveLessonIdByLessonCode(lc);
+    params.push(lid);
+    sets.push(`"lesson_id" = $${params.length}`);
+  }
+
+  if (!sets.length) return res.status(400).json({ error: 'No fields to update' });
+
+  params.push(id);
+
+  try{
+    const r = await pool.query(
+      `UPDATE "KeySkills" SET ${sets.join(', ')} WHERE "ID" = $${params.length} RETURNING "ID" AS id`,
+      params
+    );
+    if (!r.rowCount) return res.status(404).json({ error: 'Row not found' });
+    return res.json({ ok:true, id: r.rows[0].id });
+  }catch(e){
+    console.error('PATCH /keyskills/:id failed:', e);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 app.get('/lesson-skills', async (req, res) => {
   const triplet = req.query.triplet;
   if (!triplet) return res.status(400).json({ error: 'Missing triplet parameter' });
   try {
     const { rows } = await pool.query(
       `SELECT
-         "id",
-         "name",
-         COALESCE(TO_JSON("keyWords"), '[]'::json)             AS "keyWords",
-         "order",
-         COALESCE(TO_JSON("relatedTopic"), '[]'::json)         AS "relatedTopic",
-         COALESCE(TO_JSON("lessons_in_tripplets"), '[]'::json) AS "lessons_in_tripplets",
-         COALESCE(TO_JSON("associatedSnippets"), '[]'::json)   AS "associatedSnippets",
-         "uslovie",
-         "class"
-       FROM "Snippets"
-       WHERE ("tripplet_lesson" = $1::text)
-          OR ($1::text = ANY ("lessons_in_tripplets"))
-       ORDER BY "id" ASC`,
+        "id",
+        "name",
+        COALESCE(TO_JSON("keyWords"), '[]'::json)             AS "keyWords",
+        "order",
+        COALESCE(TO_JSON("relatedTopic"), '[]'::json)         AS "relatedTopic",
+        COALESCE(TO_JSON("lessons_in_tripplets"), '[]'::json) AS "lessons_in_tripplets",
+        COALESCE(TO_JSON("associatedSnippets"), '[]'::json)   AS "associatedSnippets",
+        "uslovie",
+        "class"
+      FROM "Snippets"
+      WHERE $1::text = ANY ("lessons_in_tripplets")
+      ORDER BY "id" ASC;`,
       [triplet]
     );
     res.json(rows);
@@ -1939,7 +2205,7 @@ app.get('/debug/lesson-theory-ids', async (req, res) => {
  * PATCH /lesson-skills/:id
  * Updates any editable column of Snippets by id (except "id").
  * Expects body with one or more fields among:
- * name (text), keyWords (text[]), tripplet_lesson (text), associatedSnippet (int),
+ * name (text), keyWords (text[]), associatedSnippet (int),
  * order (int), relatedTopic (text[]), lessons_in_tripplets (text[]),
  * associatedSnippets (int[]), uslovie (text), class (int)
  */
@@ -1955,7 +2221,6 @@ app.patch('/lesson-skills/:id', async (req, res) => {
   const allowed = {
     name:                { cast: null },
     keyWords:            { cast: 'text[]',   transform: asTextArray },
-    tripplet_lesson:     { cast: null },
     associatedSnippet:   { cast: 'int' },
     order:               { cast: 'int' },
     relatedTopic:        { cast: 'text[]',   transform: asTextArray },
@@ -1986,7 +2251,7 @@ app.patch('/lesson-skills/:id', async (req, res) => {
   const sql = `UPDATE "Snippets" SET ${sets.join(', ')} WHERE "id" = $${params.length}
                RETURNING "id","name",
                          COALESCE(TO_JSON("keyWords"), '[]'::json)             AS "keyWords",
-                         "tripplet_lesson","associatedSnippet","order",
+                         "associatedSnippet","order",
                          COALESCE(TO_JSON("relatedTopic"), '[]'::json)         AS "relatedTopic",
                          COALESCE(TO_JSON("lessons_in_tripplets"), '[]'::json) AS "lessons_in_tripplets",
                          COALESCE(TO_JSON("associatedSnippets"), '[]'::json)   AS "associatedSnippets",
@@ -2004,7 +2269,7 @@ app.patch('/lesson-skills/:id', async (req, res) => {
 /**
  * POST /lesson-skills
  * Creates a new Snippets row. Body may contain any editable field; if `triplet`
- * is provided it will be used to prefill tripplet_lesson/lessons_in_tripplets.
+ * is provided it will be used to prefill lessons_in_tripplets.
  */
 app.post('/lesson-skills', async (req, res) => {
   const body = req.body || {};
@@ -2012,16 +2277,15 @@ app.post('/lesson-skills', async (req, res) => {
   const asIntArray  = (v) => Array.isArray(v) ? v.map(n=>parseInt(n,10)).filter(n=>Number.isInteger(n))
                                              : (typeof v === 'string' ? v.split(',').map(s=>parseInt(s.trim(),10)).filter(n=>Number.isInteger(n)) : []);
 
-  const triplet = body.triplet || body.tripplet_lesson || null;
+  const triplet = body.triplet || null;
 
   const cols = [
-    'name','keyWords','tripplet_lesson','associatedSnippet','order',
+    'name','keyWords','associatedSnippet','order',
     'relatedTopic','lessons_in_tripplets','associatedSnippets','uslovie','class'
   ];
   const vals = {
     name: body.name ?? null,
     keyWords: asTextArray(body.keyWords),
-    tripplet_lesson: triplet ?? null,
     associatedSnippet: (body.associatedSnippet != null ? parseInt(body.associatedSnippet,10) : null),
     order: (body.order != null ? parseInt(body.order,10) : null),
     relatedTopic: asTextArray(body.relatedTopic),
@@ -2047,7 +2311,7 @@ app.post('/lesson-skills', async (req, res) => {
                VALUES (${placeholders.join(', ')})
                RETURNING "id","name",
                          COALESCE(TO_JSON("keyWords"), '[]'::json)             AS "keyWords",
-                         "tripplet_lesson","associatedSnippet","order",
+                         "associatedSnippet","order",
                          COALESCE(TO_JSON("relatedTopic"), '[]'::json)         AS "relatedTopic",
                          COALESCE(TO_JSON("lessons_in_tripplets"), '[]'::json) AS "lessons_in_tripplets",
                          COALESCE(TO_JSON("associatedSnippets"), '[]'::json)   AS "associatedSnippets",
@@ -4154,17 +4418,293 @@ app.get('/api/scheduleentries/:term', async (req, res) => {
     });
   }
 
-    const { rows } = await client.query(
-      `select term, weekday, start_time, end_time, subject, recurrence, week_parity
-       from scheduleentries
-       where term = $1
+      const { rows } = await client.query(
+      `
+      select term, weekday, start_time, end_time, subject, recurrence, week_parity, ordernumber
+      from scheduleentries
+      where term = $1
+      order by
+        case lower(trim(weekday))
+          when 'monday' then 1
+          when 'tuesday' then 2
+          when 'wednesday' then 3
+          when 'thursday' then 4
+          when 'friday' then 5
+          when 'saturday' then 6
+          when 'sunday' then 7
+          else 99
+        end,
+        ordernumber::int asc nulls last,
+        start_time asc
       `,
       [term]
     );
 
     res.json(rows);
-  
+      
 });
 
 
+// currentSchedule – list distributions per class
+app.get('/api/current-schedule', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `
+      SELECT
+        id,
+        "class",
+        "division",
+        "razpredelenie",
+        "term",
+        "bothTerms"
+      FROM "currentSchedule"
+      ORDER BY
+        "class" ASC,
+        "division" ASC,
+        "term" ASC,
+        id ASC
+      `
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error('GET /api/current-schedule failed:', err);
+    res.status(500).json({ error: 'Failed to load currentSchedule' });
+  }
+});
+
+// Build ordered topics map from currentSchedule + distributions for generator.js to use 
+app.get('/api/distributions/topics-map', async (req, res) => {
+  try {
+    const { buildTopicsMapFromCurrentSchedule } =
+      require('./public/schedule/generator/raz_parser');
+
+    const result = await buildTopicsMapFromCurrentSchedule({
+      baseUrl: 'http://localhost:3001',
+    });
+
+    res.json(result.obj); // plain object, готов за браузъра
+  } catch (e) {
+    console.error('GET /api/distributions/topics-map failed:', e);
+    res.status(500).json({ error: 'Failed to build topics map' });
+  }
+});
+
+// distributionprogress – progress per distribution file (without years)
+app.get('/api/distributionprogress', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `
+      SELECT
+        id,
+        "class",
+        "division",
+        "file",
+        "next_index"
+      FROM "distributionprogress"
+      ORDER BY
+        "class" ASC,
+        "division" ASC,
+        "file" ASC,
+        id ASC
+      `
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error('GET /api/distributionprogress failed:', err);
+    res.status(500).json({ error: 'Failed to load distributionprogress' });
+  }
+});
+
+app.patch('/api/distributionprogress', async (req, res) => {
+  const updates = req.body; // array of { class, division, file, next_index }
+
+  if (!Array.isArray(updates)) {
+    return res.status(400).json({ error: 'Expected array payload' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    for (const row of updates) {
+      const { class: cls, division, file, next_index } = row;
+      if (cls == null || !file) continue;
+
+      await client.query(
+        `
+        UPDATE distributionprogress
+           SET next_index = $1
+         WHERE class = $2
+           AND division = $3
+           AND file = $4
+        `,
+        [next_index, cls, division ?? '', file]
+      );
+    }
+
+    await client.query('COMMIT');
+    res.json({ ok: true, updated: updates.length });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('distributionprogress update failed:', e);
+    res.status(500).json({ error: 'Failed to update distributionprogress' });
+  } finally {
+    client.release();
+  }
+});
+
+
+app.get('/api/generation/check-existing', async (req, res) => {
+  try {
+    const [{ count: gyp }, { count: dp }] = await Promise.all([
+      pool.query('SELECT COUNT(*)::int AS count FROM generatedyearplan')
+        .then(r => r.rows[0]),
+      pool.query('SELECT COUNT(*)::int AS count FROM distributionprogress')
+        .then(r => r.rows[0]),
+    ]);
+
+    res.json({
+      generatedyearplan: gyp,
+      distributionprogress: dp,
+      hasAny: gyp > 0 || dp > 0,
+    });
+  } catch (err) {
+    console.error('check-existing failed:', err);
+    res.status(500).json({ error: 'check-existing failed' });
+  }
+});
+
+
+app.post('/api/generation/reset', async (req, res) => {
+  const wipeGeneratedYearPlan = !!req.body?.wipeGeneratedYearPlan;
+  const wipeDistributionProgress = !!req.body?.wipeDistributionProgress;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    if (wipeGeneratedYearPlan) {
+      await client.query('DELETE FROM generatedyearplan');
+    }
+    if (wipeDistributionProgress) {
+      await client.query('DELETE FROM distributionprogress');
+    }
+
+    await client.query('COMMIT');
+    res.json({ ok: true, wiped: { generatedyearplan: wipeGeneratedYearPlan, distributionprogress: wipeDistributionProgress } });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('generation/reset failed:', err);
+    res.status(500).json({ error: 'reset failed' });
+  } finally {
+    client.release();
+  }
+});
+
+app.post('/api/distributionprogress/bulk', async (req, res) => {
+  const rows = Array.isArray(req.body) ? req.body : [];
+
+  if (rows.length === 0) {
+    return res.json({ ok: true, inserted: 0 });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    let inserted = 0;
+
+    for (const r of rows) {
+      const cls = Number(r.class);
+      const div = r.division ?? '';
+      const file = r.file;
+      const nextIndex = Number(r.next_index ?? 0);
+
+      if (!cls || !file) continue;
+
+      await client.query(
+        `
+        INSERT INTO distributionprogress ("class","division","file","next_index")
+        VALUES ($1,$2,$3,$4)
+        ON CONFLICT ON CONSTRAINT distributionprogress_uniq
+        DO UPDATE SET next_index = EXCLUDED.next_index;
+        `,
+        [cls, div, file, nextIndex]
+      );
+
+      inserted++;
+    }
+
+    await client.query('COMMIT');
+    res.json({ ok: true, inserted });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('distributionprogress bulk failed:', err);
+    res.status(500).json({ error: 'distributionprogress bulk failed' });
+  } finally {
+    client.release();
+  }
+});
+app.post('/api/generatedyearplan/bulk', async (req, res) => {
+  const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+
+  if (rows.length === 0) {
+    return res.status(400).json({ error: 'Expected { rows: [...] }' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const q = `
+      INSERT INTO "generatedyearplan" (
+        "week_number","date","weekday","start_time","end_time","subject",
+        "unit","sectioninfo","unitetype","notes","duration","is_module","term",
+        "fixedDate","indexInFile"
+      ) VALUES (
+        $1::int,$2::date,$3::text,$4::time,$5::time,$6::text,
+        $7::text,$8::text,$9::text,$10::text,$11::int,$12::boolean,$13::int,
+        $14::boolean,$15::int
+      )
+    `;
+
+    let inserted = 0;
+
+    for (const r of rows) {
+      if (!r?.date || !r?.start_time || !r?.end_time || !r?.subject) continue;
+
+      await client.query(q, [
+        r.week_number ?? null,
+        r.date,
+        r.weekday ?? null,
+        r.start_time,
+        r.end_time,
+        r.subject,
+        r.unit ?? null,
+        (r.sectioninfo == null ? null : String(r.sectioninfo)),
+        r.unitetype ?? null,
+        r.notes ?? null,
+        r.duration ?? null,
+        !!r.is_module,
+        r.term ?? null,
+        !!r.fixedDate,
+        r.indexInFile ?? null,
+      ]);
+
+      inserted++;
+    }
+
+    await client.query('COMMIT');
+    res.json({ ok: true, inserted });
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch {}
+    console.error('POST /api/generatedyearplan/bulk failed:', err);
+    res.status(500).json({ error: 'Failed to insert generatedyearplan' });
+  } finally {
+    client.release();
+  }
+});
 ///// -- end of scheduler
+
