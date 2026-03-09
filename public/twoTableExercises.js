@@ -407,6 +407,38 @@ const leftBody = byId('leftBody');
 // Define with safe fallbacks so missing elements won't break the page
 const rightInput = byId('rightSearchInput') || null;
 const rightBtn = byId('rightSearchBtn') || { addEventListener: () => { } };
+const rightRidInput = byId('rightRidInput') || null;
+const rightPageInput = byId('rightPageInput') || null;
+const rightSearchRidBtn = byId('rightSearchRidBtn') || { addEventListener: () => { } };
+const rightTabSnippet = byId('rightTabSnippet') || null;
+const rightTabRid = byId('rightTabRid') || null;
+const rightModeSnippet = byId('rightModeSnippet') || null;
+const rightModeRid = byId('rightModeRid') || null;
+// --- Right search tab switcher ---
+function setRightSearchMode(mode){
+  // mode: 'snippet' | 'rid'
+  try { sessionStorage.setItem('aw2::rightSearchMode', mode); } catch(_){ }
+
+  if (rightTabSnippet){
+    rightTabSnippet.classList.toggle('is-active', mode === 'snippet');
+    rightTabSnippet.setAttribute('aria-selected', mode === 'snippet' ? 'true' : 'false');
+  }
+  if (rightTabRid){
+    rightTabRid.classList.toggle('is-active', mode === 'rid');
+    rightTabRid.setAttribute('aria-selected', mode === 'rid' ? 'true' : 'false');
+  }
+  if (rightModeSnippet) rightModeSnippet.classList.toggle('is-active', mode === 'snippet');
+  if (rightModeRid) rightModeRid.classList.toggle('is-active', mode === 'rid');
+}
+
+function restoreRightSearchMode(){
+  var mode = 'snippet';
+  try {
+    var raw = sessionStorage.getItem('aw2::rightSearchMode');
+    if (raw === 'rid' || raw === 'snippet') mode = raw;
+  } catch(_){ }
+  setRightSearchMode(mode);
+}
 let rightHeadEl = byId('rightHead');
 if (!rightHeadEl) rightHeadEl = document.createElement('tr');
 let rightBodyEl = byId('rightBody');
@@ -416,8 +448,7 @@ function setRightHeadVisible(visible) {
     if (!rightHeadEl) return;
     rightHeadEl.style.display = visible ? '' : 'none';
     rightHeadEl.innerHTML = visible
-        ? '<th>RID</th><th>Page</th><th>№</th><th>Свързан snippet</th><th>Бележки</th>'
-        : '';
+? '<th style="width:64px"></th><th>RID</th><th>Page</th><th>№</th><th>Свързан snippet</th><th>Бележки</th>'        : '';
 }
 
 function renderRightRows(rows) {
@@ -434,13 +465,21 @@ function renderRightRows(rows) {
         var num = (r.number ?? r.Number ?? '');
         var rel = (r.relatedSnippet ?? r.relatedsnippet ?? '');
         var com = (r.comments ?? '');
+        var addCell = '<td class="add-cell" title="Добави задача">'
+                        + '<button class="circle-btn circle-btn--all" data-action="add-all" data-r="' + escapeHtml(String(rid)) + '" data-p="' + escapeHtml(String(page)) + '" data-n="' + escapeHtml(String(num)) + '" title="Добави за всички">A</button>'
+                        + '<button class="circle-btn circle-btn--one" data-action="add-one" data-r="' + escapeHtml(String(rid)) + '" data-p="' + escapeHtml(String(page)) + '" data-n="' + escapeHtml(String(num)) + '" title="Добави за този ученик">+</button>'
+                        + '</td>';
+                        
         return '<tr>'
-            + '<td>' + escapeHtml(String(rid)) + '</td>'
-            + '<td>' + escapeHtml(String(page)) + '</td>'
-            + '<td>' + escapeHtml(String(num)) + '</td>'
-            + '<td>' + escapeHtml(String(rel)) + '</td>'
-            + '<td>' + escapeHtml(String(com)) + '</td>'
-            + '</tr>';
+                        + addCell
+                        + '<td>' + escapeHtml(String(rid)) + '</td>'
+                        + '<td>' + escapeHtml(String(page)) + '</td>'
+                        + '<td>' + escapeHtml(String(num)) + '</td>'
+                        + '<td>' + escapeHtml(String(rel)) + '</td>'
+                        + '<td>' + escapeHtml(String(com)) + '</td>'
+                        + '</tr>'; 
+
+                        
     }).join('');
 }
 
@@ -462,15 +501,32 @@ function doRightSearch() {
         .catch(() => renderRightRows([]));
 }
 
+function doRightSearchByRidPage(){
+  const ridRaw = (rightRidInput && rightRidInput.value) ? String(rightRidInput.value).trim() : '';
+  const pageRaw = (rightPageInput && rightPageInput.value) ? String(rightPageInput.value).trim() : '';
+
+  const rid = ridRaw ? parseInt(ridRaw, 10) : null;
+  const page = pageRaw ? parseInt(pageRaw, 10) : null;
+
+  if (!Number.isInteger(rid) || !Number.isInteger(page)) {
+    renderRightRows([]);
+    return;
+  }
+
+  fetch('/exercises-rel/search-by-rid-page?rid=' + encodeURIComponent(String(rid)) + '&page=' + encodeURIComponent(String(page)))
+    .then(r => r.ok ? r.json() : Promise.reject(r))
+    .then(rows => renderRightRows(Array.isArray(rows) ? rows : []))
+    .catch(() => renderRightRows([]));
+}
+
 // Build normalized task object for relationship triple (resource-page-number)
 function buildRelTask(resource, page, number) {
     const r = parseInt(resource, 10) || 0;
     const p = parseInt(page, 10) || 0;
-    const n = parseInt(number, 10) || 0;
+    const n = (number == null ? '' : String(number).trim());
     const key = 'rel:' + r + '-' + p + '-' + n;
     return { key, kind: 'exercise', resource: r, page: p, number: n, label: (r + '-' + p + '-' + n) };
 }
-
 // Delegate clicks from right result rows for Add All / Add One + push to undo history
 if (rightBodyEl) {
     rightBodyEl.addEventListener('click', function (ev) {
@@ -520,6 +576,19 @@ if (rightBodyEl) {
 // Bind handlers for right search
 if (rightBtn) rightBtn.addEventListener('click', doRightSearch);
 if (rightInput) rightInput.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') doRightSearch(); });
+if (rightSearchRidBtn) rightSearchRidBtn.addEventListener('click', doRightSearchByRidPage);
+if (rightRidInput) rightRidInput.addEventListener('keydown', function(ev){ if (ev.key === 'Enter') doRightSearchByRidPage(); });
+if (rightPageInput) rightPageInput.addEventListener('keydown', function(ev){ if (ev.key === 'Enter') doRightSearchByRidPage(); });
+
+// Tabs: switch between snippet search and RID+Page search
+function wireRightTabs(){
+  if (rightTabSnippet) rightTabSnippet.addEventListener('click', function(){ setRightSearchMode('snippet'); });
+  if (rightTabRid) rightTabRid.addEventListener('click', function(){ setRightSearchMode('rid'); });
+  restoreRightSearchMode();
+}
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wireRightTabs);
+else wireRightTabs();
 
 function setLeftHeadVisible(visible) {
     if (!leftHead) return;

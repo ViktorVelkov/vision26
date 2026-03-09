@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Exercises Visualizer</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f4f6f8;
+      color: #1f2937;
+    }
+    .wrap {
+      max-width: 1280px;
+      margin: 28px auto;
+      padding: 0 16px 32px;
+    }
+    h1 {
+      margin: 0 0 18px;
+      font-size: 30px;
+    }
+    .panel {
+      background: #fff;
+      border: 1px solid #d8dee6;
+      border-radius: 14px;
+      padding: 18px;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.04);
+    }
+    .toggle-wrap {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+    .mode-btn {
+      height: 40px;
+      padding: 0 14px;
+      border: 1px solid #cbd5e1;
+      border-radius: 999px;
+      background: #eef2f7;
+      color: #111827;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .mode-btn.active {
+      background: #111827;
+      color: #fff;
+      border-color: #111827;
+    }
+    .field.hidden {
+      display: none;
+    }
+    .toolbar {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(120px, 1fr));
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .field label {
+      font-size: 13px;
+      font-weight: 700;
+      color: #374151;
+    }
+    .field input,
+    .field select {
+      width: 100%;
+      height: 40px;
+      padding: 8px 10px;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      background: #fff;
+      font-size: 14px;
+    }
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    button {
+      height: 40px;
+      padding: 0 14px;
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    #searchBtn,
+    #loadBtn {
+      background: #111827;
+      color: #fff;
+    }
+    #clearBtn {
+      background: #e5e7eb;
+      color: #111827;
+    }
+    #status {
+      min-height: 22px;
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+    #status.error { color: #b42318; }
+    #status.success { color: #166534; }
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      background: #fff;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 1400px;
+    }
+    tbody tr {
+      height: 34px;
+    }
+    tbody tr.result-row {
+      cursor: pointer;
+      user-select: none;
+    }
+    tbody tr.result-row:hover {
+      background: #f8fafc;
+    }
+    tbody tr.result-row.selected {
+      background: #dbeafe;
+    }
+    th, td {
+      border-bottom: 1px solid #e5e7eb;
+      padding: 4px 8px;
+      text-align: left;
+      vertical-align: middle;
+      font-size: 13px;
+      line-height: 1.2;
+      height: 34px;
+      max-height: 34px;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      background: #f8fafc;
+      color: #475569;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      z-index: 1;
+    }
+    .mono {
+      font-family: Menlo, Monaco, Consolas, monospace;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 12px;
+    }
+    .muted {
+      color: #6b7280;
+    }
+    .preview-panel {
+      margin-top: 14px;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      background: #fff;
+      padding: 14px;
+    }
+    .preview-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+    .preview-card {
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      background: #f8fafc;
+      padding: 12px;
+      min-height: 320px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .preview-card h3 {
+      margin: 0;
+      font-size: 15px;
+    }
+    .preview-path {
+      font-size: 12px;
+      color: #475569;
+      word-break: break-word;
+    }
+    .preview-frame {
+      width: 100%;
+      height: 520px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      background: #fff;
+    }
+    .preview-image {
+      width: 100%;
+      max-height: 520px;
+      object-fit: contain;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      background: #fff;
+    }
+    .preview-fallback {
+      padding: 14px;
+      border: 1px dashed #cbd5e1;
+      border-radius: 8px;
+      background: #fff;
+      color: #475569;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    .preview-link {
+      color: #1d4ed8;
+      text-decoration: none;
+      font-weight: 700;
+    }
+    .preview-link:hover {
+      text-decoration: underline;
+    }
+    @media (max-width: 980px) {
+      .toolbar {
+        grid-template-columns: repeat(2, minmax(120px, 1fr));
+      }
+      .preview-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Exercises Visualizer</h1>
+
+    <div class="panel">
+      <div class="toggle-wrap">
+        <button id="modeIdBtn" class="mode-btn active" type="button" data-mode="id">Търсене по ID</button>
+        <button id="modeCompositeBtn" class="mode-btn" type="button" data-mode="composite">Търсене по Resource / Page / Number</button>
+      </div>
+      <div class="toolbar">
+        <div class="field" id="idFieldWrap">
+          <label for="idFilter">ID</label>
+          <input id="idFilter" type="number" min="1" placeholder="например 25" />
+        </div>
+        <div class="field" id="numberFieldWrap">
+          <label for="numberFilter">Number (частично)</label>
+          <input id="numberFilter" type="text" placeholder="например 2а" />
+        </div>
+        <div class="field" id="pageFieldWrap">
+          <label for="pageFilter">Page</label>
+          <input id="pageFilter" type="number" min="1" placeholder="например 14" />
+        </div>
+        <div class="field" id="resourceFieldWrap">
+          <label for="resourceFilter">ResourceID</label>
+          <input id="resourceFilter" type="number" min="1" placeholder="например 27" />
+        </div>
+        <div class="field">
+          <label for="limitSelect">Лимит</label>
+          <select id="limitSelect">
+            <option value="25">25</option>
+            <option value="50" selected>50</option>
+            <option value="100">100</option>
+            <option value="200">200</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="muted" style="margin-bottom: 12px; font-size: 13px;">В този режим можеш да търсиш по ResourceID, Page и Number поотделно или в комбинация. Всички полета са по желание.</div>
+      <div class="actions">
+        <button id="searchBtn" type="button">Търси</button>
+        <button id="clearBtn" type="button">Изчисти</button>
+      </div>
+
+      <div id="status"></div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Number</th>
+              <th>Page</th>
+              <th>ResourceID</th>
+              <th>difficulty</th>
+              <th>date_last_solvec</th>
+              <th>for_revision</th>
+              <th>has_assignment</th>
+              <th>has_solution</th>
+              <th>comments</th>
+              <th>multiple_solution</th>
+              <th>text_filepath</th>
+              <th>solution_filepath</th>
+              <th>tuple_key</th>
+              <th>topic</th>
+              <th>keyWords</th>
+              <th>secondarySolutions</th>
+            </tr>
+          </thead>
+          <tbody id="resultsBody">
+            <tr>
+              <td colspan="17" class="muted">Няма заредени данни.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="preview-panel">
+        <div class="preview-grid">
+          <div class="preview-card">
+            <h3>Условие</h3>
+            <div id="textPathLabel" class="preview-path muted">Няма избран ред.</div>
+            <div id="textPreview" class="preview-fallback">Маркирай ред, за да се визуализира файлът за условието.</div>
+          </div>
+
+          <div class="preview-card">
+            <h3>Решение</h3>
+            <div id="solutionPathLabel" class="preview-path muted">Няма избран ред.</div>
+            <div id="solutionPreview" class="preview-fallback">Маркирай ред, за да се визуализира файлът за решението.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="./exe_center.js"></script>
+</body>
+</html>

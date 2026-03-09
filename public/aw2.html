@@ -133,6 +133,21 @@
         .muted-note{color:#9aa0a6;font-style:italic}
         .task-controls{display:flex;align-items:center;gap:12px;margin-left:auto}
         .task-rating{display:inline-flex;gap:6px;align-items:center}
+          /* --- Inactive (future) left search table --- */
+          .scol.is-inactive {
+            background: #fef2f2;           /* pale red */
+            border-color: #fecaca;
+          }
+          .scol.is-inactive header,
+          .scol.is-inactive .result-box {
+            opacity: 0.7;
+          }
+          .scol.is-inactive .inactive-note {
+            margin-top: 6px;
+            font-size: 0.8rem;
+            color: #b91c1c;
+            font-style: italic;
+          }
           </style>
 </head>
       <body>
@@ -161,7 +176,7 @@
             <span class="sp-title small">Задачи</span>
           </div>
           <section class="search-row" id="assessmentSearchRow">
-            <div class="scol" id="leftSearchCol">
+            <div class="scol is-inactive" id="leftSearchCol">
               <header>
                 <input id="leftSearchInput" type="text" placeholder="Търси… (по код)">
                 <button id="leftSearchBtn" class="btn btn--ghost">Търси</button>
@@ -172,12 +187,26 @@
                   <tbody id="leftBody"><tr><td class="muted">Няма резултати</td></tr></tbody>
                 </table>
               </div>
+              <div class="inactive-note">Внимание, не се използва!</div>
             </div>
 
             <div class="scol" id="rightSearchCol">
-              <header>
-                <input id="rightSearchInput" type="text" placeholder="Търси… (по snippets)">
-                <button id="rightSearchBtn" class="btn">Търси</button>
+              <header style="flex-wrap:wrap">
+                <div style="display:flex;gap:8px;align-items:center;width:100%">
+                  <button id="rightTabSnippets" class="btn" type="button" style="padding:6px 10px">По snippet</button>
+                  <button id="rightTabRidPage" class="btn btn--ghost" type="button" style="padding:6px 10px">По RID + Page</button>
+                </div>
+
+                <div id="rightSearchModeSnippets" style="display:flex;gap:8px;align-items:center;width:100%">
+                  <input id="rightSearchInput" type="text" placeholder="Търси… (по snippets)">
+                  <button id="rightSearchBtn" class="btn" type="button">Търси</button>
+                </div>
+
+                <div id="rightSearchModeRidPage" style="display:none;gap:8px;align-items:center;width:100%">
+                  <input id="rightRidInput" type="text" placeholder="RID" style="max-width:90px">
+                  <input id="rightPageInput" type="text" placeholder="Page" style="max-width:90px">
+                  <button id="rightSearchRidBtn" class="btn btn--ghost" type="button" title="Търси по RID + Page">Търси</button>
+                </div>
               </header>
               <div class="result-box">
                 <table class="mini-table" id="rightResultsTable">
@@ -255,6 +284,50 @@
 <script src="sesStorage_assessment.js"></script>
 <script src="generalComment.js"></script>
 <script src="twoTableExercises.js"></script>
+<script>
+// UI only: tabs to switch between the two right-side search modes (snippets vs RID+Page)
+(function(){
+  var SS_KEY = 'aw2::rightSearchMode'; // 'snippets' | 'ridpage'
+
+  function byId(id){ return document.getElementById(id); }
+
+  function setMode(mode){
+    var tabS = byId('rightTabSnippets');
+    var tabR = byId('rightTabRidPage');
+    var boxS = byId('rightSearchModeSnippets');
+    var boxR = byId('rightSearchModeRidPage');
+
+    var isSn = (mode !== 'ridpage');
+
+    if (boxS) boxS.style.display = isSn ? 'flex' : 'none';
+    if (boxR) boxR.style.display = isSn ? 'none' : 'flex';
+
+    if (tabS) tabS.className = isSn ? 'btn' : 'btn btn--ghost';
+    if (tabR) tabR.className = isSn ? 'btn btn--ghost' : 'btn';
+
+    try{ sessionStorage.setItem(SS_KEY, isSn ? 'snippets' : 'ridpage'); }catch(_){ }
+  }
+
+  function init(){
+    var tabS = byId('rightTabSnippets');
+    var tabR = byId('rightTabRidPage');
+
+    var mode = 'snippets';
+    try{
+      var saved = sessionStorage.getItem(SS_KEY);
+      if (saved === 'ridpage') mode = 'ridpage';
+    }catch(_){ }
+
+    setMode(mode);
+
+    if (tabS) tabS.addEventListener('click', function(){ setMode('snippets'); });
+    if (tabR) tabR.addEventListener('click', function(){ setMode('ridpage'); });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
 <script src="submitAsmt.js"></script>
 <script>
 (function(){
@@ -498,107 +571,8 @@
 })();
 </script>
 <script>
-// --- Remap assessment skills from legacy Snippets IDs (ref_id) to KeySkills IDs ---
-// The assessment UI historically used Snippets.id as the identifier.
-// Now KeySkills is the authoritative table. We map by KeySkills.ref_id -> Snippets.id.
-(function(){
-async function fetchKeySkillsByTriplet(){
-  try{
-    var trip = (window.TRIPLET == null) ? '' : String(window.TRIPLET).trim();
-
-    // Prefer lessonId passed in URL (?lessonId=8 or ?lesson_id=8)
-    var sp = new URLSearchParams(window.location.search || '');
-    var lidRaw = (sp.get('lessonId') || sp.get('lesson_id') || '').trim();
-    var lid = lidRaw ? parseInt(lidRaw, 10) : null;
-    if (!Number.isInteger(lid) && Number.isInteger(window.CURRENT_LESSON_ID)) lid = window.CURRENT_LESSON_ID;
-
-    var url = '';
-    if (Number.isInteger(lid)) url = '/keyskills?lessonId=' + encodeURIComponent(String(lid));
-    else if (trip) url = '/keyskills?lessonCode=' + encodeURIComponent(trip);
-    else return [];
-
-    var resp = await fetch(url);
-    if (!resp.ok) return [];
-    var rows = await resp.json();
-    return Array.isArray(rows) ? rows : [];
-  }catch(e){
-    console.warn('[aw2] keyskills fetch failed', e);
-    return [];
-  }
-}
-  function applyMapping(rows){
-    // map legacy snippet-id -> keyskill row
-    var byRef = new Map();
-    rows.forEach(function(r){
-      var ref = (r && r.ref_id != null) ? String(r.ref_id).trim() : '';
-      var kid = (r && r.id != null) ? String(r.id).trim() : '';
-      if (!ref || !kid) return;
-      byRef.set(ref, r);
-    });
-
-    // Update each rendered skill row
-    var list = document.getElementById('skillsList');
-    if (!list) return;
-
-    var items = list.querySelectorAll('li');
-    items.forEach(function(li){
-      // rating keeps the identifier
-      var rating = li.querySelector('.rating[data-snippet-id]');
-      if (!rating) return;
-
-      var legacy = String(rating.getAttribute('data-snippet-id') || '').trim();
-      if (!legacy) return;
-
-      var ks = byRef.get(legacy);
-      if (!ks) return;
-
-      // Update the visible label text
-      var nameEl = li.querySelector('.sk-name');
-      if (nameEl){
-        // Try to preserve the existing format "Name (ID X)"
-        var nm = (ks.name == null) ? '' : String(ks.name);
-        nameEl.textContent = nm + ' (ID ' + String(ks.id) + ')';
-      }
-
-      // Switch the identifier to KeySkills.ID for all downstream logic (submit etc.)
-      rating.setAttribute('data-old-snippet-id', legacy);
-      rating.setAttribute('data-snippet-id', String(ks.id));
-
-      // Mark as keyskill so downstream code can distinguish if needed
-      rating.setAttribute('data-component-type', 'keyskill');
-    });
-  }
-
-  function onceReady(fn){
-    if (document.readyState === 'complete' || document.readyState === 'interactive') return fn();
-    document.addEventListener('DOMContentLoaded', fn);
-  }
-
-  onceReady(function(){
-    // Wait a tick because other scripts render the list asynchronously
-    setTimeout(async function(){
-      var rows = await fetchKeySkillsByTriplet();
-      if (!rows.length) return;
-
-      // Apply now
-      applyMapping(rows);
-
-      // Also re-apply if the student card switches and the list re-renders
-      try{
-        var target = document.getElementById('skillsList');
-        if (!target || !window.MutationObserver) return;
-        var mo = new MutationObserver(function(){
-          applyMapping(rows);
-        });
-        mo.observe(target, { childList:true, subtree:true });
-      }catch(_){ }
-    }, 50);
-  });
-})();
-</script>
-<script>
-// --- Fallback: render skills directly from KeySkills when legacy Snippets rows are missing ---
-// If the list is empty (no .rating[data-snippet-id]), we fetch KeySkills for the current lesson and build the DOM.
+// --- Authoritative: render assessment skills from KeySkills for the current lesson ---
+// This overrides any legacy Snippets-based skill list to avoid ID/name mismatches.
 (function(){
   function getLessonId(){
     try{
@@ -610,24 +584,16 @@ async function fetchKeySkillsByTriplet(){
     }catch(_){ return null; }
   }
 
-  async function fetchKeySkills(){
-    var lid = getLessonId();
-    if (!Number.isInteger(lid)) return [];
+  async function fetchKeySkills(lid){
     try{
       var resp = await fetch('/keyskills?lessonId=' + encodeURIComponent(String(lid)));
       if (!resp.ok) return [];
       var rows = await resp.json();
       return Array.isArray(rows) ? rows : [];
     }catch(e){
-      console.warn('[aw2] fallback keyskills fetch failed', e);
+      console.warn('[aw2] keyskills fetch failed', e);
       return [];
     }
-  }
-
-  function listHasAnySkills(){
-    var list = document.getElementById('skillsList');
-    if (!list) return false;
-    return !!list.querySelector('.rating[data-snippet-id]');
   }
 
   function buildSkillLi(ks){
@@ -643,6 +609,7 @@ async function fetchKeySkillsByTriplet(){
 
     var rating = document.createElement('div');
     rating.className = 'rating';
+    // IMPORTANT: downstream submit logic reads data-snippet-id. We now store KeySkills.ID here.
     rating.setAttribute('data-snippet-id', String(ks.id));
     rating.setAttribute('data-component-type', 'keyskill');
 
@@ -661,43 +628,51 @@ async function fetchKeySkillsByTriplet(){
     return li;
   }
 
-  async function renderFallbackIfNeeded(){
+  async function renderFromKeySkills(){
     var list = document.getElementById('skillsList');
     if (!list) return;
 
-    // Wait for legacy renderer first; if it produced skills, do nothing.
-    if (listHasAnySkills()) return;
+    var lid = getLessonId();
+    if (!Number.isInteger(lid)) return; // keep legacy behavior if lessonId is missing
 
-    var rows = await fetchKeySkills();
-    if (!rows.length) {
-      if (!list.textContent.trim()) list.textContent = 'Няма умения';
+    var rows = await fetchKeySkills(lid);
+    if (!rows.length){
+      list.innerHTML = '';
+      list.textContent = 'Няма умения';
       return;
     }
 
+    // Override legacy content
     list.innerHTML = '';
     rows.forEach(function(ks){
       if (!ks || ks.id == null) return;
       list.appendChild(buildSkillLi(ks));
     });
 
-    // Let other scripts react (sesStorage_assessment / inline notes)
+    // Let other scripts react (session storage, inline notes, etc.)
     try{ list.dispatchEvent(new Event('skillsRendered')); }catch(_){ }
   }
 
-  function schedule(){
-    // small delay to allow listOfStudentsAndSnippets.js to render first
-    setTimeout(renderFallbackIfNeeded, 120);
+  function onceReady(fn){
+    if (document.readyState === 'complete' || document.readyState === 'interactive') return fn();
+    document.addEventListener('DOMContentLoaded', fn);
   }
 
-  document.addEventListener('DOMContentLoaded', function(){
-    schedule();
+  onceReady(function(){
+    // small delay so the page has time to mount
+    setTimeout(renderFromKeySkills, 60);
 
-    // Robust if something re-renders the list
-    var list = document.getElementById('skillsList');
-    if (list && window.MutationObserver){
-      var mo = new MutationObserver(function(){ schedule(); });
-      mo.observe(list, { childList:true, subtree:true });
-    }
+    // If something re-renders the list later, force it back to KeySkills.
+    try{
+      var list = document.getElementById('skillsList');
+      if (list && window.MutationObserver){
+        var mo = new MutationObserver(function(){
+          // If legacy code re-injected snippet skills, override again
+          setTimeout(renderFromKeySkills, 0);
+        });
+        mo.observe(list, { childList:true, subtree:true });
+      }
+    }catch(_){ }
   });
 })();
 </script>

@@ -32,6 +32,16 @@
   var SCORES = loadScores();
   // expose live reference so other scripts (submit) can read it
 window.__SKILL_SCORES__ = SCORES;
+  function getComponentKeyFromRatingEl(ratingEl){
+    if (!ratingEl) return null;
+    // Prefer KeySkills / new attribute
+    var k = ratingEl.getAttribute('data-component-id');
+    if (k != null && String(k).trim() !== '') return String(k).trim();
+    // Back-compat: legacy attribute
+    var k2 = ratingEl.getAttribute('data-snippet-id');
+    if (k2 != null && String(k2).trim() !== '') return String(k2).trim();
+    return null;
+  }
   function getScore(sid, key){
     return (SCORES[sid] && typeof SCORES[sid][key] !== 'undefined') ? SCORES[sid][key] : null;
   }
@@ -97,9 +107,10 @@ window.__SKILL_SCORES__ = SCORES;
     return Array.from(union);
   }
   function collectAllSkillIds(){
-    var nodes = document.querySelectorAll('.rating[data-snippet-id]');
-    var ids = Array.prototype.map.call(nodes, function(n){ return n.getAttribute('data-snippet-id'); }).filter(Boolean);
-    // de-dup
+    var nodes = document.querySelectorAll('.rating');
+    var ids = Array.prototype.map.call(nodes, function(n){
+      return getComponentKeyFromRatingEl(n);
+    }).filter(Boolean);
     return Array.from(new Set(ids));
   }
   function seedScoresAllNulls(){
@@ -124,9 +135,10 @@ window.__SKILL_SCORES__ = SCORES;
     var ctx = getCurrentCard();
     if (!ctx.card || ctx.sid == null) return;
     var sid = ctx.sid;
-    var ratings = ctx.card.querySelectorAll('.rating[data-snippet-id]');
+    var ratings = ctx.card.querySelectorAll('.rating');
     ratings.forEach(function(r){
-      var key = r.getAttribute('data-snippet-id');
+      var key = getComponentKeyFromRatingEl(r);
+      if (!key) return;
       var saved = getScore(sid, key);
       r.querySelectorAll('.pill').forEach(function(p){ p.classList.remove('is-active'); });
       if (saved != null){
@@ -144,7 +156,7 @@ window.__SKILL_SCORES__ = SCORES;
       var t = ev.target;
       if (!t || !t.classList || !t.classList.contains('pill')) return;
       var rating = t.closest('.rating');
-      var key = rating ? rating.getAttribute('data-snippet-id') : null;
+      var key = getComponentKeyFromRatingEl(rating);
       if (!rating || !key) return;
       var v = parseInt(t.getAttribute('data-val'), 10);
       if (!Number.isFinite(v)) return;

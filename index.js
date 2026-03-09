@@ -3730,7 +3730,48 @@ app.get('/exercises-rel/search', async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+// Search relationships by RID (resource id) + page
+app.get('/exercises-rel/search-by-rid-page', async (req, res) => {
+  const ridRaw = (req.query.rid || '').trim();
+  const pageRaw = (req.query.page || '').trim();
 
+  const rid = ridRaw ? parseInt(ridRaw, 10) : null;
+  const page = pageRaw ? parseInt(pageRaw, 10) : null;
+
+  if (!Number.isInteger(rid) || !Number.isInteger(page)) return res.json([]);
+
+  // Optional: allow filtering by number too (if provided). Number is TEXT in DB.
+  const numRaw = (req.query.number || '').trim();
+  const num = numRaw ? String(numRaw).trim() : '';
+
+  try {
+    let sql = `SELECT
+                 "ResourceID" AS "resource",
+                 "Number" AS "number",
+                 "Page" AS "page",
+                 NULL::integer AS "relatedSnippet",
+                 "comments" AS "comments",
+                 "ID" AS "exerciseID",
+                 "has_assignmentCondition",
+                 "has_solution"
+               FROM "Exercises"
+               WHERE "ResourceID" = $1 AND "Page" = $2`;
+    const params = [rid, page];
+
+    if (num) {
+      sql += ` AND "Number" = $3`;
+      params.push(num);
+    }
+
+    sql += ` ORDER BY "ResourceID", "Page", "ID" LIMIT 200`;
+
+    const { rows } = await pool.query(sql, params);
+    res.json(rows);
+  } catch (err) {
+    console.error('exercises-rel/search-by-rid-page failed:', err && err.stack ? err.stack : err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 // POST /assessment-log — запис в таблица "assesment_log"
 app.post('/assessment-log', async (req, res) => {
   const { class: rawClass, class_division, lesson_tripplet, className } = req.body || {};
@@ -3956,7 +3997,7 @@ app.get('/exercises/search', async (req, res) => {
                 "text_filepath","solution_filepath"
            FROM "Exercises"
           WHERE "ID" = $1
-          LIMIT 50`,
+          `,
         [parseInt(qRaw, 10)]
       );
       return res.json(rows);
@@ -3975,7 +4016,7 @@ app.get('/exercises/search', async (req, res) => {
            FROM "Exercises"
           WHERE ("ResourceID" = $1 AND "Page" = $2 AND "Number" = $3)
              OR ("Number" = $1 AND "Page" = $2 AND "ResourceID" = $3)
-          LIMIT 50`,
+          `,
         [a, b, c]
       );
       return res.json(rows);
@@ -3986,6 +4027,115 @@ app.get('/exercises/search', async (req, res) => {
   } catch (err) {
     console.error('exercises/search failed:', err);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Partial search by any combination of ResourceID / Page / Number
+app.get('/exercises', async (req, res) => {
+  try {
+    const resourceIdRaw = (req.query.resourceId || '').trim();
+    const pageRaw = (req.query.page || '').trim();
+    const numberRaw = (req.query.number || '').trim();
+    const limitRaw = parseInt(req.query.limit, 10);
+
+    const where = [];
+    const params = [];
+    let i = 1;
+
+    if (resourceIdRaw) {
+      const resourceId = parseInt(resourceIdRaw, 10);
+      if (!Number.isInteger(resourceId)) {
+        return res.status(400).json({ error: 'Invalid resourceId' });
+      }
+      where.push(`"ResourceID" = $${i++}`);
+      params.push(resourceId);
+    }
+
+    if (pageRaw) {
+      const page = parseInt(pageRaw, 10);
+      if (!Number.isInteger(page)) {
+        return res.status(400).json({ error: 'Invalid page' });
+      }
+      where.push(`"Page" = $${i++}`);
+      params.push(page);
+    }
+
+    if (numberRaw) {
+      where.push(`"Number" ILIKE $${i++}`);
+      params.push(`%${numberRaw}%`);
+    }
+
+    if (!where.length) {
+      return res.status(400).json({ error: 'At least one filter is required' });
+    }
+
+    const limit = Number.isInteger(limitRaw)
+      ? Math.min(Math.max(limitRaw, 1), 200)
+      : 50;
+
+    const sql = `
+      SELECT
+        "ID",
+        "Page",
+        "Number",
+        "ResourceID",
+        "difficulty",
+        "date_last_solved",
+        "for_revision",
+        "comments",
+        "has_solution",
+        "has_assignmentCondition",
+        "text_filepath",
+        "solution_filepath",
+        "topic",
+        "keyWords"
+      FROM "Exercises"
+      WHERE ${where.join(' AND ')}
+      ORDER BY "ID" DESC
+      LIMIT ${limit}
+    `;
+
+    const { rows } = await pool.query(sql, params);
+    return res.json(rows);
+  } catch (e) {
+    console.error('GET /exercises failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  }
+});
+
+// Lookup single exercise by ID for the visualizer
+app.get('/exercises/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
+
+    const { rows } = await pool.query(
+      `SELECT
+         "ID",
+         "Page",
+         "Number",
+         "ResourceID",
+         "difficulty",
+         "date_last_solved",
+         "for_revision",
+         "comments",
+         "has_solution",
+         "has_assignmentCondition",
+         "text_filepath",
+         "solution_filepath",
+         "topic",
+         "keyWords"
+       FROM "Exercises"
+       WHERE "ID" = $1
+       LIMIT 1`,
+      [id]
+    );
+
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    return res.json(rows[0]);
+  } catch (e) {
+    console.error('GET /exercises/:id failed:', e);
+    return res.status(500).json({ error: 'DB error' });
   }
 });
 
@@ -4704,6 +4854,17 @@ app.post('/api/generatedyearplan/bulk', async (req, res) => {
     res.status(500).json({ error: 'Failed to insert generatedyearplan' });
   } finally {
     client.release();
+  }
+});
+
+
+app.get('/api/holidays', (req, res) => {
+  try {
+    const p = path.join(__dirname, '..', 'holidays.txt'); // нагласи спрямо структурата ти
+    const txt = fs.readFileSync(p, 'utf8');
+    res.type('text/plain').send(txt);
+  } catch (e) {
+    res.status(404).type('text/plain').send('holidays.txt not found');
   }
 });
 ///// -- end of scheduler

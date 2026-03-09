@@ -15,6 +15,7 @@ if (typeof window === 'undefined') {
  *   - end_time:   'HH:MM' (or 'HH:MM:SS')
  *   - any other columns (subject, class, room, etc.) are carried through.
  * - termStart / termEnd: 'YYYY-MM-DD' (inclusive)
+ * - holidays: collection of 'YYYY-MM-DD' dates to skip (works in browser)
  *
  * Output:
  * - array of "instances" (one per actual lesson occurrence), each containing:
@@ -36,7 +37,10 @@ function isYmd(s) {
 }
 
 function loadHolidaysTxt(filePath) {
+  // Node-only helper (reads from filesystem).
+  // In the browser this returns empty Set.
   if (!fs || !path) return new Set();
+  if (!filePath) return new Set();
   const absPath = path.resolve(filePath);
   if (!fs.existsSync(absPath)) return new Set();
 
@@ -151,12 +155,22 @@ function combineDateAndTime(ymd, hhmm) {
  * @param {Array<Object>} args.rows - scheduleentries rows
  * @param {string} args.termStart - YYYY-MM-DD (inclusive)
  * @param {string} args.termEnd - YYYY-MM-DD (inclusive)
+ * @param {Array<string>|Set<string>} [args.holidays] - collection of 'YYYY-MM-DD' dates to skip (works in browser)
  * @param {('auto'|'zeroBased'|'oneBased')} [args.weekdayMode='auto'] - how to interpret numeric weekday
  * @param {number} [args.useRecurrence=0] - when 1, honors recurrence (WEEKLY/BIWEEKLY) + week_parity
  * @param {string} [args.weekIndexBase='termStart'] - (reserved) week counting base; currently termStart-based
  * @returns {Array<Object>} schedule instances
  */
-function generateSchedule({ rows, termStart, termEnd, weekdayMode = 'auto', holidaysPath, useRecurrence = 0, baseWeekParity = 1 }) {
+function generateSchedule({
+  rows,
+  termStart,
+  termEnd,
+  weekdayMode = 'auto',
+  holidaysPath,
+  holidays,
+  useRecurrence = 0,
+  baseWeekParity = 1
+}) {
   if (!Array.isArray(rows)) throw new Error('generateSchedule: rows must be an array');
   if (!isYmd(termStart) || !isYmd(termEnd)) {
     throw new Error('generateSchedule: termStart/termEnd must be YYYY-MM-DD');
@@ -239,7 +253,15 @@ function generateSchedule({ rows, termStart, termEnd, weekdayMode = 'auto', holi
     });
   }
 
-  const holidaySet = loadHolidaysTxt(holidaysPath) || new Set();
+  // Holidays can be provided directly (browser-friendly). Fallback to reading from filesystem (Node only).
+  let holidaySet = new Set();
+  if (holidays instanceof Set) {
+    holidaySet = holidays;
+  } else if (Array.isArray(holidays)) {
+    holidaySet = new Set(holidays.filter(isYmd));
+  } else {
+    holidaySet = loadHolidaysTxt(holidaysPath) || new Set();
+  }
   const out = [];
 
   for (let d = new Date(start.getTime()); d.getTime() <= end.getTime(); d = addDays(d, 1)) {

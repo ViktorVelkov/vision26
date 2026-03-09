@@ -1,12 +1,10 @@
-
-
 document.addEventListener("DOMContentLoaded", function(){
   const btn = document.getElementById("submitAssessBtn");
   if (!btn) return;
 
   btn.addEventListener("click", function(){
     // --- Lesson info ---
-    const lessonId = document.getElementById("lessonBadge")?.textContent || null;
+    const lessonId = (Number.isInteger(window.CURRENT_LESSON_ID) ? window.CURRENT_LESSON_ID : null);
     const triplet = window.TRIPLET || null;
     const className = window.CLASS_INFO?.className || null;
 
@@ -57,7 +55,11 @@ document.addEventListener("DOMContentLoaded", function(){
       //                  assessment (integer | null), comment (text | null), studentID (integer)
       function toIntOrNull(v){
         if (v === null || v === undefined || v === '') return null;
-        var n = parseInt(String(v).replace(/[^0-9]/g, ''), 10);
+        // Accept numbers, numeric strings, or badge text like "Lesson ID: 8"
+        if (typeof v === 'number' && Number.isFinite(v)) return v;
+        var m = String(v).match(/\d+/);
+        if (!m) return null;
+        var n = parseInt(m[0], 10);
         return Number.isFinite(n) ? n : null;
       }
       function normSid(sid){
@@ -66,7 +68,7 @@ document.addEventListener("DOMContentLoaded", function(){
 
       const rows = [];
 
-      // 1) Skills (snippets): from skillResults { sid: { skillId: {score, note} } }
+      // 1) Skills (KeySkills): from skillResults { sid: { keySkillId: {score, note} } }
       Object.keys(skillResults || {}).forEach(function(sid){
         const sidNum = normSid(sid);
         if (sidNum == null) return;
@@ -124,7 +126,7 @@ document.addEventListener("DOMContentLoaded", function(){
       fetch('/student-assessment-skills-exercises', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows })
+        body: JSON.stringify({ rows, lessonId })
       })
       .then(r => r.ok ? r.json() : r.text().then(t => Promise.reject(new Error(t))))
       .then(resp => {

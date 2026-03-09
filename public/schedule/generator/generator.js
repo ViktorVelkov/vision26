@@ -106,14 +106,23 @@ async function persistGeneratedYearPlan(assigned, term) {
     };
   });
 
-  const r = await fetch('/api/generatedyearplan/bulk', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ rows })
-  });
+  // Avoid 413 (Payload Too Large) by sending in batches.
+  // If you still hit 413, lower the batch size.
+  const BATCH_SIZE = 200;
 
-  if (!r.ok) {
-    throw new Error(await r.text());
+  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+    const batch = rows.slice(i, i + BATCH_SIZE);
+
+    const r = await fetch('/api/generatedyearplan/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rows: batch })
+    });
+
+    if (!r.ok) {
+      const txt = await r.text().catch(() => '');
+      throw new Error(`generatedyearplan/bulk failed (${r.status}): ${txt || r.statusText}`);
+    }
   }
 }
 
@@ -229,20 +238,9 @@ export async function generateScheduleWithTopicsFromApi(args) {
     wipeGeneratedYearPlan: !!args?.wipeGeneratedYearPlan,
     wipeDistributionProgress: !!args?.wipeDistributionProgress,
   });
+
   const slots = await generateScheduleFromApi(args);
-console.log('--- TEST: buildDistributionIndexMap ---');
 
-const disto = await buildDistributionIndexMap();
-
-console.log(
-  'IDX 11 МодулА =',
-  disto.progressMap.get('11 МодулА')
-);
-
-console.log(
-  'META 11 МодулА =',
-  disto.progressMetaMap.get('11 МодулА')
-);
   const [topicsMap, dist, metaFromCS] = await Promise.all([
     fetchTopicsMap(),
     buildDistributionIndexMap(),
@@ -261,11 +259,9 @@ console.log(
     assignTopicsToSlots(slots, topicsMap, dist.progressMap);
 
   await persistDistributionProgress(mergedMeta, progressMap);
-
   await persistGeneratedYearPlan(assigned, args?.term);
 
   return assigned;
-  
 }
 
 export async function generateScheduleFromApi({
@@ -290,16 +286,56 @@ export async function generateScheduleFromApi({
   const rows = await res.json();
   const alg = getAlg();
 
+  // Browser cannot read holidaysPath from filesystem.
+  // Try to load holidays via HTTP:
+  //  1) GET /api/holidays (recommended)
+  //  2) GET /holidays.txt (if served as static)
+  async function loadHolidaySet() {
+    const parseTxt = (txt) => {
+      const set = new Set();
+      String(txt || '')
+        .split(/\r?\n/)
+        .map(s => s.trim())
+        .forEach(s => {
+          if (/^\d{4}-\d{2}-\d{2}$/.test(s)) set.add(s);
+        });
+      return set;
+    };
+
+    // try api
+    try {
+      const r1 = await fetch('/api/holidays', { headers: { Accept: 'text/plain' } });
+      if (r1.ok) {
+        const txt = await r1.text();
+        const set = parseTxt(txt);
+        if (set.size) return set;
+      }
+    } catch (_) {}
+
+    // try static
+    try {
+      const r2 = await fetch('/holidays.txt', { headers: { Accept: 'text/plain' } });
+      if (r2.ok) {
+        const txt = await r2.text();
+        return parseTxt(txt);
+      }
+    } catch (_) {}
+
+    return new Set();
+  }
+
+  const holidaySet = await loadHolidaySet();
+
   return alg.generateSchedule({
     rows,
     termStart,
     termEnd,
     holidaysPath,
+    holidays: holidaySet,
     useRecurrence,
     baseWeekParity,
   });
 }
-
 
 export async function fetchTopicsMap() {
   const r = await fetch('/api/distributions/topics-map', {
