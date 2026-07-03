@@ -11,6 +11,8 @@
   const lessonsTbody = $('#snippetLessons');
 
   let currentLessonId = null;
+  let originalTheoryIds = [];
+  let originalExerciseIds = [];
   const lastActions = new Map(); // lesson_id -> 'new' | 'updated'
   const badge = document.getElementById('editModeBadge');
   function setModeEditing(id){
@@ -21,6 +23,20 @@
     }
     const submitBtn = document.getElementById('submitBtn');
     if (submitBtn) submitBtn.textContent = id ? 'Обнови урока' : 'Запази урока';
+  }
+
+
+
+  function sameNumberList(a, b) {
+    if (!Array.isArray(a) || !Array.isArray(b)) return false;
+    if (a.length !== b.length) return false;
+
+    return a.every((value, index) => Number(value) === Number(b[index]));
+  }
+
+  function snapshotCurrentLists() {
+    originalTheoryIds = collectList(snWrap, false);
+    originalExerciseIds = collectList(exWrap, false);
   }
 
   function debounce(fn, ms){ let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), ms); } }
@@ -124,27 +140,18 @@ function makeTableDraggable(tbody){
   function fillFormFromRow(row){
     currentLessonId = row.lesson_id || currentLessonId;
     // Полета
-    const nameEl = document.getElementById('name');
-    if (nameEl) nameEl.value = row.name || '';
-    const clsEl = document.getElementById('class');
-    if (clsEl) clsEl.value = (row.class != null ? row.class : '');
-    const descEl = document.getElementById('description');
-    if (descEl) descEl.value = row.description || '';
-    const desc2El = document.getElementById('description2');
-    if (desc2El) desc2El.value = row.description2 || '';
-    const urlEl = document.getElementById('url');
-    if (urlEl) urlEl.value = row.url || '';
-    const fpEl = document.getElementById('filepath');
-    if (fpEl) fpEl.value = row.filepath || '';
-    const tripEl = document.getElementById('tripplet_id');
-    if (tripEl) tripEl.value = row.tripplet_id || '';
-    const srcTok = document.getElementById('source_token');
-    if (srcTok) srcTok.value = (row.source_token != null ? row.source_token : '');
-    const secTok = document.getElementById('section_token');
-    if (secTok) secTok.value = (row.section_token != null ? row.section_token : '');
-    const lesTok = document.getElementById('lesson_token');
-    if (lesTok) lesTok.value = (row.lesson_token != null ? row.lesson_token : '');
-    // After basic fields, fetch lists from the new table by lesson_id (authoritative source)
+    setFieldValue(row.lesson_id, 'lessonId', 'lesson_id');
+    setFieldValue(row.name || '', 'name');
+    setFieldValue(row.class != null ? row.class : '', 'lessonClass', 'class');
+    setFieldValue(row.division || '', 'lessonDivision', 'division');
+    setFieldValue(row.description || '', 'description');
+    setFieldValue(row.description2 || '', 'description2');
+    setFieldValue(row.url || '', 'url');
+    setFieldValue(row.filepath || '', 'filepath');
+    setFieldValue(row.tripplet_id || '', 'tripplet_id');
+    setFieldValue(row.source_token != null ? row.source_token : '', 'source_token');
+    setFieldValue(row.section_token != null ? row.section_token : '', 'section_token');
+    setFieldValue(row.lesson_token != null ? row.lesson_token : '', 'lesson_token');
     if (row.lesson_id) {
       loadScriptedLists(row.lesson_id).catch(console.error);
     } else {
@@ -156,7 +163,8 @@ function makeTableDraggable(tbody){
     // Flash highlight recently filled fields
     const toFlash = [
       document.getElementById('name'),
-      document.getElementById('class'),
+      firstEl('lessonClass', 'class'),
+      firstEl('lessonDivision', 'division'),
       document.getElementById('description'),
       document.getElementById('url'),
       document.getElementById('filepath'),
@@ -188,6 +196,7 @@ async function loadScriptedLists(lessonId){
       await setSnippetsTable([]);
       await setExercisesTable([]);
       await updateRefTable();
+      snapshotCurrentLists();
       return;
     }
 
@@ -225,11 +234,13 @@ async function loadScriptedLists(lessonId){
     }
 
     await updateRefTable();
+    snapshotCurrentLists();
   }catch(e){
     console.error('loadScriptedLists failed', e);
     await setSnippetsTable([]);
     await setExercisesTable([]);
     await updateRefTable();
+    snapshotCurrentLists();
   }
 }
 
@@ -714,6 +725,33 @@ async function setExercisesTable(ids){
   if (snippetInp) snippetInp.addEventListener('input', debouncedSearch);
   if (snippetBtn) snippetBtn.addEventListener('click', ()=> doSnippetSearch(snippetInp.value));
 
+
+
+  function firstEl(...ids){
+    for (const id of ids){
+      const el = document.getElementById(id);
+      if (el) return el;
+    }
+    return null;
+  }
+
+  function fieldValue(...ids){
+    const el = firstEl(...ids);
+    return el ? String(el.value || '').trim() : '';
+  }
+
+  function setFieldValue(value, ...ids){
+    const el = firstEl(...ids);
+    if (el) el.value = value ?? '';
+  }
+
+  function parseOptionalInt(value){
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+    const parsed = parseInt(raw, 10);
+    return Number.isInteger(parsed) ? parsed : null;
+  }
+
   async function fetchRecent(){
     try{
       const r = await fetch('/lessons?limit=10');
@@ -740,8 +778,7 @@ async function setExercisesTable(ids){
 
   function clearForm(){
     const form = document.getElementById('lessonForm');
-   ['name','class','description','description2','url','filepath','tripplet_id','source_token','section_token','lesson_token']
-  .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });    // reset dynamic lists to one blank row each
+    ['lessonId','lesson_id','name','lessonClass','class','lessonDivision','division','description','description2','url','filepath','tripplet_id','source_token','section_token','lesson_token']  .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });    // reset dynamic lists to one blank row each
     snWrap.innerHTML = '';
     exWrap.innerHTML = '';
 
@@ -756,53 +793,103 @@ async function setExercisesTable(ids){
   }
 
   $('#lessonForm').addEventListener('submit', async (ev)=>{
-    ev.preventDefault();
-    const payload = {
-      name: $('#name').value.trim() || null,
-      class: $('#class').value ? parseInt($('#class').value,10) : null,
-      description: $('#description').value.trim() || null,
-      description2: ($('#description2') ? $('#description2').value.trim() : '') || null,
-      url: $('#url').value.trim() || null,
-      filepath: $('#filepath').value.trim() || null,
-      theory_snippets: collectList(snWrap, false),
-      exercises_ids: collectList(exWrap, false)
-    };
+      ev.preventDefault();
+      const lessonIdFromField = parseOptionalInt(fieldValue('lessonId', 'lesson_id'));
+      const targetLessonId = currentLessonId || lessonIdFromField;
+
+      const payload = {
+        name: fieldValue('name') || null,
+        class: parseOptionalInt(fieldValue('lessonClass', 'class')),
+        division: fieldValue('lessonDivision', 'division') || null,
+        description: fieldValue('description') || null,
+        description2: fieldValue('description2') || null,
+        url: fieldValue('url') || null,
+        filepath: fieldValue('filepath') || null,
+        tripplet_id: fieldValue('tripplet_id') || null,
+        source_token: parseOptionalInt(fieldValue('source_token')),
+        section_token: parseOptionalInt(fieldValue('section_token')),
+        lesson_token: parseOptionalInt(fieldValue('lesson_token')),
+        theory_snippets: collectList(snWrap, false),
+        exercises_ids: collectList(exWrap, false)
+      };
 
     const btn = $('#submitBtn');
     btn.disabled = true;
     const msg = $('#msg');
     msg.textContent = '';
 
-    try{
-      let r, text, data;
-      if (currentLessonId){
-        // Confirm overwrite
-        if (!confirm(`Ще обновиш съществуващ урок #${currentLessonId}. Продължаваме?`)) { btn.disabled = false; return; }
-        r = await fetch(`/lessons/${currentLessonId}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
-        text = await r.text();
-        try { data = JSON.parse(text); } catch(_){ data = null; }
-        if(!r.ok){ throw new Error((data&&data.error) ? data.error : text || 'HTTP '+r.status); }
-        msg.className = 'success';
-        msg.textContent = `✅ Обновено (#${currentLessonId}).`;
-        lastActions.set(currentLessonId, 'updated');
-        clearForm();
-      } else {
-        r = await fetch('/lessons', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
-        text = await r.text();
-        try { data = JSON.parse(text); } catch(_){ data = null; }
-        if(!r.ok){ throw new Error((data&&data.error) ? data.error : text || 'HTTP '+r.status); }
-        msg.className = 'success';
-        msg.textContent = '✅ Урокът е записан.';
-        if (data && data.lesson_id){ lastActions.set(data.lesson_id, 'new'); }
-        clearForm();
-      }
-      fetchRecent();
-    }catch(e){
-      msg.className = 'error';
-      msg.textContent = '❌ Грешка при запис: ' + (e.message||e);
-      console.error(e);
-    }finally{ btn.disabled = false; }
-  });
+try {
+  let r, text, data;
+
+  if (targetLessonId) {
+    if (!confirm(`Ще обновиш съществуващ урок #${targetLessonId}. Продължаваме?`)) {
+      btn.disabled = false;
+      return;
+    }
+
+    r = await fetch(`/lessons/${targetLessonId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    text = await r.text();
+
+    try {
+      data = JSON.parse(text);
+    } catch (_) {
+      data = null;
+    }
+
+    if (!r.ok) {
+      throw new Error((data && data.error) ? data.error : text || 'HTTP ' + r.status);
+    }
+
+    msg.className = 'success';
+    msg.textContent = `✅ Обновено (#${targetLessonId}).`;
+    lastActions.set(targetLessonId, 'updated');
+    clearForm();
+
+  } else {
+    r = await fetch('/lessons', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    text = await r.text();
+
+    try {
+      data = JSON.parse(text);
+    } catch (_) {
+      data = null;
+    }
+
+    if (!r.ok) {
+      throw new Error((data && data.error) ? data.error : text || 'HTTP ' + r.status);
+    }
+
+    msg.className = 'success';
+    msg.textContent = '✅ Урокът е записан.';
+
+    if (data && data.lesson_id) {
+      lastActions.set(data.lesson_id, 'new');
+    }
+
+    clearForm();
+  }
+
+  fetchRecent();
+
+} catch (e) {
+  msg.className = 'error';
+  msg.textContent = '❌ Грешка при запис: ' + (e.message || e);
+  console.error(e);
+
+} finally {
+  btn.disabled = false;
+} 
+});
 
   // Reset handler to clear edit mode and blank lists
   const resetBtn = document.getElementById('resetBtn');

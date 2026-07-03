@@ -112,6 +112,7 @@
       name: $('v_name').value,
       class: $('v_class').value,
       order: $('v_order').value,
+      division: $('v_division').value,
       keyWords: $('v_keywords').value,
       relatedTopic: $('v_related').value,
       lessons_in_tripplets: $('v_lessons').value,
@@ -137,6 +138,7 @@
 
     $('v_name').value = sn.name || '';
     $('v_class').value = (sn.class ?? '') === null ? '' : (sn.class ?? '');
+    $('v_division').value = sn.division || '';
     $('v_order').value = (sn.order ?? '') === null ? '' : (sn.order ?? '');
 
     $('v_keywords').value = Array.isArray(sn.keyWords) ? sn.keyWords.join(', ') : '';
@@ -264,7 +266,7 @@
   $('prevBtn').addEventListener('click', () => { if (page > 1) { page--; renderPage(); } });
   $('nextBtn').addEventListener('click', () => { if (page < totalPages()) { page++; renderPage(); } });
 
-  const editIds = ['v_name','v_class','v_order','v_keywords','v_related','v_lessons','v_assoc','v_uslovie'];
+  const editIds = ['v_name','v_class','v_division','v_order','v_keywords','v_related','v_lessons','v_assoc','v_uslovie'];
   editIds.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('input', checkDirty);
@@ -278,6 +280,7 @@
       const payload = {
         name: $('v_name').value.trim(),
         class: $('v_class').value === '' ? null : parseInt($('v_class').value, 10),
+        division: $('v_division').value.trim() || null,
         order: $('v_order').value === '' ? null : parseInt($('v_order').value, 10),
         keyWords: splitCSV($('v_keywords').value),
         relatedTopic: splitCSV($('v_related').value),
@@ -326,8 +329,7 @@ function closeAddModal(){
   m.setAttribute('aria-hidden','true');
 }
 function clearNewForm(){
-  ['n_name','n_class','n_order','n_keywords','n_related','n_lessons','n_assoc','n_uslovie'].forEach(id => {
-    const el = document.getElementById(id);
+['n_name','n_class','n_division','n_order','n_keywords','n_related','n_lessons','n_assoc','n_uslovie'].forEach(id => {    const el = document.getElementById(id);
     if (el) el.value = '';
   });
   const st = document.getElementById('createStatus');
@@ -360,10 +362,18 @@ if (confirmBtn) confirmBtn.addEventListener('click', async () => {
   try {
     document.getElementById('createStatus').textContent = 'Създаване…';
 
+    
+    const modal = document.getElementById('addModal');
+    const nName = modal.querySelector('#n_name');
+    const nClass = modal.querySelector('#n_class');
+    const nDivision = modal.querySelector('#n_division');
+    const nOrder = modal.querySelector('#n_order');
+
     const payload = {
-      name: document.getElementById('n_name').value.trim(),
-      class: document.getElementById('n_class').value === '' ? null : parseInt(document.getElementById('n_class').value, 10),
-      order: document.getElementById('n_order').value === '' ? null : parseInt(document.getElementById('n_order').value, 10),
+      name: nName.value.trim(),
+      class: nClass.value === '' ? null : parseInt(nClass.value, 10),
+      division: nDivision.value.trim() || null,
+      order: nOrder.value === '' ? null : parseInt(nOrder.value, 10),
       keyWords: splitCSV(document.getElementById('n_keywords').value),
       relatedTopic: splitCSV(document.getElementById('n_related').value),
       lessons_in_tripplets: splitCSV(document.getElementById('n_lessons').value),

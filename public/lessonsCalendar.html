@@ -240,7 +240,26 @@
     const weekNumberInput = document.getElementById('weekNumberInput');
     const toggleActionsBtn = document.getElementById('toggleActionsBtn');
     const resultsTable = document.getElementById('resultsTable');
-    let currentWeek = 1;
+let currentWeek = 1;
+
+// Local week counter: no DB lookup, no vacation skipping.
+// Change this date when starting a new school year.
+const WEEK_COUNTER_START_DATE = '2025-09-15';
+
+function parseLocalDate(value){
+  const m = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
+function calculateLocalWeekNumber(dateValue){
+  const start = parseLocalDate(WEEK_COUNTER_START_DATE);
+  const current = parseLocalDate(dateValue);
+  if (!start || !current) return '';
+  const oneDay = 24 * 60 * 60 * 1000;
+  const diffDays = Math.floor((current - start) / oneDay);
+  return Math.max(1, Math.floor(diffDays / 7) + 1);
+}
     // Prefer week from URL (?w= or #w=). Fallback to sessionStorage.
     try {
       const url = new URL(window.location.href);
@@ -375,8 +394,8 @@
         return;
       }
       const cols = Object.keys(rows[0]);
-      const hiddenCols = ['id', 'term'];
-      const displayCols = cols.filter(c => !hiddenCols.includes(c));
+      const hiddenCols = ['id', 'term', 'unitetype', 'end_time', 'duration', 'is_module'];
+            const displayCols = cols.filter(c => !hiddenCols.includes(c));
 
       const displayColsOrdered = (() => {
         const arr = [...displayCols];
@@ -512,10 +531,13 @@
           const td = document.createElement('td');
           td.setAttribute('data-field', c);
           let v = r[c];
+          if (c === 'week_number') {
+            v = calculateLocalWeekNumber(r.date);
+          }
           if (c === 'date' && v) {
-            // Keep as YYYY-MM-DD if present; avoid Date() timezone shifts
-            const m = String(v).match(/^(\d{4}-\d{2}-\d{2})/);
-            v = m ? m[1] : String(v);
+            // Display as DD-MM-YY if value starts with YYYY-MM-DD; avoid Date() timezone shifts
+            const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);
+            v = m ? `${m[3]}-${m[2]}-${m[1].slice(-2)}` : String(v);
           }
           if (c === 'onlineUploaded') {
             const st = (uploadState && uploadState[String(r.id)]) ? uploadState[String(r.id)] : {};

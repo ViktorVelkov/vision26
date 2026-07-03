@@ -180,42 +180,6 @@ function generateSchedule({
   const end = parseYmdToDate(termEnd);
   if (start.getTime() > end.getTime()) throw new Error('generateSchedule: termStart must be <= termEnd');
 
-  const msPerDay = 24 * 60 * 60 * 1000;
-  const termStartMid = start.getTime();
-
-  function mondayStartMs(localMidnightMs) {
-    const dt = new Date(localMidnightMs);
-    // JS getDay(): 0=Sun..6=Sat. Convert to Mon-based 0..6.
-    const mon0 = (dt.getDay() + 6) % 7;
-    dt.setDate(dt.getDate() - mon0);
-    dt.setHours(0, 0, 0, 0);
-    return dt.getTime();
-  }
-
-  function weekIndexForDateYmd(ymd) {
-    const dMid = parseYmdToDate(ymd).getTime();
-    const w0 = mondayStartMs(termStartMid);
-    const w1 = mondayStartMs(dMid);
-    const weeks = Math.floor((w1 - w0) / (7 * msPerDay));
-    return weeks + 1; // 1-based
-  }
-
-  function parityForWeekIndex(weekIndex) {
-    // baseWeekParity defines the parity of weekIndex=1.
-    // If baseWeekParity=1: 1,2,1,2...
-    // If baseWeekParity=2: 2,1,2,1...
-    return (((weekIndex - 1) + (baseWeekParity - 1)) % 2) + 1;
-  }
-
-  function normRecurrence(v) {
-    if (v == null) return 'WEEKLY';
-    const s = String(v).trim().toUpperCase();
-    if (!s) return 'WEEKLY';
-    if (s === 'WEEKLY') return 'WEEKLY';
-    if (s === 'BIWEEKLY' || s === 'BI-WEEKLY' || s === 'BI_WEEKLY') return 'BIWEEKLY';
-    return 'WEEKLY';
-  }
-
   // Normalize + filter valid rows
   const normalized = rows
     .map((r) => {
@@ -262,6 +226,65 @@ function generateSchedule({
   } else {
     holidaySet = loadHolidaysTxt(holidaysPath) || new Set();
   }
+
+  const msPerDay = 24 * 60 * 60 * 1000;
+
+  function mondayYmdOfDate(dt) {
+    const d = new Date(dt.getTime());
+    const mon0 = (d.getDay() + 6) % 7; // Mon=0 ... Sun=6
+    d.setDate(d.getDate() - mon0);
+    d.setHours(0, 0, 0, 0);
+    return formatDateYmd(d);
+  }
+
+  // 1) Find which weeks are "active" = have at least one non-holiday day
+  //    that also has at least one schedule row for that weekday.
+  const activeWeekStarts = [];
+  const activeWeekSet = new Set();
+
+  for (let d = new Date(start.getTime()); d.getTime() <= end.getTime(); d = addDays(d, 1)) {
+    const ymd = formatDateYmd(d);
+
+    if (holidaySet.has(ymd)) continue;
+
+    const wd = jsDowMon0(d);
+    const dayRows = byDay.get(wd);
+    if (!dayRows || dayRows.length === 0) continue;
+
+    const wStart = mondayYmdOfDate(d);
+    if (!activeWeekSet.has(wStart)) {
+      activeWeekSet.add(wStart);
+      activeWeekStarts.push(wStart);
+    }
+  }
+
+  // 2) Map active-week Monday -> academic week index
+  const activeWeekIndexMap = new Map(
+    activeWeekStarts.map((w, i) => [w, i + 1])
+  );
+
+  function weekIndexForDateYmd(ymd) {
+    const dt = parseYmdToDate(ymd);
+    const wStart = mondayYmdOfDate(dt);
+    return activeWeekIndexMap.get(wStart) ?? null;
+  }
+
+  function parityForWeekIndex(weekIndex) {
+    // baseWeekParity defines the parity of weekIndex=1.
+    // If baseWeekParity=1: 1,2,1,2...
+    // If baseWeekParity=2: 2,1,2,1...
+    return (((weekIndex - 1) + (baseWeekParity - 1)) % 2) + 1;
+  }
+
+  function normRecurrence(v) {
+    if (v == null) return 'WEEKLY';
+    const s = String(v).trim().toUpperCase();
+    if (!s) return 'WEEKLY';
+    if (s === 'WEEKLY') return 'WEEKLY';
+    if (s === 'BIWEEKLY' || s === 'BI-WEEKLY' || s === 'BI_WEEKLY') return 'BIWEEKLY';
+    return 'WEEKLY';
+  }
+
   const out = [];
 
   for (let d = new Date(start.getTime()); d.getTime() <= end.getTime(); d = addDays(d, 1)) {
@@ -275,7 +298,7 @@ function generateSchedule({
     if (!dayRows || dayRows.length === 0) continue;
 
     const wIdx = useRecurrence ? weekIndexForDateYmd(ymd) : null;
-    const wParity = useRecurrence ? parityForWeekIndex(wIdx) : null;
+    const wParity = (useRecurrence && wIdx != null) ? parityForWeekIndex(wIdx) : null;
 
     for (const rr of dayRows) {
       if (useRecurrence && rr.recurrence === 'BIWEEKLY') {

@@ -399,8 +399,16 @@ if (deleteRowBtn){
     studentPick.innerHTML = '';
     list.forEach(s => {
       const li = document.createElement('li');
-      li.textContent = `${s.First_Name || s.first_name || ''} ${s.Sirname || s.sirname || ''} (ID: ${s.ID || s.id})`;
-      li.addEventListener('click', ()=> selectStudent({ id: s.ID || s.id, name: `${s.First_Name || s.first_name || ''} ${s.Sirname || s.sirname || ''}` }));
+      const firstName = s.First_Name || s.first_name || '';
+      const sirname = s.Sirname || s.sirname || '';
+      const id = s.ID || s.id;
+      const grade = s.Grade ?? s.grade ?? '';
+      const division = s.Division ?? s.division ?? '';
+      const classInfo = (grade !== '' || division !== '') ? ` — ${grade}${division ? ' ' + division : ''} клас` : '';
+      const name = `${firstName} ${sirname}`.trim();
+
+      li.textContent = `${name} (ID: ${id})${classInfo}`;
+      li.addEventListener('click', ()=> selectStudent({ id, name }));
       studentPick.appendChild(li);
     });
   }

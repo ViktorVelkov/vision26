@@ -1,6 +1,11 @@
 const state = {
   lastRows: [],
-  selectedIndex: -1
+  selectedIndex: -1,
+  currentPage: 1,
+  pageSize: 50,
+  totalPages: 1,
+  totalRows: 0,
+  lastSearchBaseUrl: ''
 };
 
 const els = {
@@ -8,9 +13,11 @@ const els = {
   numberFilter: document.getElementById('numberFilter'),
   pageFilter: document.getElementById('pageFilter'),
   resourceFilter: document.getElementById('resourceFilter'),
-  limitSelect: document.getElementById('limitSelect'),
   searchBtn: document.getElementById('searchBtn'),
   clearBtn: document.getElementById('clearBtn'),
+  prevPageBtn: document.getElementById('prevPageBtn'),
+  nextPageBtn: document.getElementById('nextPageBtn'),
+  pageInfo: document.getElementById('pageInfo'),
   modeIdBtn: document.getElementById('modeIdBtn'),
   modeCompositeBtn: document.getElementById('modeCompositeBtn'),
   idFieldWrap: document.getElementById('idFieldWrap'),
@@ -49,11 +56,28 @@ function setMode(mode) {
   }
 
   setStatus('');
+
+  state.currentPage = 1;
+  state.totalPages = 1;
+  state.totalRows = 0;
+  state.lastSearchBaseUrl = '';
+
+  updatePaginationUi();
 }
 
 function setStatus(message, type = '') {
   els.status.textContent = message || '';
   els.status.className = type || '';
+}
+
+function updatePaginationUi() {
+  const totalPages = Math.max(1, Number(state.totalPages) || 1);
+  const currentPage = Math.max(1, Number(state.currentPage) || 1);
+  const totalRows = Math.max(0, Number(state.totalRows) || 0);
+
+  els.pageInfo.textContent = `Страница ${currentPage} / ${totalPages} • Общо: ${totalRows}`;
+  els.prevPageBtn.disabled = currentPage <= 1 || state.mode === 'id';
+  els.nextPageBtn.disabled = currentPage >= totalPages || state.mode === 'id';
 }
 
 function escapeHtml(value) {
@@ -84,8 +108,12 @@ function getFilePath(row, ...keys) {
   return String(raw || '').trim();
 }
 
-function getFileUrl(filePath) {
-  return `/exercise-file?path=${encodeURIComponent(filePath)}`;
+function getFilePreviewUrl(filePath) {
+  return `/file-preview?path=${encodeURIComponent(filePath)}`;
+}
+
+function getFileOpenUrl(filePath) {
+  return `/file-proxy?path=${encodeURIComponent(filePath)}`;
 }
 
 function getFileExt(filePath) {
@@ -110,7 +138,8 @@ function renderFilePreview(container, labelEl, filePath, emptyMessage) {
     return;
   }
 
-  const fileUrl = getFileUrl(filePath);
+  const previewUrl = getFilePreviewUrl(filePath);
+  const openUrl = getFileOpenUrl(filePath);
   const ext = getFileExt(filePath);
 
   labelEl.textContent = filePath;
@@ -118,16 +147,16 @@ function renderFilePreview(container, labelEl, filePath, emptyMessage) {
 
   if (isPdfExt(ext)) {
     container.innerHTML = `
-      <iframe class="preview-frame" src="${fileUrl}"></iframe>
-      <a class="preview-link" href="${fileUrl}" target="_blank" rel="noopener">Отвори PDF в нов таб</a>
+      <iframe class="preview-frame" src="${previewUrl}"></iframe>
+      <a class="preview-link" href="${openUrl}" target="_blank" rel="noopener">Отвори PDF в нов таб</a>
     `;
     return;
   }
 
   if (isImageExt(ext)) {
     container.innerHTML = `
-      <img class="preview-image" src="${fileUrl}" alt="Preview" />
-      <a class="preview-link" href="${fileUrl}" target="_blank" rel="noopener">Отвори файла в нов таб</a>
+      <img class="preview-image" src="${previewUrl}" alt="Preview" />
+      <a class="preview-link" href="${openUrl}" target="_blank" rel="noopener">Отвори файла в нов таб</a>
     `;
     return;
   }
@@ -137,7 +166,7 @@ function renderFilePreview(container, labelEl, filePath, emptyMessage) {
       Форматът <strong>.${ext || 'unknown'}</strong> може да не се визуализира директно в браузъра.<br>
       Отвори файла от линка по-долу.
     </div>
-    <a class="preview-link" href="${fileUrl}" target="_blank" rel="noopener">Отвори файла в нов таб</a>
+    <a class="preview-link" href="${openUrl}" target="_blank" rel="noopener">Отвори файла в нов таб</a>
   `;
 }
 
@@ -178,6 +207,7 @@ function renderRows(rows) {
       </tr>
     `;
     renderSelectedPreviews(null);
+    updatePaginationUi();
     return;
   }
 
@@ -231,32 +261,34 @@ function getFilters() {
     id: els.idFilter.value.trim(),
     number: els.numberFilter.value.trim(),
     page: els.pageFilter.value.trim(),
-    resourceId: els.resourceFilter.value.trim(),
-    limit: els.limitSelect.value
+    resourceId: els.resourceFilter.value.trim()
   };
 }
 
 function buildSearchUrl() {
-  const { id, number, page, resourceId, limit } = getFilters();
+  const { id, number, page, resourceId } = getFilters();
 
   if (state.mode === 'id') {
     if (!id) {
       throw new Error('Въведи ID за търсене.');
     }
-    return `/exercises/${encodeURIComponent(id)}`;
+    state.lastSearchBaseUrl = `/exercises/${encodeURIComponent(id)}`;
+    return state.lastSearchBaseUrl;
   }
 
   const params = new URLSearchParams();
   if (resourceId) params.set('resourceId', resourceId);
   if (page) params.set('page', page);
   if (number) params.set('number', number);
-  if (limit) params.set('limit', limit);
+  params.set('pageNumber', String(state.currentPage));
+  params.set('pageSize', String(state.pageSize));
 
   if (![resourceId, page, number].some(Boolean)) {
     throw new Error('Въведи поне едно поле: ResourceID, Page или Number.');
   }
 
-  return `/exercises?${params.toString()}`;
+  state.lastSearchBaseUrl = `/exercises?${params.toString()}`;
+  return state.lastSearchBaseUrl;
 }
 
 async function loadRows() {
@@ -265,14 +297,31 @@ async function loadRows() {
   try {
     const url = buildSearchUrl();
     const data = await fetchJson(url);
-    const rows = Array.isArray(data) ? data : (data ? [data] : []);
+
+    let rows = [];
+    if (state.mode === 'id') {
+      rows = Array.isArray(data) ? data : (data ? [data] : []);
+      state.totalRows = rows.length;
+      state.totalPages = 1;
+      state.currentPage = 1;
+    } else {
+      rows = Array.isArray(data?.rows) ? data.rows : [];
+      state.totalRows = Number(data?.total) || rows.length;
+      state.totalPages = Math.max(1, Number(data?.totalPages) || 1);
+      state.currentPage = Math.max(1, Number(data?.page) || state.currentPage);
+    }
+
     state.lastRows = rows;
     state.selectedIndex = -1;
     renderRows(rows);
     renderSelectedPreviews(null);
-    setStatus(`Заредени резултати: ${rows.length}`, 'success');
+    updatePaginationUi();
+    setStatus(`Заредени резултати: ${state.totalRows}`, 'success');
   } catch (error) {
     renderRows([]);
+    state.totalRows = 0;
+    state.totalPages = 1;
+    updatePaginationUi();
     setStatus(error.message || 'Грешка при зареждане.', 'error');
   }
 }
@@ -282,26 +331,49 @@ function clearFilters() {
   els.numberFilter.value = '';
   els.pageFilter.value = '';
   els.resourceFilter.value = '';
-  els.limitSelect.value = '50';
   setMode('id');
   state.lastRows = [];
   state.selectedIndex = -1;
+  state.currentPage = 1;
+  state.totalPages = 1;
+  state.totalRows = 0;
+  state.lastSearchBaseUrl = '';
   setStatus('');
   renderRows([]);
   renderSelectedPreviews(null);
+  updatePaginationUi();
 }
 
-els.searchBtn.addEventListener('click', loadRows);
+els.searchBtn.addEventListener('click', () => {
+  state.currentPage = 1;
+  loadRows();
+});
 els.clearBtn.addEventListener('click', clearFilters);
+
+els.prevPageBtn.addEventListener('click', () => {
+  if (state.mode !== 'composite' || state.currentPage <= 1) return;
+  state.currentPage -= 1;
+  loadRows();
+});
+
+els.nextPageBtn.addEventListener('click', () => {
+  if (state.mode !== 'composite' || state.currentPage >= state.totalPages) return;
+  state.currentPage += 1;
+  loadRows();
+});
 
 els.modeIdBtn.addEventListener('click', () => setMode('id'));
 els.modeCompositeBtn.addEventListener('click', () => setMode('composite'));
 
 [els.idFilter, els.numberFilter, els.pageFilter, els.resourceFilter].forEach((input) => {
   input.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') loadRows();
+    if (event.key === 'Enter') {
+      state.currentPage = 1;
+      loadRows();
+    }
   });
 });
 
 setMode('id');
 renderSelectedPreviews(null);
+updatePaginationUi();

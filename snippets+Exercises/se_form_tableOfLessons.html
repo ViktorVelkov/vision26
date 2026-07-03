@@ -1,0 +1,47 @@
+<div id="snippetLessonsPanel" class="lessonTools">
+  <h2>Свързани уроци</h2>
+  <div id="linkedLessonsStatus" class="muted">—</div>
+
+  <table id="linkedLessonsTable">
+    <thead>
+      <tr>
+        <th style="width:90px;">ID</th>
+        <th>Име</th>
+        <th style="width:90px;">Клас</th>
+        <th style="width:110px;">Действие</th>
+      </tr>
+    </thead>
+    <tbody id="linkedLessonsBody"></tbody>
+  </table>
+
+  <div class="lessonSearchRow">
+  <div>
+    <label>ID на урок</label>
+    <input id="lessonSearchId" type="number" step="1" placeholder="напр. 15" />
+  </div>
+  <button id="lessonSearchByIdBtn" class="btn" type="button">Търси по ID</button>
+</div>
+
+<div class="lessonSearchRow">
+  <div>
+    <label>Име на урок</label>
+    <input id="lessonSearchName" type="text" placeholder="напр. квадратни уравнения" />
+  </div>
+  <button id="lessonSearchByNameBtn" class="btn" type="button">Търси по име</button>
+  <button id="lessonSearchClearBtn" class="btn" type="button">Clear</button>
+</div>
+
+  <div id="lessonSearchStatus" class="muted" style="margin-top:8px;">—</div>
+
+  <table id="lessonSearchTable" style="display:none;">
+    <thead>
+      <tr>
+        <th style="width:90px;">ID</th>
+        <th>Име</th>
+        <th style="width:90px;">Клас</th>
+        <th style="width:110px;">Действие</th>
+      </tr>
+    </thead>
+    <tbody id="lessonSearchBody"></tbody>
+  </table>
+</div>

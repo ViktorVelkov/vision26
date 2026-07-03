@@ -662,17 +662,7 @@
     // small delay so the page has time to mount
     setTimeout(renderFromKeySkills, 60);
 
-    // If something re-renders the list later, force it back to KeySkills.
-    try{
-      var list = document.getElementById('skillsList');
-      if (list && window.MutationObserver){
-        var mo = new MutationObserver(function(){
-          // If legacy code re-injected snippet skills, override again
-          setTimeout(renderFromKeySkills, 0);
-        });
-        mo.observe(list, { childList:true, subtree:true });
-      }
-    }catch(_){ }
+   
   });
 })();
 </script>

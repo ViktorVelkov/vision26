@@ -17,8 +17,12 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/se', express.static(path.join(__dirname, 'snippets+Exercises')));
 
 // Convenience route to open the Snippets form
+app.get('/se_form.html', (req, res) => {
+  res.sendFile(path.join(__dirname, 'snippets+Exercises', 'se_form.html'));
+});
+
 app.get('/snippets-form', (req, res) => {
-  res.sendFile(path.join(__dirname,  'snippets+Exercises', 'se_form.html'));
+  res.redirect('/se_form.html');
 });
 app.use(cors());
 app.use(express.json());
@@ -470,7 +474,7 @@ app.get('/snippet-ref', async (req, res) => {
     if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
 
    const { rows } = await pool.query(
-  `SELECT lesson_id, name, tripplet_id, description, description2, class, url, filepath, source_token, section_token, lesson_token
+  `SELECT lesson_id, name, tripplet_id, description, description2, class, division, url, filepath, source_token, section_token, lesson_token
      FROM "Lessons" WHERE lesson_id = $1 LIMIT 1`,
   [id]
 );
@@ -1917,6 +1921,7 @@ app.get('/snippets/:id', async (req, res) => {
      "associatedSnippets",
      "uslovie",
      "class"
+     "division"
    FROM "Snippets"
    WHERE "id" = $1
    LIMIT 1`,
@@ -1930,6 +1935,31 @@ app.get('/snippets/:id', async (req, res) => {
   }
 });
 
+// GET /snippets/:snippetId/lessons
+// Returns lessons whose Lessons.theory_snippets array contains the snippet id.
+app.get('/snippets/:snippetId/lessons', async (req, res) => {
+  const snippetId = parseInt(req.params.snippetId, 10);
+  if (!Number.isInteger(snippetId)) return res.status(400).json({ error: 'Invalid snippetId' });
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT lesson_id,
+              COALESCE(name, '') AS name,
+              class,
+              tripplet_id,
+              COALESCE(description, '') AS description
+         FROM "Lessons"
+        WHERE COALESCE(theory_snippets, '{}'::int[]) @> ARRAY[$1::int]
+        ORDER BY class NULLS LAST, lesson_id ASC`,
+      [snippetId]
+    );
+
+    return res.json(rows);
+  } catch (e) {
+    console.error('GET /snippets/:snippetId/lessons failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  }
+});
 
 // PATCH /snippets/:id (save edits from UI)
 app.patch('/snippets/:id', async (req, res) => {
@@ -1941,6 +1971,7 @@ app.patch('/snippets/:id', async (req, res) => {
 
     const name = (b.name == null) ? null : String(b.name);
     const klass = (b.class === null || typeof b.class === 'undefined' || b.class === '') ? null : parseInt(b.class, 10);
+    const division = (b.division == null || b.division === '') ? null : String(b.division).trim();
     const ord = (b.order === null || typeof b.order === 'undefined' || b.order === '') ? null : parseInt(b.order, 10);
     const keyWords = Array.isArray(b.keyWords) ? b.keyWords.map(x => String(x)) : [];
     const relatedTopic = Array.isArray(b.relatedTopic) ? b.relatedTopic.map(x => String(x)) : [];
@@ -1957,11 +1988,12 @@ app.patch('/snippets/:id', async (req, res) => {
              "relatedTopic" = $6,
              "lessons_in_tripplets" = $7,
              "associatedSnippets" = $8,
-             "uslovie" = $9
+             "uslovie" = $9,
+             "division" = $10
        WHERE "id" = $1
-       RETURNING "id", "name", "keyWords", "order", "relatedTopic", "lessons_in_tripplets", "associatedSnippets", "uslovie", "class"
+       RETURNING "id", "name", "keyWords", "order", "relatedTopic", "lessons_in_tripplets", "associatedSnippets", "uslovie", "class","division"
     `;
-    const params = [id, name, klass, ord, keyWords, relatedTopic, lessons_in_tripplets, associatedSnippets, uslovie];
+    const params = [id, name, klass, ord, keyWords, relatedTopic, lessons_in_tripplets, associatedSnippets, uslovie,division];
     const { rows } = await pool.query(sql, params);
     if (!rows.length) return res.status(404).json({ error: 'Not found' });
     return res.json(rows[0]);
@@ -1980,6 +2012,7 @@ app.post('/snippets', async (req, res) => {
     if (!name) return res.status(400).json({ error: 'Missing name' });
 
     const klass = (b.class === null || typeof b.class === 'undefined' || b.class === '') ? null : parseInt(b.class, 10);
+   const division = (b.division == null || b.division === '') ? null : String(b.division).trim();
     const ord = (b.order === null || typeof b.order === 'undefined' || b.order === '') ? null : parseInt(b.order, 10);
 
     const keyWords = Array.isArray(b.keyWords) ? b.keyWords.map(String) : [];
@@ -1993,10 +2026,11 @@ app.post('/snippets', async (req, res) => {
 
     const { rows } = await pool.query(
       `INSERT INTO "Snippets"
-        ("name","class","order","keyWords","relatedTopic","lessons_in_tripplets","associatedSnippets","uslovie")
-       VALUES ($1,$2,$3,$4::text[],$5::text[],$6::text[],$7::int[],$8)
-       RETURNING "id"`,
-      [name, klass, ord, keyWords, relatedTopic, lessons_in_tripplets, associatedSnippets, uslovie]
+        ("name","class","division","order","keyWords","relatedTopic","lessons_in_tripplets","associatedSnippets","uslovie")
+        VALUES ($1,$2,$3,$4,$5::text[],$6::text[],$7::text[],$8::int[],$9)
+        RETURNING "id"`,
+      [name, klass,division, ord, keyWords, relatedTopic, lessons_in_tripplets, associatedSnippets, uslovie]
+   
     );
 
     return res.status(201).json({ ok: true, id: rows[0].id });
@@ -2063,34 +2097,32 @@ async function resolveLessonIdByBasicsStrict(q) {
   const parts = [];
   const params = [];
   const pushTextEq = (col, v) => {
-    if (v === '') { parts.push(`l."${col}" IS NULL`); return; }
+    if (v === '') return;
     params.push(v);
     parts.push(`l."${col}" = $${params.length}`);
   };
   const pushIntEq = (col, v) => {
-    if (v === '') { parts.push(`l."${col}" IS NULL`); return; }
+    if (v === '')  return; 
     const n = parseInt(v, 10);
     if (!Number.isInteger(n)) return; // ignore invalid numbers
     params.push(n);
     parts.push(`l."${col}" = $${params.length}`);
   };
 
-  // lesson_id / id (optional hard constraint)
-  if (typeof q.lesson_id !== 'undefined' || typeof q.id !== 'undefined') {
-    const raw = (q.lesson_id ?? q.id ?? '').toString().trim();
-    if (raw === '') { parts.push(`l."lesson_id" IS NULL`); }
-    else {
+      if (typeof q.lesson_id !== 'undefined' || typeof q.id !== 'undefined') {
+        const raw = (q.lesson_id ?? q.id ?? '').toString().trim();
+        if (raw !== '') {
       const n = parseInt(raw, 10);
-      if (Number.isInteger(n)) { params.push(n); parts.push(`l."lesson_id" = $${params.length}`); }
+      if (Number.isInteger(n)) {
+        params.push(n);
+        parts.push(`l."lesson_id" = $${params.length}`);
+      }
     }
   }
 
-  // tripplet_id (special: compare dotted/undotted equally)
   if (typeof q.tripplet_id !== 'undefined') {
     const raw = (q.tripplet_id ?? '').toString().trim();
-    if (raw === '') {
-      parts.push(`l."tripplet_id" IS NULL`);
-    } else {
+    if (raw !== '') {
       params.push(raw);
       parts.push(`(l."tripplet_id" = $${params.length} OR REPLACE(l."tripplet_id",'.','') = REPLACE($${params.length}::text,'.',''))`);
     }
@@ -2561,6 +2593,141 @@ app.delete('/student-assessment-skills-exercises/:id', async (req, res) => {
   }
 });
 
+// GET /lessons/search?id=<lesson_id>&name=<lesson_name>
+// Search by lesson id, lesson name, or both.
+app.get('/lessons/search', async (req, res) => {
+  const idRaw = String(req.query.id || '').trim();
+  const nameRaw = String(req.query.name || '').trim();
+
+  const where = [];
+  const params = [];
+
+  if (idRaw) {
+    const lessonId = parseInt(idRaw, 10);
+
+    if (!Number.isInteger(lessonId)) {
+      return res.status(400).json({ error: 'Invalid lesson id' });
+    }
+
+    params.push(lessonId);
+    where.push(`lesson_id = $${params.length}`);
+  }
+  if (nameRaw) {
+    params.push(nameRaw);
+    where.push(`(
+      COALESCE(name, '') ILIKE '%' || $${params.length} || '%'
+      OR COALESCE(description, '') ILIKE '%' || $${params.length} || '%'
+      OR COALESCE(tripplet_id, '') ILIKE '%' || $${params.length} || '%'
+    )`);
+  }
+  if (!where.length) {
+    return res.json([]);
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT lesson_id,
+              COALESCE(name, '') AS name,
+              class,
+              tripplet_id,
+              COALESCE(description, '') AS description
+         FROM "Lessons"
+        WHERE ${where.join(' AND ')}
+        ORDER BY class NULLS LAST, lesson_id ASC
+        LIMIT 50`,
+      params
+    );
+
+    return res.json(rows);
+  } catch (e) {
+    console.error('GET /lessons/search failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  }
+});
+
+// PATCH /lessons/:lessonId/theory-snippets/:snippetId
+// Body: { linked: true|false } or { action: "add"|"remove" }.
+app.patch('/lessons/:lessonId/theory-snippets/:snippetId', async (req, res) => {
+  const lessonId = parseInt(req.params.lessonId, 10);
+  const snippetId = parseInt(req.params.snippetId, 10);
+
+  if (!Number.isInteger(lessonId)) return res.status(400).json({ error: 'Invalid lessonId' });
+  if (!Number.isInteger(snippetId)) return res.status(400).json({ error: 'Invalid snippetId' });
+
+  const body = req.body || {};
+  const actionRaw = String(body.action || '').trim().toLowerCase();
+  let shouldLink = null;
+
+  if (typeof body.linked === 'boolean') {
+    shouldLink = body.linked;
+  } else if (actionRaw === 'add' || actionRaw === 'link') {
+    shouldLink = true;
+  } else if (actionRaw === 'remove' || actionRaw === 'unlink' || actionRaw === 'delete') {
+    shouldLink = false;
+  }
+
+  if (shouldLink === null) {
+    return res.status(400).json({ error: 'Use linked:true/false or action:add/remove' });
+  }
+
+  try {
+    const snippetExists = await pool.query(
+      `SELECT 1 FROM "Snippets" WHERE "id" = $1 LIMIT 1`,
+      [snippetId]
+    );
+
+    if (!snippetExists.rowCount) {
+      return res.status(404).json({ error: 'Snippet not found' });
+    }
+
+    const sql = shouldLink
+      ? `UPDATE "Lessons"
+            SET theory_snippets = CASE
+                  WHEN COALESCE(theory_snippets, '{}'::int[]) @> ARRAY[$2::int]
+                    THEN COALESCE(theory_snippets, '{}'::int[])
+                  ELSE array_append(COALESCE(theory_snippets, '{}'::int[]), $2::int)
+                END,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE lesson_id = $1
+          RETURNING lesson_id,
+                    COALESCE(name, '') AS name,
+                    class,
+                    tripplet_id,
+                    COALESCE(description, '') AS description,
+                    COALESCE(theory_snippets, '{}'::int[]) AS theory_snippets`
+      : `UPDATE "Lessons"
+            SET theory_snippets = array_remove(COALESCE(theory_snippets, '{}'::int[]), $2::int),
+                updated_at = CURRENT_TIMESTAMP
+          WHERE lesson_id = $1
+          RETURNING lesson_id,
+                    COALESCE(name, '') AS name,
+                    class,
+                    tripplet_id,
+                    COALESCE(description, '') AS description,
+                    COALESCE(theory_snippets, '{}'::int[]) AS theory_snippets`;
+
+    const { rows } = await pool.query(sql, [lessonId, snippetId]);
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Lesson not found' });
+    }
+
+    try {
+      await pool.query(
+        'INSERT INTO lessons_actions(lesson_id, action) VALUES ($1, $2)',
+        [lessonId, 'updated']
+      );
+    } catch (_e) {
+      console.error('log insert failed (lesson theory snippet):', _e);
+    }
+
+    return res.json({ ok: true, linked: shouldLink, lesson: rows[0] });
+  } catch (e) {
+    console.error('PATCH /lessons/:lessonId/theory-snippets/:snippetId failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  }
+});
+
 // GET /lessons/by-grade?className=9 Ж  -> returns all Lessons for grade 9 (ignores division)
 app.get('/lessons/by-grade', async (req, res) => {
   const className = (req.query.className || '').trim();
@@ -2640,6 +2807,11 @@ app.get('/lesson-scripted/:id', async (req, res) => {
 app.post('/lessons', async (req, res) => {
   const body = req.body || {};
   const fields = {
+    name: typeof body.name === 'string' ? body.name.trim() : null,
+    description2: typeof body.description2 === 'string' ? body.description2.trim() : null,
+    source_token: Number.isInteger(body.source_token) ? body.source_token : (typeof body.source_token === 'string' && body.source_token.trim()!=='' ? parseInt(body.source_token,10) : null),
+    section_token: Number.isInteger(body.section_token) ? body.section_token : (typeof body.section_token === 'string' && body.section_token.trim()!=='' ? parseInt(body.section_token,10) : null),
+    lesson_token: Number.isInteger(body.lesson_token) ? body.lesson_token : (typeof body.lesson_token === 'string' && body.lesson_token.trim()!=='' ? parseInt(body.lesson_token,10) : null),
     tripplet_id: typeof body.tripplet_id === 'string' ? body.tripplet_id.trim() : null,
     description: typeof body.description === 'string' ? body.description.trim() : null,
     url: typeof body.url === 'string' ? body.url.trim() : null,
@@ -2672,25 +2844,74 @@ app.post('/lessons', async (req, res) => {
   }
 });
 
+function sameIntArray(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b)) return false;
+  if (a.length !== b.length) return false;
+
+  return a.every((value, index) => {
+    return parseInt(value, 10) === parseInt(b[index], 10);
+  });
+}
+
 app.patch('/lessons/:id', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
   const body = req.body || {};
-  const fields = {
-    tripplet_id: typeof body.tripplet_id === 'string' ? body.tripplet_id.trim() : null,
-    description: typeof body.description === 'string' ? body.description.trim() : null,
-    url: typeof body.url === 'string' ? body.url.trim() : null,
-    filepath: typeof body.filepath === 'string' ? body.filepath.trim() : null,
-    class: Number.isInteger(body.class) ? body.class : (typeof body.class === 'string' && body.class.trim()!=='' ? parseInt(body.class,10) : null)
-  };
-  const sets = [];
+ const sets = [];
   const params = [];
-  for (const [k,v] of Object.entries(fields)){
-    if (v === null) { sets.push(`"${k}" = NULL`); continue; }
-    if (v === undefined) continue;
-    params.push(v);
-    sets.push(`"${k}" = $${params.length}`);
-  }
+  
+  const has = (key) => Object.prototype.hasOwnProperty.call(body, key);
+
+  const addTextField = (key) => {
+    if (!has(key)) return;
+
+    if (body[key] === null) {
+      sets.push(`"${key}" = NULL`);
+      return;
+    }
+
+    if (typeof body[key] !== 'string') return;
+
+    const value = body[key].trim();
+
+    // Empty browser fields must not erase existing DB values
+    if (value === '') return;
+
+    params.push(value);
+    sets.push(`"${key}" = $${params.length}`);
+  };
+
+  const addIntField = (key) => {
+    if (!has(key)) return;
+
+    if (body[key] === null) {
+      sets.push(`"${key}" = NULL`);
+      return;
+    }
+
+    const value = Number.isInteger(body[key])
+      ? body[key]
+      : (typeof body[key] === 'string' && body[key].trim() !== ''
+        ? parseInt(body[key], 10)
+        : NaN);
+
+    if (!Number.isInteger(value)) return;
+
+    params.push(value);
+    sets.push(`"${key}" = $${params.length}`);
+  };
+  addTextField('name');
+  addTextField('description2');
+  addIntField('source_token');
+  addIntField('section_token');
+  addIntField('lesson_token');
+  addTextField('tripplet_id');
+  addTextField('description');
+  addTextField('url');
+  addTextField('filepath');
+  addIntField('class');
+  addTextField('division');
+ 
   if (sets.length === 0 && !(Array.isArray(body.theory_snippets) || Array.isArray(body.exercises_ids))) {
     return res.status(400).json({ error: 'No fields provided' });
   }
@@ -2701,24 +2922,62 @@ app.patch('/lessons/:id', async (req, res) => {
       const r = await pool.query(sql, params);
       if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' });
     }
-if (Array.isArray(body.theory_snippets) || Array.isArray(body.exercises_ids)) {
+      if (Array.isArray(body.theory_snippets) || Array.isArray(body.exercises_ids)) {
+      const current = await pool.query(
+        `SELECT item_type, item_id
+          FROM lesson_scripted
+          WHERE lesson_id = $1
+            AND item_type IN ('theory','snippet','exercise')
+          ORDER BY position ASC NULLS LAST, id ASC`,
+        [id]
+      );
+
+      const currentTheory = current.rows
+        .filter(r => r.item_type === 'theory' || r.item_type === 'snippet')
+        .map(r => parseInt(r.item_id, 10))
+        .filter(Number.isInteger);
+
+      const currentExercises = current.rows
+        .filter(r => r.item_type === 'exercise')
+        .map(r => parseInt(r.item_id, 10))
+        .filter(Number.isInteger);
+
+      const nextTheory = Array.isArray(body.theory_snippets)
+        ? body.theory_snippets
+        : currentTheory;
+
+      const nextExercises = Array.isArray(body.exercises_ids)
+        ? body.exercises_ids
+        : currentExercises;
+
+      const scriptedChanged =
+  !sameIntArray(nextTheory, currentTheory) ||
+  !sameIntArray(nextExercises, currentExercises);
+
+if (scriptedChanged) {
   console.log('[PATCH /lessons] replaceLessonScripted CALLED', {
     lessonId: id,
-    theory: body.theory_snippets,
-    exercises: body.exercises_ids
+    theory: nextTheory,
+    exercises: nextExercises
   });
-  try{
-    await replaceLessonScripted(id, body.theory_snippets || [], body.exercises_ids || []);
-  }catch(e){
+
+  try {
+    await replaceLessonScripted(id, nextTheory, nextExercises);
+  } catch (e) {
     console.warn('replaceLessonScripted on PATCH failed:', e && e.message ? e.message : e);
   }
+} else {
+  console.log('[PATCH /lessons] lesson_scripted unchanged; skipping replaceLessonScripted', {
+    lessonId: id
+  });
 }
-    try{ await pool.query('INSERT INTO lessons_actions(lesson_id, action) VALUES ($1, $2)', [id, 'updated']); }catch(_e){ console.error('log insert failed (updated):', _e); }
-    res.json({ ok:true, lesson_id: id });
-  }catch(err){
-    console.error('PATCH /lessons/:id failed:', err);
-    res.status(500).json({ error: 'DB error' });
-  }
+    }
+        try{ await pool.query('INSERT INTO lessons_actions(lesson_id, action) VALUES ($1, $2)', [id, 'updated']); }catch(_e){ console.error('log insert failed (updated):', _e); }
+        res.json({ ok:true, lesson_id: id });
+      }catch(err){
+        console.error('PATCH /lessons/:id failed:', err);
+        res.status(500).json({ error: 'DB error' });
+      }
 });
 
 app.get('/lessons/by-search', async (req, res) => {
@@ -3431,12 +3690,18 @@ app.get("/students/search", async (req, res) => {
     console.log("Received search for:", name); // 🔍 log input
 
     try {
-        const result = await pool.query(
-            `SELECT "Students"."ID", "Students"."First_Name", "Students"."Sirname"
-       FROM "Students"
-       WHERE "Students"."First_Name" ILIKE $1 OR "Students"."Sirname" ILIKE $1
-       ORDER BY "Students"."First_Name"`,
-            [`%${name}%`]
+                const result = await pool.query(
+          `SELECT 
+              "Students"."ID",
+              "Students"."First_Name",
+              "Students"."Sirname",
+              "Students"."Grade",
+              "Students"."Division"
+          FROM "Students"
+          WHERE "Students"."First_Name" ILIKE $1 
+              OR "Students"."Sirname" ILIKE $1
+          ORDER BY "Students"."First_Name"`,
+          [`%${name}%`]
         );
         res.json(result.rows);
     } catch (err) {
@@ -4036,7 +4301,8 @@ app.get('/exercises', async (req, res) => {
     const resourceIdRaw = (req.query.resourceId || '').trim();
     const pageRaw = (req.query.page || '').trim();
     const numberRaw = (req.query.number || '').trim();
-    const limitRaw = parseInt(req.query.limit, 10);
+    const pageNumberRaw = parseInt(req.query.pageNumber, 10);
+    const pageSizeRaw = parseInt(req.query.pageSize, 10);
 
     const where = [];
     const params = [];
@@ -4069,11 +4335,19 @@ app.get('/exercises', async (req, res) => {
       return res.status(400).json({ error: 'At least one filter is required' });
     }
 
-    const limit = Number.isInteger(limitRaw)
-      ? Math.min(Math.max(limitRaw, 1), 200)
-      : 50;
+    const pageNumber = Number.isInteger(pageNumberRaw) && pageNumberRaw > 0 ? pageNumberRaw : 1;
+    const pageSize = Number.isInteger(pageSizeRaw) && pageSizeRaw > 0 ? Math.min(pageSizeRaw, 100) : 50;
+    const offset = (pageNumber - 1) * pageSize;
 
-    const sql = `
+    const whereSql = where.join(' AND ');
+
+    const countSql = `
+      SELECT COUNT(*)::int AS total
+      FROM "Exercises"
+      WHERE ${whereSql}
+    `;
+
+    const dataSql = `
       SELECT
         "ID",
         "Page",
@@ -4090,19 +4364,29 @@ app.get('/exercises', async (req, res) => {
         "topic",
         "keyWords"
       FROM "Exercises"
-      WHERE ${where.join(' AND ')}
+      WHERE ${whereSql}
       ORDER BY "ID" DESC
-      LIMIT ${limit}
+      LIMIT $${i++} OFFSET $${i++}
     `;
 
-    const { rows } = await pool.query(sql, params);
-    return res.json(rows);
+    const countResult = await pool.query(countSql, params);
+    const total = Number(countResult.rows[0]?.total) || 0;
+
+    const dataParams = [...params, pageSize, offset];
+    const dataResult = await pool.query(dataSql, dataParams);
+
+    return res.json({
+      rows: dataResult.rows,
+      total,
+      page: pageNumber,
+      pageSize,
+      totalPages: Math.max(1, Math.ceil(total / pageSize))
+    });
   } catch (e) {
     console.error('GET /exercises failed:', e);
     return res.status(500).json({ error: 'DB error' });
   }
 });
-
 // Lookup single exercise by ID for the visualizer
 app.get('/exercises/:id', async (req, res) => {
   try {
@@ -4138,7 +4422,48 @@ app.get('/exercises/:id', async (req, res) => {
     return res.status(500).json({ error: 'DB error' });
   }
 });
+app.get('/exercise-file', async (req, res) => {
+  try {
+    const rawPath = String(req.query.path || '').trim();
+    if (!rawPath) {
+      return res.status(400).send('Missing path');
+    }
 
+    const normalizedPath = path.normalize(rawPath);
+    if (!path.isAbsolute(normalizedPath)) {
+      return res.status(400).send('Path must be absolute');
+    }
+
+    if (!fs.existsSync(normalizedPath)) {
+      return res.status(404).send('File not found');
+    }
+
+    const ext = path.extname(normalizedPath).toLowerCase();
+    const mimeMap = {
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.png': 'image/png',
+      '.gif': 'image/gif',
+      '.webp': 'image/webp',
+      '.bmp': 'image/bmp',
+      '.svg': 'image/svg+xml',
+      '.tif': 'image/tiff',
+      '.tiff': 'image/tiff',
+      '.pdf': 'application/pdf',
+      '.heic': 'image/heic',
+      '.heif': 'image/heif'
+    };
+
+    const mimeType = mimeMap[ext] || 'application/octet-stream';
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Disposition', 'inline');
+
+    return res.sendFile(normalizedPath);
+  } catch (e) {
+    console.error('GET /exercise-file failed:', e);
+    return res.status(500).send('File preview error');
+  }
+});
 app.post("/schedule/save", async (req, res) => {
   const { entries } = req.body;
   if (!Array.isArray(entries)) return res.status(400).json({ error: "Invalid data format." });

@@ -76,7 +76,85 @@
     .status-tag { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; border:1px solid #cbd5e1; background:#f8fafc; color:#0f172a; }
     .status-tag.new { background:#e6f9ed; border-color:#86efac; color:#166534; }
     .status-tag.updated { background:#eef2ff; border-color:#93c5fd; color:#1e3a8a; }
-  </style>
+
+    .row {
+      gap: 42px;
+    }
+    .lessonClassRow {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0 28px;
+      width: 100%;
+    }
+
+    .rowClassLesson {
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .lessonClassRow > div {
+      width: 100%;
+      min-width: 0;
+    }
+
+    .lessonClassRow input {
+      width: 100%;
+      max-width: none;
+      box-sizing: border-box;
+    }.lessonClassRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 28px;
+  width: 100%;
+}
+
+.lessonClassRow > div {
+  width: 100%;
+  min-width: 0;
+}
+
+.lessonClassRow input {
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+}
+
+.row > .lessonClassRow {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+
+.lessonClassRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  width: 100%;
+}
+
+.lessonClassRow > div {
+  min-width: 0;
+}
+
+.lessonClassRow input {
+  width: 100%;
+}
+
+.row3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 42px;
+  width: 100%;
+}
+
+.row3 > div {
+  min-width: 0;
+}
+
+.row3 input {
+  width: 100%;
+}
+
+ </style>
 </head>
 <body>
   <div class="wrap">
@@ -124,16 +202,31 @@
 
     <form id="lessonForm" autocomplete="off">
       <fieldset>
+        <div>
+          <label for="lessonId">lesson_id</label>
+          <input id="lessonId" type="number" placeholder="ID на урока" />
+        </div>
+        <div style="display:none;">
+            <label>Име на урока</label>
+            <input id="lessonName" type="text" ...>
+          </div>
+
         <legend>Основни</legend>
+      
         <div class="row">
+        
+          <div class="lessonClassRow">
           <div>
-            <label for="name">Име на урока</label>
-            <input id="name" type="text" placeholder="напр. Вектори — въвеждане" />
+            <label>Клас</label>
+            <input id="lessonClass" type="number" placeholder="напр. 9" />
           </div>
+
           <div>
-            <label for="class">Клас (число)</label>
-            <input id="class" type="number" min="1" max="12" placeholder="напр. 9" />
+            <label>Паралелка</label>
+            <input id="lessonDivision" type="text" placeholder="напр. А" />
           </div>
+        </div>
+          
         </div>
         <div class="row3">
           <div>
@@ -157,6 +250,7 @@
           <div>
             <!-- empty column for alignment / future use -->
           </div>
+        
         </div>
         <label for="description">Тема</label>
         <textarea id="description" placeholder="Кратко описание на урока"></textarea>
@@ -237,7 +331,9 @@
         <span id="editModeBadge" class="mode-badge">Режим: нов запис</span>
       </div>
       <div style="display:flex; gap:12px; justify-content:flex-end;">
-        <button id="submitBtn" class="btn" type="submit">Запази урока</button>
+        <button id="submitBtn" class="btn primary" type="submit">
+          Запази урока
+        </button>
         <button id="resetBtn" class="btn btn-plain" type="reset">Изчисти</button>
       </div>
     </form>

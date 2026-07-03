@@ -55,7 +55,7 @@
     }
     .toolbar {
       display: grid;
-      grid-template-columns: repeat(5, minmax(120px, 1fr));
+      grid-template-columns: repeat(4, minmax(120px, 1fr));
       gap: 12px;
       margin-bottom: 14px;
     }
@@ -86,6 +86,28 @@
       align-items: center;
       margin-bottom: 10px;
     }
+    .pagination-bar {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin-top: 10px;
+      margin-bottom: 12px;
+    }
+    #pageInfo {
+      min-width: 180px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .secondary-btn {
+      background: #e5e7eb;
+      color: #111827;
+    }
+    .secondary-btn:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
     button {
       height: 40px;
       padding: 0 14px;
@@ -95,8 +117,7 @@
       font-weight: 700;
       cursor: pointer;
     }
-    #searchBtn,
-    #loadBtn {
+    #searchBtn {
       background: #111827;
       color: #fff;
     }
@@ -265,15 +286,6 @@
           <label for="resourceFilter">ResourceID</label>
           <input id="resourceFilter" type="number" min="1" placeholder="например 27" />
         </div>
-        <div class="field">
-          <label for="limitSelect">Лимит</label>
-          <select id="limitSelect">
-            <option value="25">25</option>
-            <option value="50" selected>50</option>
-            <option value="100">100</option>
-            <option value="200">200</option>
-          </select>
-        </div>
       </div>
 
       <div class="muted" style="margin-bottom: 12px; font-size: 13px;">В този режим можеш да търсиш по ResourceID, Page и Number поотделно или в комбинация. Всички полета са по желание.</div>
@@ -313,6 +325,11 @@
             </tr>
           </tbody>
         </table>
+      </div>
+      <div class="pagination-bar">
+        <button id="prevPageBtn" type="button" class="secondary-btn">← Предишна</button>
+        <div id="pageInfo" class="muted">Страница 1 / 1 • Общо: 0</div>
+        <button id="nextPageBtn" type="button" class="secondary-btn">Следваща →</button>
       </div>
 
       <div class="preview-panel">

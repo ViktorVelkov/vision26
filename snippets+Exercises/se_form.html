@@ -24,6 +24,18 @@
 
     .btn:disabled{ opacity:.55; cursor:not-allowed; }
 
+
+    /* se_form_tableOfLessons CSS */
+    .lessonTools{ margin-top:12px; padding-top:12px; border-top:1px solid var(--border); }
+    .lessonTools h2{ margin:0 0 8px; font-size:14px; color:var(--accent); }
+    .lessonSearchRow{ display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; margin-top:12px; }
+    .lessonSearchRow > div{ flex:1 1 320px; min-width:240px; }
+    .smallBtn{ padding:7px 10px; border-radius:999px; border:1px solid var(--border); background:#fff; cursor:pointer; }
+    .smallBtn.danger{ color:#991b1b; border-color:#fecaca; }
+    .smallBtn.add{ color:#065f46; border-color:#bbf7d0; }
+    .lessonTools table{ margin-top:8px; }
+
+
     /* Title hover button */
     .titleWrap{
       display:flex;
@@ -34,17 +46,16 @@
     .titleWrap h1{
       margin-right:auto;
     }
-    .addHoverBtn{
-      opacity:0;
-      pointer-events:none;
-      padding:6px 10px;
-      font-size:12px;
-      border-radius:999px;
-      border:1px solid var(--border);
-      background:#fff;
-      cursor:pointer;
-      transition: opacity .18s ease;
-    }
+   .addHoverBtn{
+  opacity:1;
+  pointer-events:auto;
+  padding:6px 10px;
+  font-size:12px;
+  border-radius:999px;
+  border:1px solid var(--border);
+  background:#fff;
+  cursor:pointer;
+}
     .titleWrap:hover .addHoverBtn{
       opacity:1;
       pointer-events:auto;
@@ -103,13 +114,24 @@
 
     /* Editable viewer */
     .viewer{ margin-top:14px; padding:12px; background:#f8fafc; border:1px solid var(--border); border-radius:12px; }
-    .vGrid{ display:grid; grid-template-columns: 2fr 1fr 1fr; gap:10px; margin-bottom:10px; }
-    .vInput{ width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:10px; outline:none; background:#fff; }
+.vGrid{ display:grid; grid-template-columns: 2fr 1fr 1fr; gap:10px; margin-bottom:10px; }
     .vText{ width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:10px; outline:none; background:#fff; margin-top:10px; resize:vertical; }
     .vInput:focus, .vText:focus{ border-color:#94a3b8; }
     @media (max-width: 760px){ .vGrid{ grid-template-columns: 1fr 1fr; } 
+  
+      
   }
 
+   .metaGrid{
+      display:grid;
+      grid-template-columns: 2fr 1fr 1fr 1fr;
+      gap:10px;
+      margin-bottom:10px;
+    }
+
+    @media (max-width: 760px){
+      .metaGrid{ grid-template-columns: 1fr 1fr; }
+    }
       /* Modal (Add snippet) */
     .modalOverlay{
       position:fixed;
@@ -153,6 +175,13 @@
       align-items:center;
       margin-top:10px;
     }
+
+
+      #v_related,
+      #v_lessons{
+        display:none;
+      }
+
   </style>
 </head>
 <body>
@@ -160,7 +189,7 @@
     <div class="card">
       <div class="top">
         <div class="titleWrap">
-          <h1>Търсачка теореми</h1>
+          <h1>Търсачка на допълнителни критерий за изпитване</h1>
       <button id="addSnippetBtn" class="addHoverBtn" type="button">Добави Т</button>          </div>
       </div>
 
@@ -211,19 +240,21 @@
 
       <div id="viewerWrap" class="viewer" style="display:none;">
         <div class="muted" style="margin-bottom:8px;">Snippet <span id="v_id"></span></div>
+<div class="vGrid">
+  <input id="v_name" class="vInput" type="text" placeholder="Заглавие" />
+  <input id="v_class" class="vInput" type="number" step="1" placeholder="Клас" />
+  <input id="v_division" class="vInput" type="text" placeholder="Паралелка" />
+  <input id="v_order" class="vInput" type="number" step="1" placeholder="Ред" />
+</div>
 
-        <div class="vGrid">
-          <input id="v_name" class="vInput" type="text" placeholder="Заглавие" />
-          <input id="v_class" class="vInput" type="number" step="1" placeholder="Клас" />
-          <input id="v_order" class="vInput" type="number" step="1" placeholder="Ред" />
-        </div>
+<textarea id="v_keywords" class="vText" rows="2" placeholder="Ключови думи (разделени със запетая)"></textarea>
+<textarea id="v_related" class="vText" rows="2" placeholder="Свързани теми (запетая)"></textarea>
+<textarea id="v_lessons" class="vText" rows="2" placeholder="Уроци в триплети (запетая)"></textarea>
+<textarea id="v_assoc" class="vText" rows="2" placeholder="Свързани snippets ID-та (запетая)"></textarea>
+<textarea id="v_uslovie" class="vText" rows="8" placeholder="Условие / текст"></textarea>
 
-        <textarea id="v_keywords" class="vText" rows="2" placeholder="Ключови думи (разделени със запетая)"></textarea>
-        <textarea id="v_related" class="vText" rows="2" placeholder="Свързани теми (запетая)"></textarea>
-        <textarea id="v_lessons" class="vText" rows="2" placeholder="Уроци в триплети (запетая)"></textarea>
-        <textarea id="v_assoc" class="vText" rows="2" placeholder="Свързани snippets ID-та (запетая)"></textarea>
-        <textarea id="v_uslovie" class="vText" rows="8" placeholder="Условие / текст"></textarea>
-
+         <div id="snippetLessonsMount"></div>
+        
         <div style="display:flex; gap:10px; align-items:center; margin-top:10px;">
           <button id="saveChangesBtn" class="btn primary" type="button" style="display:none;">Запази промените</button>
           <div id="saveStatus" class="muted">—</div>
@@ -242,6 +273,7 @@
     <div class="vGrid">
       <input id="n_name" class="vInput" type="text" placeholder="Заглавие" />
       <input id="n_class" class="vInput" type="number" step="1" placeholder="Клас" />
+      <input id="n_division" class="vInput" type="text" placeholder="Паралелка" />
       <input id="n_order" class="vInput" type="number" step="1" placeholder="Ред" />
     </div>
 
@@ -259,5 +291,6 @@
   </div>
 </div>
   <script src="/se/se_form.js"></script>
+  <script src="/se/se_form_tableOfLessons.js"></script>
 </body>
 </html>
