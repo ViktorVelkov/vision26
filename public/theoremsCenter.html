@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Theorems</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif;
+      background: #f2f2f2;
+      color: #111827;
+    }
+    .wrap { max-width: 980px; margin: 0 auto; }
+    h1 { margin: 0 0 16px; text-align: center; }
+    fieldset {
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 16px;
+      background: #fff;
+    }
+    legend { padding: 0 8px; font-weight: 700; }
+    label { display: block; margin: 8px 0 4px; font-weight: 600; }
+    input, textarea {
+      width: 100%;
+      padding: 9px 10px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      font: inherit;
+    }
+    textarea { min-height: 140px; resize: vertical; }
+    .row { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: end; }
+    .searchGrid {
+      display: grid;
+      grid-template-columns: 120px 1fr 1fr auto auto;
+      gap: 12px;
+      align-items: end;
+    }
+    .actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; }
+    .btn {
+      padding: 9px 14px;
+      border: 1px solid #c3d2e5;
+      border-radius: 8px;
+      background: #e9f1ff;
+      cursor: pointer;
+      font-weight: 700;
+    }
+    .btn.secondary { background: #fff; }
+    .btn:disabled { opacity: .6; cursor: not-allowed; }
+    #msg { margin: 12px 0; }
+    .success { border-left: 4px solid #18a957; padding: 8px 12px; background: #eaf9f0; border-radius: 8px; }
+    .error { border-left: 4px solid #c62828; padding: 8px 12px; background: #fde8e8; border-radius: 8px; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; }
+    th, td { padding: 9px 10px; border-bottom: 1px solid #e5e7eb; text-align: left; vertical-align: top; }
+    th { background: #eff6ff; }
+    tbody tr { cursor: pointer; }
+    tbody tr:hover td { background: #f8fbff; }
+    .idCell { width: 90px; white-space: nowrap; }
+    .definitionCell { max-width: 520px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Теореми</h1>
+
+    <fieldset>
+      <legend>Търсене</legend>
+      <div class="searchGrid">
+        <div>
+          <label for="searchId">ID</label>
+          <input id="searchId" type="text" inputmode="numeric" placeholder="12" />
+        </div>
+        <div>
+          <label for="searchName">Име</label>
+          <input id="searchName" type="text" placeholder="напр. Питагор" />
+        </div>
+        <div>
+          <label for="searchDefinition">Дефиниция</label>
+          <input id="searchDefinition" type="text" placeholder="дума от дефиницията" />
+        </div>
+        <button id="searchBtn" class="btn" type="button">Търси</button>
+        <button id="clearSearchBtn" class="btn secondary" type="button">Clear</button>
+      </div>
+    </fieldset>
+
+    <form id="theoremForm" autocomplete="off">
+      <fieldset>
+        <legend>Добавяне / обновяване</legend>
+
+        <div>
+          <label for="theoremId">ID</label>
+          <input id="theoremId" type="text" placeholder="празно = нова теорема" readonly/>
+        </div>
+
+        <div>
+          <label for="theoremName">Име</label>
+          <input id="theoremName" type="text" placeholder="Име на теоремата" />
+        </div>
+
+        <div>
+          <label for="theoremDefinition">Дефиниция</label>
+          <textarea id="theoremDefinition" placeholder="Текст / формулировка"></textarea>
+        </div>
+
+        <div class="actions">
+          <button id="saveBtn" class="btn" type="submit">Запази</button>
+        </div>
+      </fieldset>
+    </form>
+
+    <div id="msg"></div>
+
+    <table>
+      <thead>
+        <tr>
+          <th class="idCell">ID</th>
+          <th>Име</th>
+          <th class="definitionCell">Дефиниция</th>
+        </tr>
+      </thead>
+      <tbody id="theoremsBody"></tbody>
+    </table>
+  </div>
+
+  <script src="./theoremsCenter.js"></script>
+</body>
+</html>

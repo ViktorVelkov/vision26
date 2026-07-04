@@ -85,6 +85,151 @@ function isPdfExt(e){ return e === 'pdf'; }
 function isWebImageExt(e){ return ['jpg','jpeg','png','gif','webp','bmp','svg'].includes(e); }
 function isConvertableToPngExt(e){ return ['tif','tiff','heic','heif'].includes(e); }
 
+
+
+
+// === THEOREMS API ===
+
+// GET /theorems/search?id=...&name=...&definition=...
+app.get('/theorems/search', async (req, res) => {
+  const idRaw = String(req.query.id || '').trim();
+  const nameRaw = String(req.query.name || '').trim();
+  const definitionRaw = String(req.query.definition || '').trim();
+
+  const params = [];
+  const where = [];
+
+  if (idRaw) {
+    const id = parseInt(idRaw, 10);
+
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ error: 'Invalid theorem id' });
+    }
+
+    params.push(id);
+    where.push(`"ID" = $${params.length}`);
+  }
+
+  if (nameRaw) {
+    params.push(nameRaw);
+    where.push(`COALESCE(t_name, '') ILIKE '%' || $${params.length} || '%'`);
+  }
+
+  if (definitionRaw) {
+    params.push(definitionRaw);
+    where.push(`COALESCE(t_definition, '') ILIKE '%' || $${params.length} || '%'`);
+  }
+
+  try {
+    const sql = `
+      SELECT "ID", t_name, t_definition
+        FROM public."Theorems"
+       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+       ORDER BY "ID" DESC
+       LIMIT 100
+    `;
+
+    const { rows } = await pool.query(sql, params);
+    res.json(rows);
+
+  } catch (e) {
+    console.error('GET /theorems/search failed:', e);
+    res.status(500).json({ error: 'DB error' });
+  }
+});
+
+
+// POST /theorems
+app.post('/theorems', async (req, res) => {
+  const body = req.body || {};
+
+  const tName = typeof body.t_name === 'string'
+    ? body.t_name.trim()
+    : '';
+
+  const tDefinition = typeof body.t_definition === 'string'
+    ? body.t_definition.trim()
+    : '';
+
+  if (!tName && !tDefinition) {
+    return res.status(400).json({ error: 'Missing theorem data' });
+  }
+console.log('POST /theorems body:', req.body);
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO public."Theorems" (t_name, t_definition)
+       VALUES ($1, $2)
+       RETURNING "ID", t_name, t_definition`,
+      [tName || null, tDefinition || null]
+    );
+
+    res.status(201).json(rows[0]);
+
+  } catch (e) {
+    console.error('POST /theorems failed:', e);
+    res.status(500).json({ error: 'DB error' });
+  }
+});
+
+
+// PATCH /theorems/:id
+app.patch('/theorems/:id', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+
+  if (!Number.isInteger(id)) {
+    return res.status(400).json({ error: 'Invalid theorem id' });
+  }
+
+  const body = req.body || {};
+  const sets = [];
+  const params = [];
+
+  const addTextField = (key) => {
+    if (!Object.prototype.hasOwnProperty.call(body, key)) return;
+
+    if (body[key] === null) {
+      sets.push(`${key} = NULL`);
+      return;
+    }
+
+    if (typeof body[key] !== 'string') return;
+
+    params.push(body[key].trim() || null);
+    sets.push(`${key} = $${params.length}`);
+  };
+
+  addTextField('t_name');
+  addTextField('t_definition');
+
+  if (!sets.length) {
+    return res.status(400).json({ error: 'No fields provided' });
+  }
+
+  try {
+    params.push(id);
+
+    const { rows } = await pool.query(
+      `UPDATE public."Theorems"
+          SET ${sets.join(', ')}
+        WHERE "ID" = $${params.length}
+        RETURNING "ID", t_name, t_definition`,
+      params
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Theorem not found' });
+    }
+
+    res.json(rows[0]);
+
+  } catch (e) {
+    console.error('PATCH /theorems/:id failed:', e);
+    res.status(500).json({ error: 'DB error' });
+  }
+});
+
+
+
 // GET /file-preview?path=/abs/path/to/file
 // - Serves PDF directly
 // - Serves web-friendly images directly
