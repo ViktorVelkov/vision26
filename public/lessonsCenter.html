@@ -77,6 +77,46 @@
     .status-tag.new { background:#e6f9ed; border-color:#86efac; color:#166534; }
     .status-tag.updated { background:#eef2ff; border-color:#93c5fd; color:#1e3a8a; }
 
+    /* панел за качества-теореми-задачи */
+    .subListsGrid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 24px;
+      align-items: start;
+      width: 100%;
+    }
+
+    .subListPanel {
+      min-width: 0;
+    }
+
+    .subListPanel table {
+      width: 100%;
+    }
+
+    .subListControls {
+      margin-top: 8px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .subListControls input {
+      max-width: 160px;
+    }
+
+    @media (max-width: 700px) {
+      .subListsGrid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .fullWidthSection {
+      width: calc(100vw - 48px);
+      margin-left: calc(-50vw + 450px + 24px);
+    }
+
+    /* панел за качества-теореми-задачи. край */
     .row {
       gap: 42px;
     }
@@ -268,64 +308,92 @@
         </div>
       </fieldset>
 
-      <fieldset>
-        <legend>Под-списъци</legend>
-        <div class="row">
-          <div>
-            <label>Теория — snippets</label>
-            <table id="sn_table" style="width:100%; border-collapse:collapse; margin-top:6px;">
-              <thead>
-                <tr>
-                  <th style="width:110px;">ID</th>
-                  <th style="width:160px;">Продълж. (мин)</th>
-                  <th style="width:140px;">Сложност</th>
-                  <th style="width:46px;"></th>
-                </tr>
-              </thead>
-              <tbody id="sn_table_body"></tbody>
-            </table>
-            <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
-              <input id="sn_add_id" type="number" min="1" placeholder="въведи ID" style="max-width:160px;"/>
-              <button type="button" class="btn btn-plain" id="addTheory">+ Добави</button>
-            </div>
-          </div>
-          <div>
-            <label>Упражнения</label>
-            <table id="ex_table" style="width:100%; border-collapse:collapse; margin-top:6px;">
-              <thead>
-                <tr>
-                  <th style="width:110px;">ID</th>
-                  <th style="width:160px;">Продълж. (мин)</th>
-                  <th style="width:140px;">Сложност</th>
-                  <th style="width:46px;"></th>
-                </tr>
-              </thead>
-              <tbody id="ex_table_body"></tbody>
-            </table>
-            <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
-              <input id="ex_add_id" type="number" min="1" placeholder="въведи ID" style="max-width:160px;"/>
-              <button type="button" class="btn btn-plain" id="addEx">+ Добави</button>
-            </div>
-          </div>
-        </div>
-      <details id="ref_details" style="margin-top:14px;">
-        <summary class="btn btn-plain" style="list-style:none; display:inline-flex; align-items:center; gap:8px; cursor:pointer;">
-          Информация (ID · Вид · Инфо)
-        </summary>
-        <div style="margin-top:10px;">
-          <table id="ref_table" style="width:100%; border-collapse:collapse; margin-top:6px;">
-            <thead>
-              <tr>
-                <th style="width:110px;">ID</th>
-                <th style="width:130px;">Вид</th>
-                <th>Инфо</th>
-              </tr>
-            </thead>
-            <tbody id="ref_table_body"></tbody>
-          </table>
-        </div>
-      </details>
-      </fieldset>
+<fieldset class="fullWidthSection">
+  <legend>Подсписъци</legend>
+
+  <div class="subListsGrid">
+
+    <div class="subListPanel">
+      <label>Качества/умения(snippets)</label>
+      <table id="sn_table" style="width:100%; border-collapse:collapse; margin-top:6px;">
+        <thead>
+          <tr>
+            <th style="width:110px;">ID</th>
+            <th style="width:160px;">Продълж. (мин)</th>
+            <th style="width:140px;">Сложност</th>
+            <th style="width:46px;"></th>
+          </tr>
+        </thead>
+        <tbody id="sn_table_body"></tbody>
+      </table>
+
+      <div class="subListControls">
+        <input id="sn_add_id" type="number" min="1" placeholder="въведи ID" />
+        <button type="button" class="btn btn-plain" id="addTheory">+ Добави</button>
+      </div>
+    </div>
+
+    <div class="subListPanel">
+      <label>Теореми</label>
+      <table id="th_table" style="width:100%; border-collapse:collapse; margin-top:6px;">
+        <thead>
+          <tr>
+            <th style="width:110px;">ID</th>
+            <th style="width:160px;">Продълж. (мин)</th>
+            <th style="width:140px;">Сложност</th>
+            <th style="width:46px;"></th>
+          </tr>
+        </thead>
+        <tbody id="th_table_body"></tbody>
+      </table>
+
+      <div class="subListControls">
+        <input id="th_add_id" type="number" min="1" placeholder="въведи ID" />
+        <button type="button" class="btn btn-plain" id="addTheorem">+ Добави</button>
+      </div>
+    </div>
+
+    <div class="subListPanel">
+      <label>Упражнения</label>
+      <table id="ex_table" style="width:100%; border-collapse:collapse; margin-top:6px;">
+        <thead>
+          <tr>
+            <th style="width:110px;">ID</th>
+            <th style="width:160px;">Продълж. (мин)</th>
+            <th style="width:140px;">Сложност</th>
+            <th style="width:46px;"></th>
+          </tr>
+        </thead>
+        <tbody id="ex_table_body"></tbody>
+      </table>
+
+      <div class="subListControls">
+        <input id="ex_add_id" type="number" min="1" placeholder="въведи ID" />
+        <button type="button" class="btn btn-plain" id="addEx">+ Добави</button>
+      </div>
+    </div>
+
+  </div>
+
+  <details id="ref_details" style="margin-top:14px;">
+    <summary class="btn btn-plain" style="list-style:none; display:inline-flex; align-items:center; gap:8px; cursor:pointer;">
+      Информация (ID · Вид · Инфо)
+    </summary>
+
+    <div style="margin-top:10px;">
+      <table id="ref_table" style="width:100%; border-collapse:collapse; margin-top:6px;">
+        <thead>
+          <tr>
+            <th style="width:110px;">ID</th>
+            <th style="width:130px;">Вид</th>
+            <th>Инфо</th>
+          </tr>
+        </thead>
+        <tbody id="ref_table_body"></tbody>
+      </table>
+    </div>
+  </details>
+</fieldset>
 
       <div style="display:flex; justify-content:space-between; align-items:center; margin:8px 0 6px;">
         <span id="editModeBadge" class="mode-badge">Режим: нов запис</span>

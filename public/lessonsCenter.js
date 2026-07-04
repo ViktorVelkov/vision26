@@ -2,7 +2,10 @@
 (function(){
   const $ = (sel) => document.querySelector(sel);
   const snWrap = $('#sn_table_body');
+  const thWrap = $('#th_table_body');
   const exWrap = $('#ex_table_body');
+
+  const thAddInput = $('#th_add_id');
   const refWrap = $('#ref_table_body');
   const exAddInput = $('#ex_add_id');  const snippetInp = $('#snippetSearch');
   const snAddInput = $('#sn_add_id');
@@ -111,30 +114,32 @@ function makeTableDraggable(tbody){
     if (!after) tbody.appendChild(dragging); else tbody.insertBefore(dragging, after);
   });
 }
-  async function persistOrderFor(wrap){
-    try{
-      // Determine type by target wrap
-      const isTheory = (wrap === snWrap);
-      const type = isTheory ? 'theory' : 'exercise';
-      if (!currentLessonId) return; // only persist when editing existing lesson
-      const ids = (wrap === snWrap)
-        ? Array.from(snWrap.querySelectorAll('tr.row-item'))
-            .map(tr => parseInt(tr.dataset.id,10))
-            .filter(Number.isInteger)
-        : Array.from(exWrap.querySelectorAll('tr.row-item'))
-            .map(tr => parseInt(tr.dataset.id,10))
-            .filter(Number.isInteger);
-      // (Allow sending even if ids.length === 0, to clear section)
-      await fetch(`/lesson-scripted/${currentLessonId}/reorder`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item_type: type, item_ids: ids })
-      });
-      console.log('[lessonsCenter] order persisted', { lesson: currentLessonId, type, ids });
-    }catch(e){
-      console.warn('persistOrderFor failed', e);
-    }
+async function persistOrderFor(wrap){
+  try{
+    let type = null;
+
+    if (wrap === snWrap) type = 'snippet';
+    if (wrap === thWrap) type = 'theorem';
+    if (wrap === exWrap) type = 'exercise';
+
+    if (!type) return;
+    if (!currentLessonId) return;
+
+    const ids = Array.from(wrap.querySelectorAll('tr.row-item'))
+      .map(tr => parseInt(tr.dataset.id, 10))
+      .filter(Number.isInteger);
+
+    await fetch(`/lesson-scripted/${currentLessonId}/reorder`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item_type: type, item_ids: ids })
+    });
+
+    console.log('[lessonsCenter] order persisted', { lesson: currentLessonId, type, ids });
+  }catch(e){
+    console.warn('persistOrderFor failed', e);
   }
+}
 
   // Helper: fill form from a Lessons row (shared by all loaders)
   function fillFormFromRow(row){
@@ -342,6 +347,101 @@ async function patchLessonScriptedSnippetMeta(lessonId, itemId, patch){
   }catch(e){
     console.warn('patchLessonScriptedSnippetMeta failed', e);
   }
+}
+
+
+
+async function fetchTheoremRefs(ids){
+  if (!ids.length) return new Map();
+
+  const params = new URLSearchParams();
+  params.set('ids', ids.join(','));
+
+  const r = await fetch(`/theorem-ref?${params.toString()}`);
+  if (!r.ok) return new Map();
+
+  const arr = await r.json();
+  return new Map(arr.map(x => [parseInt(x.ID, 10), x]));
+}
+
+function buildTheoremRow(meta, index){
+  const tr = document.createElement('tr');
+  tr.className = 'row-item';
+  tr.draggable = true;
+  tr.dataset.id = meta.theorem_id;
+
+  const tdId = document.createElement('td');
+  tdId.textContent = String(meta.theorem_id);
+
+  const tdDur = document.createElement('td');
+  const durInp = document.createElement('input');
+  durInp.type = 'number';
+  durInp.min = '0';
+  durInp.step = '1';
+  durInp.style.width = '100%';
+  durInp.value = String(meta.timeInMinutes ?? 0);
+  tdDur.appendChild(durInp);
+
+  const tdDf = document.createElement('td');
+  const dfInp = document.createElement('input');
+  dfInp.type = 'number';
+  dfInp.min = '0';
+  dfInp.max = '3';
+  dfInp.step = '1';
+  dfInp.style.width = '100%';
+  dfInp.value = String(meta.difficulty ?? 0);
+  tdDf.appendChild(dfInp);
+
+  const saveIfEditing = async () => {
+    if (!currentLessonId) return;
+
+    const t = parseInt(durInp.value, 10);
+    let d = parseInt(dfInp.value, 10);
+
+    if (!Number.isInteger(d) || d < 0) d = 0;
+    if (d > 3) d = 3;
+    dfInp.value = String(d);
+
+    await patchLessonScriptedItemMeta(currentLessonId, 'theorem', meta.theorem_id, {
+      timeInMinutes: Number.isFinite(t) ? t : 0,
+      difficulty: Number.isFinite(d) ? d : 0
+    });
+  };
+
+  durInp.addEventListener('blur', saveIfEditing);
+  dfInp.addEventListener('blur', saveIfEditing);
+
+  const tdAct = document.createElement('td');
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'rem';
+  btn.textContent = '×';
+  btn.title = 'Премахни теоремата';
+  btn.addEventListener('click', () => {
+    tr.remove();
+    persistOrderFor(thWrap);
+    updateRefTable();
+  });
+
+  tdAct.appendChild(btn);
+  tr.append(tdId, tdDur, tdDf, tdAct);
+
+  return tr;
+}
+
+async function setTheoremsTable(ids){
+  thWrap.innerHTML = '';
+
+  ids.forEach((id, i) => {
+    thWrap.appendChild(buildTheoremRow({
+      theorem_id: id,
+      timeInMinutes: 0,
+      difficulty: 0
+    }, i));
+  });
+
+  makeTableDraggable(thWrap);
+  updateRefTable();
 }
 
 function buildSnippetRow(meta, index){
