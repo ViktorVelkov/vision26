@@ -302,6 +302,7 @@ app.post('/exercises/:id/image', requireAuth, upload.single('file'), async (req,
     : 'solution_filepath';
 
   const ext = extensionFromMime(req.file.mimetype);
+  
   const objectKey = `exercises/${exerciseId}/${kind}/${crypto.randomUUID()}${ext}`;
   const storedLocation = `r2://${objectKey}`;
 
@@ -4461,7 +4462,14 @@ app.post("/custom-upload", upload.fields([
 
     const uploadFileToR2 = async (file, suffix) => {
       const ext = path.extname(file.originalname) || extensionFromMime(file.mimetype);
-      const objectKey = `exercises/${name}/${name}_${suffix}_${crypto.randomUUID()}${ext}`;
+      const safeName = name
+
+      .replace(/[\/\\]/g, '_')
+
+      .replace(/\s+/g, '_')
+
+      .replace(/[^a-zA-Z0-9А-Яа-я._-]/g, '');
+      const objectKey = `exercises/${safeName}_${suffix}_${crypto.randomUUID()}${ext}`;
       const storedLocation = `r2://${objectKey}`;
 
       await r2.send(new PutObjectCommand({
