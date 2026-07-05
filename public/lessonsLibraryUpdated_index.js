@@ -52,8 +52,19 @@ function normalizeFileUrl(u){
     }
   }
 
+  if (raw.startsWith('r2://')) {
+    return `/file-preview?path=${encodeURIComponent(raw)}`;
+  }
+
   // Already an http(s) URL or already mapped
-  if (/^https?:\/\//i.test(raw) || raw.startsWith('/files/')) return raw;
+  if (
+    /^https?:\/\//i.test(raw) ||
+    raw.startsWith('/files/') ||
+    raw.startsWith('/file-preview?') ||
+    raw.startsWith('/file-proxy?')
+  ) {
+    return raw;
+  }
 
   // Map absolute local paths under /Users/viktorvelkov/Documents -> /files/...
   const base = '/Users/viktorvelkov/Documents';

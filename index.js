@@ -176,7 +176,7 @@ const FILE_PROXY_ALLOWED_FILES = new Set([
   path.resolve('/Users/viktorvelkov/Documents/Scan 1.pdf'),
 ]);
 
-app.get('/file-proxy', (req, res) => {
+app.get('/file-proxy', async (req, res) => {
   try {
     let raw = (req.query.path == null) ? '' : String(req.query.path);
     raw = raw.trim();
@@ -5409,12 +5409,20 @@ app.post('/threads/create', async (req, res) => {
 // Convert absolute local paths (under /Users/viktorvelkov/Documents) to a public URL served by:
 // app.use('/files', express.static('/Users/viktorvelkov/Documents'))
 function toPublicFileUrl(p){
-  const v = (p == null) ? '' : String(p).trim();
+  let v = (p == null) ? '' : String(p).trim();
   if (!v) return null;
 
-  // Already a web URL or already mapped
+  v = v.replace(/^[\s'"]+|[\s'"]+$/g, '');
+  if (!v) return null;
+
+  if (v.startsWith('r2://')) {
+    return `/file-preview?path=${encodeURIComponent(v)}`;
+  }
+
   if (/^https?:\/\//i.test(v)) return v;
   if (v.startsWith('/files/')) return v;
+  if (v.startsWith('/file-preview?')) return v;
+  if (v.startsWith('/file-proxy?')) return v;
 
   const base = '/Users/viktorvelkov/Documents';
   if (v.startsWith(base)) {
@@ -5422,7 +5430,6 @@ function toPublicFileUrl(p){
     return '/files' + (rest.startsWith('/') ? rest : '/' + rest);
   }
 
-  // If it is a relative path, return as-is for now
   return v;
 }
 
