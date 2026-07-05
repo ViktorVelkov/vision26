@@ -13,8 +13,6 @@ const { execFile } = require('child_process');
 const app = express();
 const pool = require('./db');
 
-// Serve /public as static so /vc_chronology.js, CSS, etc. load correctly
-app.use(express.static(path.join(__dirname, 'public')));
 
 // === Snippets & Exercises UI (local tools) ===
 // Files are under ./public/snippetsexercises
@@ -1509,8 +1507,9 @@ app.get('/', (req, res) => {
 app.get('/index.html', requireAuth, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
-app.use(express.static(path.join(__dirname, 'public')));
-
+app.use(express.static(path.join(__dirname, 'public'), {
+  index: false
+}));
 // === Sticky Notes: append checked items to a per-key JSON lines log ===
 // POST /sticky-notes/done-append  { key, text, at? }
 app.post('/sticky-notes/done-append', (req, res) => {
