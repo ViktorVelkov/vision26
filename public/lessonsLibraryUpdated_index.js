@@ -34,6 +34,14 @@ function isPdfUrl(u){
   return clean.endsWith('.pdf');
 }
 
+function safeHref(u){
+  const s = String(u || '');
+  if (s.startsWith('/file-preview?') || s.startsWith('/file-proxy?')) {
+    return s;
+  }
+  return encodeURI(s);
+}
+
 // Map absolute macOS file paths under /Users/viktorvelkov/Documents to /files/... URLs for server access
 function normalizeFileUrl(u){
   let raw = String(u || '').trim();
@@ -82,27 +90,30 @@ function renderMediaCard(label, url, altText){
 
   const uRaw = normalizeFileUrl(uIn);
 
-  // IMPORTANT: encode spaces / Cyrillic in URLs (e.g. under /files/...)
-  // encodeURI keeps '/' but encodes unsafe chars.
-  const u = encodeURI(uRaw);
+  const u = (
+    uRaw.startsWith('/file-preview?') ||
+    uRaw.startsWith('/file-proxy?')
+  )
+    ? uRaw
+    : encodeURI(uRaw);
 
   const safeUrl = esc(u);
   const safeAlt = esc(altText || label || '');
 
   if (isPdfUrl(uRaw)) {
-  return `
-    <div class="imgCard">
-      <div class="imgLabel">
-        ${esc(label)} (PDF) ·
-        <a href="${safeUrl}" target="_blank" rel="noopener">отвори</a>
+    return `
+      <div class="imgCard">
+        <div class="imgLabel">
+          ${esc(label)} (PDF) ·
+          <a href="${safeUrl}" target="_blank" rel="noopener">отвори</a>
+        </div>
+        <embed
+          src="${safeUrl}"
+          type="application/pdf"
+          style="width:100%; height:780px; border:0; display:block;" />
       </div>
-      <embed
-        src="${safeUrl}"
-        type="application/pdf"
-        style="width:100%; height:780px; border:0; display:block;" />
-    </div>
-  `;
-}
+    `;
+  }
 
   return `
     <div class="imgCard">
@@ -222,6 +233,7 @@ function renderLessonHeader(lesson){
   }
 }
 
+
 function renderPhotos(items){
   const wrap = $('#photosWrap');
   if (!wrap) return;
@@ -242,9 +254,8 @@ function renderPhotos(items){
         <div class="photoRowHeader">
           <div class="photoRowTitle">Упражнение ${esc(exId)}${pos !== '' ? ` (позиция ${esc(pos)})` : ''}</div>
           <div class="photoRowLinks">
-            ${text ? `<a href="${esc(encodeURI(text))}" target="_blank" rel="noopener">условие</a>` : '<span class="muted">няма условие</span>'}
-            ${sol ? `<a href="${esc(encodeURI(sol))}" target="_blank" rel="noopener">решение</a>` : '<span class="muted">няма решение</span>'}
-          </div>
+            ${text ? `<a href="${esc(safeHref(text))}" target="_blank" rel="noopener">условие</a>` : '<span class="muted">няма условие</span>'}
+            ${sol ? `<a href="${esc(safeHref(sol))}" target="_blank" rel="noopener">решение</a>` : '<span class="muted">няма решение</span>'}          </div>
         </div>
         <div class="photoGrid">
           ${text ? renderMediaCard('Условие', text, `Условие ${exId}`) : ''}
