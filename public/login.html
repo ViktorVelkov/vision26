@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="bg">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Login</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      min-height: 100vh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      background: #f3f4f6;
+    }
+
+    form {
+      width: min(420px, calc(100vw - 32px));
+      background: white;
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      padding: 24px;
+    }
+
+    h1 {
+      margin: 0 0 20px;
+      font-size: 28px;
+    }
+
+    label {
+      display: block;
+      font-weight: 700;
+      margin-top: 14px;
+    }
+
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      margin-top: 6px;
+      padding: 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      font-size: 16px;
+    }
+
+    button {
+      margin-top: 20px;
+      width: 100%;
+      padding: 12px;
+      border: 1px solid #94a3b8;
+      border-radius: 8px;
+      background: #dbeafe;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    #msg {
+      margin-top: 12px;
+      color: #b91c1c;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <form id="loginForm">
+    <h1>Вход</h1>
+
+    <label for="email">Email</label>
+    <input id="email" type="email" autocomplete="username" required />
+
+    <label for="password">Парола</label>
+    <input id="password" type="password" autocomplete="current-password" required />
+
+    <button type="submit">Влез</button>
+
+    <div id="msg"></div>
+  </form>
+
+  <script>
+    const form = document.getElementById('loginForm');
+    const msg = document.getElementById('msg');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      msg.textContent = '';
+
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+
+      try {
+        const r = await fetch('/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+
+        const data = await r.json().catch(() => null);
+
+        if (!r.ok) {
+          throw new Error(data && data.error ? data.error : 'Login failed');
+        }
+
+        window.location.href = '/';
+      } catch (err) {
+        msg.textContent = 'Грешен email или парола.';
+      }
+    });
+  </script>
+</body>
+</html>
