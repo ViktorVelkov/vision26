@@ -686,12 +686,39 @@ if (cell.tagName === "INPUT") {
         formData.append("file1", fileInput.files[0]);
         console.log("inside file check");       
         }       
+        /*
          await fetch("/custom-upload", {
             method: "POST",
             body: formData,
         });
           current = current === "true";
           console.log(current);
+          */
+
+          const uploadRes = await fetch("/custom-upload", {
+      method: "POST",
+      body: formData,
+    });
+
+    const uploadResult = await uploadRes.json();
+
+    if (!uploadRes.ok) {
+      throw new Error(uploadResult.error || "Upload failed");
+    }
+
+    if (uploadResult.text_filepath) {
+      await fetch("/update-exercise", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id,
+          field: "text_filepath",
+          value: uploadResult.text_filepath
+        })
+      });
+}
+
+    current = current === "true";
     }
     if (
     (field === "date_last_solved" || field === "for_revision") &&

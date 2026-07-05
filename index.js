@@ -20,6 +20,44 @@ const scheduleSelectionRouter = require("./routes/scheduleSelection");
 
 const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
 
+
+const r2 = new S3Client({
+  region: 'auto',
+  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+  credentials: {
+    accessKeyId: process.env.R2_ACCESS_KEY_ID,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY
+  }
+});
+
+function extensionFromMime(mimeType) {
+  if (mimeType === 'image/png') return '.png';
+  if (mimeType === 'image/jpeg') return '.jpg';
+  if (mimeType === 'image/webp') return '.webp';
+  if (mimeType === 'application/pdf') return '.pdf';
+  return '';
+}
+
+function isR2Location(value) {
+  return typeof value === 'string' && value.startsWith('r2://');
+}
+
+async function streamR2ObjectToResponse(location, res) {
+  const objectKey = String(location).replace(/^r2:\/\//, '');
+
+  const object = await r2.send(new GetObjectCommand({
+    Bucket: process.env.R2_BUCKET,
+    Key: objectKey
+  }));
+
+  if (object.ContentType) {
+    res.setHeader('Content-Type', object.ContentType);
+  }
+
+  object.Body.pipe(res);
+}
+
+
 // === Snippets & Exercises UI (local tools) ===
 // Files are under ./public/snippetsexercises
 app.use('/se', express.static(path.join(__dirname, 'snippets+Exercises')));
@@ -148,7 +186,10 @@ app.get('/file-proxy', (req, res) => {
     if ((raw.startsWith("'") && raw.endsWith("'")) || (raw.startsWith('"') && raw.endsWith('"'))) {
       raw = raw.slice(1, -1).trim();
     }
-
+    
+    if (isR2Location(raw)) {
+      return streamR2ObjectToResponse(raw, res);
+    }
     const abs = path.resolve(raw);
 
     // Explicit allow-list for a few single files
@@ -470,6 +511,7 @@ app.get('/theorem-ref', async (req, res) => {
 // - Serves PDF directly
 // - Serves web-friendly images directly
 // - Converts TIFF/HEIC to PNG using `sips` (macOS) and serves the PNG
+/*
 app.get('/file-preview', (req, res) => {
   try {
     let raw = (req.query.path == null) ? '' : String(req.query.path);
@@ -482,7 +524,33 @@ app.get('/file-preview', (req, res) => {
     }
 
     const abs = path.resolve(raw);
+*/
 
+app.get('/file-preview', async (req, res) => {
+
+  try {
+
+    let raw = (req.query.path == null) ? '' : String(req.query.path);
+
+    raw = raw.trim();
+
+    if (!raw) return res.status(400).send('Missing path');
+
+    if ((raw.startsWith("'") && raw.endsWith("'")) || (raw.startsWith('"') && raw.endsWith('"'))) {
+
+      raw = raw.slice(1, -1).trim();
+
+    }
+
+    if (isR2Location(raw)) {
+
+      return streamR2ObjectToResponse(raw, res);
+
+    }
+
+    const abs = path.resolve(raw);
+
+    // останалата стара preview логика остава
     // Same security as /file-proxy
     if (FILE_PROXY_ALLOWED_FILES.has(abs)) {
       if (!fs.existsSync(abs)) return res.status(404).send('File not found');
@@ -4286,7 +4354,7 @@ ORDER BY
     }
 });
 
-
+/*
 app.post("/custom-upload", upload.fields([
   { name: "file1", maxCount: 1 },
   { name: "file2", maxCount: 1 }
@@ -4372,6 +4440,72 @@ app.post("/custom-upload", upload.fields([
     return res.status(500).json({ error: "File saving failed." });
   }
 });
+*/ 
+
+
+app.post("/custom-upload", upload.fields([
+  { name: "file1", maxCount: 1 },
+  { name: "file2", maxCount: 1 }
+]), async (req, res) => {
+  const name = String(req.body.name || '').trim();
+
+  if (!name) {
+    return res.status(400).json({ error: "Missing file name." });
+  }
+
+  try {
+    const savedFiles = [];
+
+    let textFileLocation = null;
+    let solutionFileLocation = null;
+
+    const uploadFileToR2 = async (file, suffix) => {
+      const ext = path.extname(file.originalname) || extensionFromMime(file.mimetype);
+      const objectKey = `exercises/${name}/${name}_${suffix}_${crypto.randomUUID()}${ext}`;
+      const storedLocation = `r2://${objectKey}`;
+
+      await r2.send(new PutObjectCommand({
+        Bucket: process.env.R2_BUCKET,
+        Key: objectKey,
+        Body: file.buffer,
+        ContentType: file.mimetype
+      }));
+
+      savedFiles.push(objectKey);
+
+      if (suffix === 't') {
+        textFileLocation = storedLocation;
+      }
+
+      if (suffix === 's') {
+        solutionFileLocation = storedLocation;
+      }
+    };
+
+    if (req.files.file1?.[0]) {
+      await uploadFileToR2(req.files.file1[0], 't');
+    }
+
+    if (req.files.file2?.[0]) {
+      await uploadFileToR2(req.files.file2[0], 's');
+    }
+
+    if (savedFiles.length === 0) {
+      return res.status(400).json({ error: "No files were uploaded." });
+    }
+
+    return res.status(200).json({
+      message: "Upload complete.",
+      savedFiles,
+      text_filepath: textFileLocation,
+      solution_filepath: solutionFileLocation
+    });
+  } catch (err) {
+    console.error("R2 upload error:", err);
+    return res.status(500).json({ error: "File upload to R2 failed." });
+  }
+});
+
 
 app.post("/exercises", async (req, res) => {
     const {
