@@ -1499,6 +1499,16 @@ app.post('/threads/create', async (req,res)=>{
 });
 
 app.use("/api", scheduleRouter);
+app.get('/', (req, res) => {
+  if (req.session && req.session.user) {
+    return res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  }
+
+  return res.redirect('/login.html');
+});
+app.get('/index.html', requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 app.use(express.static(path.join(__dirname, 'public')));
 
 // === Sticky Notes: append checked items to a per-key JSON lines log ===
