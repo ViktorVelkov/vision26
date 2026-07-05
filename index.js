@@ -228,7 +228,29 @@ app.patch('/theorems/:id', async (req, res) => {
   }
 });
 
+app.get('/theorem-ref', async (req, res) => {
+  const ids = String(req.query.ids || '')
+    .split(',')
+    .map(x => parseInt(x.trim(), 10))
+    .filter(Number.isInteger);
 
+  if (!ids.length) return res.json([]);
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT "ID", t_name, t_definition
+         FROM public."Theorems"
+        WHERE "ID" = ANY($1::bigint[])
+        ORDER BY "ID" ASC`,
+      [ids]
+    );
+
+    res.json(rows);
+  } catch (e) {
+    console.error('GET /theorem-ref failed:', e);
+    res.status(500).json({ error: 'DB error' });
+  }
+});
 
 // GET /file-preview?path=/abs/path/to/file
 // - Serves PDF directly
@@ -732,32 +754,43 @@ app.get('/snippet-ref', async (req, res) => {
 })();
 
 // Replace all scripted items for a lesson in one go.
-async function replaceLessonScripted(lessonId, theoryIds, exerciseIds){
+async function replaceLessonScripted(lessonId, snippetIds, theoremIds, exerciseIds){
   if (!Number.isInteger(lessonId)) return;
+
   const client = await pool.connect();
+
   try{
     await client.query('BEGIN');
     await client.query(`DELETE FROM lesson_scripted WHERE lesson_id = $1`, [lessonId]);
-    // Normalize → only integers
-    const tIds = Array.isArray(theoryIds) ? theoryIds.map(n=>parseInt(n,10)).filter(Number.isInteger) : [];
-    const eIds = Array.isArray(exerciseIds) ? exerciseIds.map(n=>parseInt(n,10)).filter(Number.isInteger) : [];
-    // Insert theory
+
+    const sIds = Array.isArray(snippetIds) ? snippetIds.map(n => parseInt(n, 10)).filter(Number.isInteger) : [];
+    const tIds = Array.isArray(theoremIds) ? theoremIds.map(n => parseInt(n, 10)).filter(Number.isInteger) : [];
+    const eIds = Array.isArray(exerciseIds) ? exerciseIds.map(n => parseInt(n, 10)).filter(Number.isInteger) : [];
+
+    for (let i = 0; i < sIds.length; i++) {
+      await client.query(
+        `INSERT INTO lesson_scripted(lesson_id, item_type, item_id, position)
+         VALUES ($1, 'snippet', $2, $3)`,
+        [lessonId, sIds[i], i + 1]
+      );
+    }
+
     for (let i = 0; i < tIds.length; i++) {
       await client.query(
-        `INSERT INTO lesson_scripted(lesson_id,item_type,item_id,position)
-         VALUES ($1,'theory',$2,$3)`,
+        `INSERT INTO lesson_scripted(lesson_id, item_type, item_id, position)
+         VALUES ($1, 'theorem', $2, $3)`,
         [lessonId, tIds[i], i + 1]
       );
     }
 
-    // Insert exercises
     for (let i = 0; i < eIds.length; i++) {
       await client.query(
-        `INSERT INTO lesson_scripted(lesson_id,item_type,item_id,position)
-         VALUES ($1,'exercise',$2,$3)`,
+        `INSERT INTO lesson_scripted(lesson_id, item_type, item_id, position)
+         VALUES ($1, 'exercise', $2, $3)`,
         [lessonId, eIds[i], i + 1]
       );
     }
+
     await client.query('COMMIT');
   }catch(e){
     await client.query('ROLLBACK');
@@ -804,46 +837,85 @@ function lessonSelectWithAggregates(whereSQL, paramsSQL){
 // GET /lesson-scripted/:id  -> return arrays from lesson_scripted only (authoritative lists)
 app.get('/lesson-scripted/:id', async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
-  try{
+
+  if (!Number.isInteger(id)) {
+    return res.status(400).json({ error: 'Invalid id' });
+  }
+
+  try {
+    const s = await pool.query(
+      `SELECT item_id, "timeInMinutes", "difficulty"
+         FROM lesson_scripted
+        WHERE lesson_id = $1
+          AND item_type IN ('snippet', 'theory')
+        ORDER BY position ASC NULLS LAST, id ASC`,
+      [id]
+    );
+
     const t = await pool.query(
       `SELECT item_id, "timeInMinutes", "difficulty"
          FROM lesson_scripted
-        WHERE lesson_id = $1 AND item_type IN ('theory','snippet')
-     ORDER BY id ASC`,
+        WHERE lesson_id = $1
+          AND item_type = 'theorem'
+        ORDER BY position ASC NULLS LAST, id ASC`,
       [id]
     );
+
     const e = await pool.query(
       `SELECT item_id, "timeInMinutes", "difficulty"
          FROM lesson_scripted
-        WHERE lesson_id = $1 AND item_type = 'exercise'
-     ORDER BY id ASC`,
+        WHERE lesson_id = $1
+          AND item_type = 'exercise'
+        ORDER BY position ASC NULLS LAST, id ASC`,
       [id]
     );
-    const theory = t.rows.map(r => parseInt(r.item_id,10)).filter(Number.isInteger);
 
-    const snippets = t.rows
+    const theory_snippets = s.rows
+      .map(r => parseInt(r.item_id, 10))
+      .filter(Number.isInteger);
+
+    const theorem_ids = t.rows
+      .map(r => parseInt(r.item_id, 10))
+      .filter(Number.isInteger);
+
+    const exercises_ids = e.rows
+      .map(r => parseInt(r.item_id, 10))
+      .filter(Number.isInteger);
+
+    const snippets = s.rows
       .map(r => ({
-        snippet_id: parseInt(r.item_id,10),
-        timeInMinutes: (r.timeInMinutes != null ? parseInt(r.timeInMinutes,10) : 0) || 0,
-        difficulty: (r.difficulty != null ? parseInt(r.difficulty,10) : 0) || 0
+        snippet_id: parseInt(r.item_id, 10),
+        timeInMinutes: parseInt(r.timeInMinutes, 10) || 0,
+        difficulty: parseInt(r.difficulty, 10) || 0
       }))
       .filter(x => Number.isInteger(x.snippet_id));
 
-    const exercises_ids = e.rows
-      .map(r => parseInt(r.item_id,10))
-      .filter(Number.isInteger);
+    const theorems = t.rows
+      .map(r => ({
+        theorem_id: parseInt(r.item_id, 10),
+        timeInMinutes: parseInt(r.timeInMinutes, 10) || 0,
+        difficulty: parseInt(r.difficulty, 10) || 0
+      }))
+      .filter(x => Number.isInteger(x.theorem_id));
 
     const exercises = e.rows
       .map(r => ({
-        exercise_id: parseInt(r.item_id,10),
-        timeInMinutes: (r.timeInMinutes != null ? parseInt(r.timeInMinutes,10) : 0) || 0,
-        difficulty: (r.difficulty != null ? parseInt(r.difficulty,10) : 0) || 0
+        exercise_id: parseInt(r.item_id, 10),
+        timeInMinutes: parseInt(r.timeInMinutes, 10) || 0,
+        difficulty: parseInt(r.difficulty, 10) || 0
       }))
       .filter(x => Number.isInteger(x.exercise_id));
 
-    return res.json({ lesson_id: id, theory_snippets: theory, snippets, exercises_ids, exercises });
-  }catch(err){
+    return res.json({
+      lesson_id: id,
+      theory_snippets,
+      theorem_ids,
+      exercises_ids,
+      snippets,
+      theorems,
+      exercises
+    });
+  } catch (err) {
     console.error('GET /lesson-scripted/:id failed:', err);
     return res.status(500).json({ error: 'DB error' });
   }
@@ -2979,7 +3051,12 @@ app.post('/lessons', async (req, res) => {
     const newId = r.rows[0].lesson_id;
     // Write details into lesson_scripted
     try{
-      await replaceLessonScripted(newId, body.theory_snippets || [], body.exercises_ids || []);
+      await replaceLessonScripted(
+        newId,
+        body.theory_snippets || [],
+        body.theorem_ids || [],
+        body.exercises_ids || []
+      );
     }catch(e){ console.warn('replaceLessonScripted on POST failed:', e && e.message ? e.message : e); }
     try{ await pool.query('INSERT INTO lessons_actions(lesson_id, action) VALUES ($1, $2)', [newId, 'new']); }catch(_e){ console.error('log insert failed (new):', _e); }
     res.status(201).json({ ok:true, lesson_id: newId });
@@ -3000,11 +3077,14 @@ function sameIntArray(a, b) {
 
 app.patch('/lessons/:id', async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
+  if (!Number.isInteger(id)) {
+    return res.status(400).json({ error: 'Invalid id' });
+  }
+
   const body = req.body || {};
- const sets = [];
+  const sets = [];
   const params = [];
-  
+
   const has = (key) => Object.prototype.hasOwnProperty.call(body, key);
 
   const addTextField = (key) => {
@@ -3045,6 +3125,7 @@ app.patch('/lessons/:id', async (req, res) => {
     params.push(value);
     sets.push(`"${key}" = $${params.length}`);
   };
+
   addTextField('name');
   addTextField('description2');
   addIntField('source_token');
@@ -3056,29 +3137,51 @@ app.patch('/lessons/:id', async (req, res) => {
   addTextField('filepath');
   addIntField('class');
   addTextField('division');
- 
-  if (sets.length === 0 && !(Array.isArray(body.theory_snippets) || Array.isArray(body.exercises_ids))) {
+
+  const hasScriptedChanges =
+    Array.isArray(body.theory_snippets) ||
+    Array.isArray(body.theorem_ids) ||
+    Array.isArray(body.exercises_ids);
+
+  if (sets.length === 0 && !hasScriptedChanges) {
     return res.status(400).json({ error: 'No fields provided' });
   }
-  try{
-    if (sets.length){
-      const sql = `UPDATE "Lessons" SET ${sets.join(', ')} WHERE lesson_id = $${params.length+1} RETURNING lesson_id`;
+
+  try {
+    if (sets.length) {
       params.push(id);
+
+      const sql = `
+        UPDATE "Lessons"
+           SET ${sets.join(', ')}
+         WHERE lesson_id = $${params.length}
+         RETURNING lesson_id
+      `;
+
       const r = await pool.query(sql, params);
-      if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' });
+
+      if (r.rowCount === 0) {
+        return res.status(404).json({ error: 'Not found' });
+      }
     }
-      if (Array.isArray(body.theory_snippets) || Array.isArray(body.exercises_ids)) {
+
+    if (hasScriptedChanges) {
       const current = await pool.query(
         `SELECT item_type, item_id
-          FROM lesson_scripted
+           FROM lesson_scripted
           WHERE lesson_id = $1
-            AND item_type IN ('theory','snippet','exercise')
+            AND item_type IN ('snippet', 'theorem', 'exercise')
           ORDER BY position ASC NULLS LAST, id ASC`,
         [id]
       );
 
       const currentTheory = current.rows
-        .filter(r => r.item_type === 'theory' || r.item_type === 'snippet')
+        .filter(r => r.item_type === 'snippet')
+        .map(r => parseInt(r.item_id, 10))
+        .filter(Number.isInteger);
+
+      const currentTheorems = current.rows
+        .filter(r => r.item_type === 'theorem')
         .map(r => parseInt(r.item_id, 10))
         .filter(Number.isInteger);
 
@@ -3091,38 +3194,38 @@ app.patch('/lessons/:id', async (req, res) => {
         ? body.theory_snippets
         : currentTheory;
 
+      const nextTheorems = Array.isArray(body.theorem_ids)
+        ? body.theorem_ids
+        : currentTheorems;
+
       const nextExercises = Array.isArray(body.exercises_ids)
         ? body.exercises_ids
         : currentExercises;
 
-      const scriptedChanged =
-  !sameIntArray(nextTheory, currentTheory) ||
-  !sameIntArray(nextExercises, currentExercises);
+      console.log('[PATCH /lessons] replaceLessonScripted CALLED', {
+        lessonId: id,
+        snippets: nextTheory,
+        theorems: nextTheorems,
+        exercises: nextExercises
+      });
 
-if (scriptedChanged) {
-  console.log('[PATCH /lessons] replaceLessonScripted CALLED', {
-    lessonId: id,
-    theory: nextTheory,
-    exercises: nextExercises
-  });
-
-  try {
-    await replaceLessonScripted(id, nextTheory, nextExercises);
-  } catch (e) {
-    console.warn('replaceLessonScripted on PATCH failed:', e && e.message ? e.message : e);
-  }
-} else {
-  console.log('[PATCH /lessons] lesson_scripted unchanged; skipping replaceLessonScripted', {
-    lessonId: id
-  });
-}
+      await replaceLessonScripted(id, nextTheory, nextTheorems, nextExercises);
     }
-        try{ await pool.query('INSERT INTO lessons_actions(lesson_id, action) VALUES ($1, $2)', [id, 'updated']); }catch(_e){ console.error('log insert failed (updated):', _e); }
-        res.json({ ok:true, lesson_id: id });
-      }catch(err){
-        console.error('PATCH /lessons/:id failed:', err);
-        res.status(500).json({ error: 'DB error' });
-      }
+
+    try {
+      await pool.query(
+        'INSERT INTO lessons_actions(lesson_id, action) VALUES ($1, $2)',
+        [id, 'updated']
+      );
+    } catch (_e) {
+      console.error('log insert failed (updated):', _e);
+    }
+
+    return res.json({ ok: true, lesson_id: id });
+  } catch (err) {
+    console.error('PATCH /lessons/:id failed:', err);
+    return res.status(500).json({ error: 'DB error' });
+  }
 });
 
 app.get('/lessons/by-search', async (req, res) => {
