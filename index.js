@@ -12,7 +12,13 @@ const crypto = require('crypto');
 const { execFile } = require('child_process');
 const app = express();
 const pool = require('./db');
+const multer = require("multer");
+const scheduleRouter = require("./public/schedule");
+const holidayRouter = require("./routes/holidays");
+const upload = multer({ storage: multer.memoryStorage() });
+const scheduleSelectionRouter = require("./routes/scheduleSelection");
 
+const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
 
 // === Snippets & Exercises UI (local tools) ===
 // Files are under ./public/snippetsexercises
@@ -231,6 +237,120 @@ app.get('/theorems/search', async (req, res) => {
     res.status(500).json({ error: 'DB error' });
   }
 });
+
+
+// 
+app.post('/exercises/:id/image', requireAuth, upload.single('file'), async (req, res) => {
+  const exerciseId = parseInt(req.params.id, 10);
+  const kind = String(req.body.kind || '').trim();
+
+  if (!Number.isInteger(exerciseId)) {
+    return res.status(400).json({ error: 'Invalid exercise id' });
+  }
+
+  if (!['condition', 'solution'].includes(kind)) {
+    return res.status(400).json({ error: 'kind must be condition or solution' });
+  }
+
+  if (!req.file) {
+    return res.status(400).json({ error: 'Missing file' });
+  }
+
+  const column = kind === 'condition'
+    ? 'text_filepath'
+    : 'solution_filepath';
+
+  const ext = extensionFromMime(req.file.mimetype);
+  const objectKey = `exercises/${exerciseId}/${kind}/${crypto.randomUUID()}${ext}`;
+  const storedLocation = `r2://${objectKey}`;
+
+  try {
+    await r2.send(new PutObjectCommand({
+      Bucket: process.env.R2_BUCKET,
+      Key: objectKey,
+      Body: req.file.buffer,
+      ContentType: req.file.mimetype
+    }));
+
+    const result = await pool.query(
+      `UPDATE "Exercises"
+          SET ${column} = $1
+        WHERE "ID" = $2
+        RETURNING "ID", text_filepath, solution_filepath`,
+      [storedLocation, exerciseId]
+    );
+
+    if (!result.rowCount) {
+      return res.status(404).json({ error: 'Exercise not found' });
+    }
+
+    res.json({
+      ok: true,
+      exercise_id: exerciseId,
+      kind,
+      location: storedLocation,
+      row: result.rows[0]
+    });
+  } catch (e) {
+    console.error('POST /exercises/:id/image failed:', e);
+    res.status(500).json({ error: 'Upload failed' });
+  }
+});
+
+app.get('/exercises/:id/image/:kind', requireAuth, async (req, res) => {
+  const exerciseId = parseInt(req.params.id, 10);
+  const kind = String(req.params.kind || '').trim();
+
+  if (!Number.isInteger(exerciseId)) {
+    return res.status(400).json({ error: 'Invalid exercise id' });
+  }
+
+  if (!['condition', 'solution'].includes(kind)) {
+    return res.status(400).json({ error: 'kind must be condition or solution' });
+  }
+
+  const column = kind === 'condition'
+    ? 'text_filepath'
+    : 'solution_filepath';
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT ${column} AS file_location
+         FROM "Exercises"
+        WHERE "ID" = $1
+        LIMIT 1`,
+      [exerciseId]
+    );
+
+    const location = rows[0] && rows[0].file_location;
+
+    if (!location) {
+      return res.status(404).json({ error: 'No image stored' });
+    }
+
+    if (!String(location).startsWith('r2://')) {
+      return res.status(404).json({ error: 'Legacy local file path is not available online' });
+    }
+
+    const objectKey = String(location).replace(/^r2:\/\//, '');
+
+    const object = await r2.send(new GetObjectCommand({
+      Bucket: process.env.R2_BUCKET,
+      Key: objectKey
+    }));
+
+    if (object.ContentType) {
+      res.setHeader('Content-Type', object.ContentType);
+    }
+
+    object.Body.pipe(res);
+  } catch (e) {
+    console.error('GET /exercises/:id/image/:kind failed:', e);
+    res.status(500).json({ error: 'Image load failed' });
+  }
+});
+
+// 
 
 
 // POST /theorems
@@ -690,11 +810,6 @@ app.post('/sticky-notes', async (req, res) => {
     res.status(500).json({ error: 'Failed to save notes' });
   }
 });
-const multer = require("multer");
-const scheduleRouter = require("./public/schedule");
-const holidayRouter = require("./routes/holidays");
-const upload = multer({ storage: multer.memoryStorage() });
-const scheduleSelectionRouter = require("./routes/scheduleSelection");
 
 /**
  * GET /snippet-ref
