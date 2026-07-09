@@ -224,8 +224,7 @@ router.get("/classes/meta", async (req, res) => {
   }
 });
 
-// 1. GET /schedule/current
-router.get("/schedule/current", async (req, res) => {
+router.get("/schedule/current-with-entries", async (req, res) => {
   try {
     // Only show data if a year has been selected (exists in currentSchedule)
     const yearResult = await pool.query(`
