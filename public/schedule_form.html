@@ -426,12 +426,12 @@
         </label>
       </span>
 
-     <br><br>
-<button type="submit">Add Holiday</button>
-<button type="button" id="clearBtn">Clear All</button>
-</button>
-<span id="holidaysDbStatus" style="margin-left:8px; color:#555;"></span>
-</form>
+      <br><br>
+      <button type="submit">Add Holiday</button>
+      <button type="button" id="clearBtn">Clear All</button>
+      <button type="button" id="importHolidaysFromFileBtn" style="margin-left:8px; padding:6px 10px;">Импорт от holidays12th.txt</button>
+      <span id="holidaysDbStatus" style="margin-left:8px; color:#555;"></span>
+    </form>
 <p id="holidayMsg"></p>
 
   <ul id="holidayList"></ul>
@@ -641,7 +641,6 @@ document.getElementById('importHolidaysFromFileBtn')?.addEventListener('click', 
 });
 
 // --- Generator tab: Schedule submission logic (keep) ---
-  // --- Generator tab: Schedule submission logic (keep) ---
   document.getElementById("scheduleForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const startYear = parseInt(document.getElementById("startYear").value);
