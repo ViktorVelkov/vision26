@@ -275,17 +275,18 @@ app.post('/holidays/add', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/holidays/import-file', requireAuth, async (req, res) => {
+
+app.post('/holidays/import-upload', requireAuth, upload.single('holidayFile'), async (req, res) => {
   try {
     await ensureHolidaysTable();
 
-    const filePath = path.join(__dirname, 'holidays12th.txt');
-
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'holidays12th.txt not found.' });
+    if (!req.file) {
+      return res.status(400).json({ error: 'Missing holiday file.' });
     }
 
-    const dates = fs.readFileSync(filePath, 'utf8')
+    const content = req.file.buffer.toString('utf8');
+
+    const dates = content
       .split(/\r?\n/)
       .map(line => normalizeHolidayDate(line))
       .filter(Boolean);
@@ -296,10 +297,10 @@ app.post('/holidays/import-file', requireAuth, async (req, res) => {
       const result = await pool.query(
         `
         INSERT INTO holidays (date, note)
-        VALUES ($1::date, 'imported from holidays12th.txt')
+        VALUES ($1::date, $2)
         ON CONFLICT (date) DO NOTHING
         `,
-        [date]
+        [date, `imported from uploaded file: ${req.file.originalname}`]
       );
 
       inserted += result.rowCount || 0;
@@ -307,12 +308,13 @@ app.post('/holidays/import-file', requireAuth, async (req, res) => {
 
     return res.json({
       ok: true,
+      fileName: req.file.originalname,
       total: dates.length,
       inserted
     });
   } catch (err) {
-    console.error('POST /holidays/import-file failed:', err);
-    return res.status(500).json({ error: 'Failed to import holidays12th.txt.' });
+    console.error('POST /holidays/import-upload failed:', err);
+    return res.status(500).json({ error: 'Failed to import uploaded holidays file.' });
   }
 });
 

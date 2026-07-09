@@ -199,6 +199,58 @@
       #endDateContainer {
         margin-top: 10px;
       }
+
+      .holiday-import-help {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: #e9ecef;
+  color: #333;
+  font-weight: 700;
+  cursor: help;
+  border: 1px solid #bbb;
+  user-select: none;
+}
+
+.holiday-import-help .holiday-import-tooltip {
+  display: none;
+  position: absolute;
+  left: 50%;
+  top: 28px;
+  transform: translateX(-50%);
+  z-index: 20;
+  width: 320px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #222;
+  color: #fff;
+  font-size: 0.86rem;
+  font-weight: 400;
+  line-height: 1.45;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+  text-align: left;
+  white-space: normal;
+}
+
+.holiday-import-help:hover .holiday-import-tooltip,
+.holiday-import-help:focus .holiday-import-tooltip {
+  display: block;
+}
+
+.holiday-import-tooltip code {
+  display: block;
+  margin-top: 6px;
+  padding: 6px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+  font-family: monospace;
+}
         
     </style>
 </head>
@@ -427,10 +479,27 @@
       </span>
 
       <br><br>
-      <button type="submit">Add Holiday</button>
-      <button type="button" id="clearBtn">Clear All</button>
-      <button type="button" id="importHolidaysFromFileBtn" style="margin-left:8px; padding:6px 10px;">Импорт от holidays12th.txt</button>
-      <span id="holidaysDbStatus" style="margin-left:8px; color:#555;"></span>
+   <button type="submit">Add Holiday</button>
+<button type="button" id="clearBtn">Clear All</button>
+
+<input
+  type="file"
+  id="holidayImportFileInput"
+  accept=".txt,.csv,text/plain,text/csv"
+  style="margin-left:8px;"
+>
+
+<span class="holiday-import-help" tabindex="0" aria-label="Информация за формата на файла">?
+  <span class="holiday-import-tooltip">
+    Файлът трябва да е .txt или .csv и да съдържа по една дата на всеки нов ред. Валиден формат: YYYY-MM-DD.
+    <code>2026-09-15<br>2026-09-22<br>2026-12-24</code>
+  </span>
+</span>
+
+<button type="button" id="importHolidaysUploadBtn" style="margin-left:8px; padding:6px 10px;">
+  Импорт от файл
+</button>
+<span id="holidaysDbStatus" style="margin-left:8px; color:#555;"></span>
     </form>
 <p id="holidayMsg"></p>
 
@@ -609,15 +678,25 @@ loadAvailableClasses();
   loadHolidays();
 });
 
-document.getElementById('importHolidaysFromFileBtn')?.addEventListener('click', async () => {
+document.getElementById('importHolidaysUploadBtn')?.addEventListener('click', async () => {
   const status = document.getElementById('holidaysDbStatus');
+  const input = document.getElementById('holidayImportFileInput');
+  const file = input?.files?.[0];
+
+  if (!file) {
+    if (status) status.textContent = 'Избери .txt или .csv файл за импорт.';
+    return;
+  }
 
   if (status) status.textContent = 'Импортиране...';
 
   try {
-    const res = await fetch('/holidays/import-file', {
+    const formData = new FormData();
+    formData.append('holidayFile', file, file.name);
+
+    const res = await fetch('/holidays/import-upload', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
+      body: formData
     });
 
     const result = await res.json().catch(() => ({}));
@@ -627,19 +706,19 @@ document.getElementById('importHolidaysFromFileBtn')?.addEventListener('click', 
     }
 
     if (status) {
-      status.textContent = `Импортирани нови дати: ${result.inserted ?? 0} / общо във файла: ${result.total ?? 0}`;
+      status.textContent = `Импортирани нови дати: ${result.inserted ?? 0} / валидни дати във файла: ${result.total ?? 0}`;
     }
 
+    if (input) input.value = '';
     loadHolidays();
   } catch (err) {
-    console.error('Import holidays failed:', err);
+    console.error('Import holidays upload failed:', err);
 
     if (status) {
       status.textContent = `Грешка при импорт: ${err.message || err}`;
     }
   }
 });
-
 // --- Generator tab: Schedule submission logic (keep) ---
   document.getElementById("scheduleForm").addEventListener("submit", async (e) => {
     e.preventDefault();
