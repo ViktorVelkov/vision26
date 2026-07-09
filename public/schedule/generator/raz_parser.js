@@ -13,13 +13,44 @@
 
 const fs = require('fs');
 const path = require('path');
-
+const { S3Client, GetObjectCommand } = require('@aws-sdk/client-s3');
 // Node fetch helper (Node 18+ or fallback)
 let _fetch;
 try {
   _fetch = fetch;
 } catch {
   _fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
+}
+const r2 = new S3Client({
+  region: 'auto',
+  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+  credentials: {
+    accessKeyId: process.env.R2_ACCESS_KEY_ID,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY
+  }
+});
+
+async function streamToString(stream) {
+  const chunks = [];
+
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+function safeDistributionFileName(name) {
+  const original = String(name || '').trim();
+  const ext = path.extname(original).toLowerCase() || '.csv';
+
+  const base = path.basename(original, ext)
+    .replace(/[\/\\]/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/[^a-zA-Z0-9А-Яа-я._-]/g, '')
+    .slice(0, 120);
+
+  return `${base || 'distribution'}${ext || '.csv'}`;
 }
 
 async function fetchCurrentScheduleRows(baseUrl = 'http://localhost:3001') {
@@ -63,11 +94,34 @@ function parseDistributionCsv(rawText) {
   return out;
 }
 
-function readTopicsFromFile(distributionsDir, fileName) {
-  const csvPath = path.resolve(distributionsDir, fileName);
-  if (!fs.existsSync(csvPath)) {
-    throw new Error(`Distribution file not found: ${csvPath}`);
+async function readTopicsFromFile(distributionsDir, fileName) {
+  const safeName = safeDistributionFileName(fileName);
+
+  if (
+    process.env.R2_BUCKET &&
+    process.env.R2_ACCOUNT_ID &&
+    process.env.R2_ACCESS_KEY_ID &&
+    process.env.R2_SECRET_ACCESS_KEY
+  ) {
+    try {
+      const object = await r2.send(new GetObjectCommand({
+        Bucket: process.env.R2_BUCKET,
+        Key: `distributions/${safeName}`
+      }));
+
+      const raw = await streamToString(object.Body);
+      return parseDistributionCsv(raw);
+    } catch (e) {
+      console.warn(`R2 distribution read failed for ${safeName}:`, e && e.message ? e.message : e);
+    }
   }
+
+  const csvPath = path.resolve(distributionsDir, safeName);
+
+  if (!fs.existsSync(csvPath)) {
+    throw new Error(`Distribution file not found in R2 or locally: ${safeName}`);
+  }
+
   const raw = fs.readFileSync(csvPath, 'utf8');
   return parseDistributionCsv(raw);
 }
@@ -92,8 +146,7 @@ async function buildTopicsMapFromCurrentSchedule({
     if (!key || !fileName) continue;
 
     // Read topics from the corresponding distribution file
-    const topics = readTopicsFromFile(distributionsDir, fileName);
-
+    const topics = await readTopicsFromFile(distributionsDir, fileName);
     // Keep order as in file
     map.set(key, topics);
   }

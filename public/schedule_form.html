@@ -209,6 +209,30 @@
   <button class="tab-btn" data-target="tab-holidays">Ваканции</button>
 </div>
 <div id="tab-schedule">
+  <div id="distributionUploadWrapper" style="margin-bottom: 24px; padding: 14px; border: 1px solid #ccc; border-radius: 8px; background: #fff;">
+  <h3>⬆️ Качване на разпределение</h3>
+
+  <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+    <input type="file" id="distributionFileInput" accept=".csv,.txt,text/csv,text/plain" />
+
+    <input
+      type="text"
+      id="distributionFileName"
+      placeholder="Име в облака, напр. 9A_term1.csv"
+      style="min-width:260px; padding:6px;"
+    />
+
+    <button type="button" id="uploadDistributionBtn" style="padding:6px 12px;">
+      Качи разпределение
+    </button>
+
+    <button type="button" id="refreshDistributionsBtn" style="padding:6px 12px;">
+      Обнови списъка
+    </button>
+  </div>
+
+  <p id="distributionUploadStatus" style="margin:10px 0 0; color:#555;"></p>
+</div>
   <div id="scheduleDisplayWrapper" style="margin-bottom: 30px;">
     <h3>📘 График</h3>
     <table id="currentScheduleTable" border="1" style="width: 100%; border-collapse: collapse; margin-top: 10px;">
@@ -585,15 +609,86 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Load available resource files for dropdowns
   let availableResources = [];
-  async function loadResources() {
-    try {
-      const res = await fetch("/schedule/resources");
-      availableResources = await res.json();
-    } catch (err) {
-      console.error("Failed to load resources:", err);
-    }
+ async function loadResources() {
+  try {
+    const res = await fetch("/schedule/resources", { cache: "no-store" });
+    const data = await res.json();
+
+    availableResources = Array.isArray(data) ? data : [];
+
+    refreshResourceSelectOptions();
+  } catch (err) {
+    console.error("Failed to load resources:", err);
   }
-  loadResources();
+}
+
+function refreshResourceSelectOptions() {
+  const selects = document.querySelectorAll("#addScheduleTable .resource-select");
+
+  selects.forEach(sel => {
+    const selected = sel.value;
+
+    sel.innerHTML = `
+      <option value="">-- Select --</option>
+      ${availableResources.map(file => `<option value="${file}">${file}</option>`).join("")}
+    `;
+
+    if (selected && availableResources.includes(selected)) {
+      sel.value = selected;
+    }
+  });
+}
+
+async function uploadDistributionFile() {
+  const input = document.getElementById('distributionFileInput');
+  const nameInput = document.getElementById('distributionFileName');
+  const status = document.getElementById('distributionUploadStatus');
+  const file = input?.files?.[0];
+
+  if (!file) {
+    alert('Избери CSV/TXT файл за разпределение.');
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append('distribution', file);
+  formData.append('name', (nameInput?.value || '').trim());
+
+  if (status) status.textContent = 'Качване...';
+
+  try {
+    const res = await fetch('/schedule/distributions/upload', {
+      method: 'POST',
+      body: formData
+    });
+
+    const result = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      throw new Error(result.error || `HTTP ${res.status}`);
+    }
+
+    if (status) status.textContent = `✅ Качено: ${result.file}`;
+
+    if (input) input.value = '';
+    if (nameInput) nameInput.value = '';
+
+    await loadResources();
+  } catch (err) {
+    console.error('Distribution upload failed:', err);
+
+    if (status) {
+      status.textContent = `❌ Грешка: ${err.message || err}`;
+    }
+
+    alert('Неуспешно качване на разпределение.');
+  }
+}
+
+document.getElementById('uploadDistributionBtn')?.addEventListener('click', uploadDistributionFile);
+document.getElementById('refreshDistributionsBtn')?.addEventListener('click', loadResources);
+
+loadResources();
 
   // Populate the second table when a year is selected
   document.getElementById("yearSelector").addEventListener("change", async (e) => {

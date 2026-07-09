@@ -18,8 +18,7 @@ const holidayRouter = require("./routes/holidays");
 const upload = multer({ storage: multer.memoryStorage() });
 const scheduleSelectionRouter = require("./routes/scheduleSelection");
 
-const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
-
+const { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } = require('@aws-sdk/client-s3');
 
 const r2 = new S3Client({
   region: 'auto',
@@ -57,6 +56,122 @@ async function streamR2ObjectToResponse(location, res) {
   object.Body.pipe(res);
 }
 
+function safeDistributionFileName(name) {
+  const original = String(name || '').trim();
+  const ext = path.extname(original).toLowerCase() || '.csv';
+
+  const base = path.basename(original, ext)
+    .replace(/[\/\\]/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/[^a-zA-Z0-9А-Яа-я._-]/g, '')
+    .slice(0, 120);
+
+  const safeBase = base || `distribution_${Date.now()}`;
+  return `${safeBase}${ext || '.csv'}`;
+}
+
+function distributionObjectKey(fileName) {
+  return `distributions/${safeDistributionFileName(fileName)}`;
+}
+
+async function listDistributionFileNamesFromR2() {
+  const out = [];
+  let ContinuationToken;
+
+  do {
+    const result = await r2.send(new ListObjectsV2Command({
+      Bucket: process.env.R2_BUCKET,
+      Prefix: 'distributions/',
+      ContinuationToken
+    }));
+
+    for (const obj of result.Contents || []) {
+      const key = obj.Key || '';
+      if (!key || key.endsWith('/')) continue;
+      out.push(key.replace(/^distributions\//, ''));
+    }
+
+    ContinuationToken = result.IsTruncated ? result.NextContinuationToken : undefined;
+  } while (ContinuationToken);
+
+  return out;
+}
+
+
+app.get('/schedule/resources', requireAuth, async (req, res) => {
+  try {
+    const names = new Set();
+
+    try {
+      const r2Names = await listDistributionFileNamesFromR2();
+      r2Names.forEach(name => names.add(name));
+    } catch (e) {
+      console.warn('R2 distribution listing failed:', e && e.message ? e.message : e);
+    }
+
+    const legacyDir = path.join(__dirname, 'разпределения');
+
+    try {
+      if (fs.existsSync(legacyDir)) {
+        fs.readdirSync(legacyDir)
+          .filter(name => /\.(csv|txt)$/i.test(name))
+          .forEach(name => names.add(name));
+      }
+    } catch (e) {
+      console.warn('Legacy distribution listing failed:', e && e.message ? e.message : e);
+    }
+
+    return res.json(
+      Array.from(names).sort((a, b) => a.localeCompare(b, 'bg'))
+    );
+  } catch (e) {
+    console.error('GET /schedule/resources failed:', e);
+    return res.status(500).json({ error: 'Failed to load distribution files.' });
+  }
+});
+
+app.get('/schedule/resource-file', requireAuth, async (req, res) => {
+  try {
+    const fileName = safeDistributionFileName(req.query.name);
+
+    if (!fileName) {
+      return res.status(400).send('Missing file name');
+    }
+
+    const objectKey = distributionObjectKey(fileName);
+
+    try {
+      const object = await r2.send(new GetObjectCommand({
+        Bucket: process.env.R2_BUCKET,
+        Key: objectKey
+      }));
+
+      res.setHeader('Content-Type', object.ContentType || 'text/plain; charset=utf-8');
+      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileName)}"`);
+
+      return object.Body.pipe(res);
+    } catch (r2Err) {
+      // fallback към локална папка
+    }
+
+    const legacyRoot = path.resolve(path.join(__dirname, 'разпределения'));
+    const abs = path.resolve(path.join(legacyRoot, fileName));
+
+    if (!(abs === legacyRoot || abs.startsWith(legacyRoot + path.sep))) {
+      return res.status(403).send('Forbidden path');
+    }
+
+    if (!fs.existsSync(abs)) {
+      return res.status(404).send('Distribution file not found');
+    }
+
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    return res.sendFile(abs);
+  } catch (e) {
+    console.error('GET /schedule/resource-file failed:', e);
+    return res.status(500).send('Failed to open distribution file');
+  }
+});
 
 // === Snippets & Exercises UI (local tools) ===
 // Files are under ./public/snippetsexercises
@@ -4514,6 +4629,40 @@ app.post("/custom-upload", upload.fields([
   }
 });
 
+app.post('/schedule/distributions/upload', requireAuth, upload.single('distribution'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Missing distribution file.' });
+    }
+
+    const ext = path.extname(req.file.originalname || '').toLowerCase();
+    const allowed = new Set(['.csv', '.txt']);
+
+    if (!allowed.has(ext)) {
+      return res.status(400).json({ error: 'Only CSV/TXT distribution files are allowed.' });
+    }
+
+    const requestedName = String(req.body.name || '').trim();
+    const fileName = safeDistributionFileName(requestedName || req.file.originalname);
+    const objectKey = distributionObjectKey(fileName);
+
+    await r2.send(new PutObjectCommand({
+      Bucket: process.env.R2_BUCKET,
+      Key: objectKey,
+      Body: req.file.buffer,
+      ContentType: req.file.mimetype || 'text/csv'
+    }));
+
+    return res.json({
+      ok: true,
+      file: fileName,
+      location: `r2://${objectKey}`
+    });
+  } catch (e) {
+    console.error('POST /schedule/distributions/upload failed:', e);
+    return res.status(500).json({ error: 'Distribution upload failed.' });
+  }
+});
 
 app.post("/exercises", async (req, res) => {
     const {
