@@ -234,9 +234,19 @@
   <p id="distributionUploadStatus" style="margin:10px 0 0; color:#555;"></p>
 </div>
   <div id="scheduleDisplayWrapper" style="margin-bottom: 30px;">
-    <h3>📘 График</h3>
-    <table id="currentScheduleTable" border="1" style="width: 100%; border-collapse: collapse; margin-top: 10px;">
-      <thead>
+<div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+  <h3 style="margin:0;">📘 График</h3>
+
+  <label style="display:flex; align-items:center; gap:8px; margin:0;">
+    <span>Учебна година:</span>
+    <select id="currentScheduleYearFilter" style="padding:6px; min-width:160px;">
+      <option value="">-- Избери година --</option>
+    </select>
+  </label>
+</div>
+
+<table id="currentScheduleTable" border="1" style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+    <thead>
         <tr>
           <th>Година</th>
           <th>Class</th>
@@ -639,8 +649,108 @@ loadAvailableClasses();
     alert(result.message || "Schedule saved.");
   });
 
+let currentScheduleRowsCache = [];
+
+function currentScheduleYearKey(row) {
+  const start = row?.start_year ?? '';
+  const end = row?.end_year ?? '';
+
+  if (start === '' || end === '') return '';
+
+  return `${start}-${end}`;
+}
+
+function populateCurrentScheduleYearFilter(rows) {
+  const select = document.getElementById('currentScheduleYearFilter');
+  if (!select) return;
+
+  const selected = select.value;
+
+  const years = Array.from(new Set(
+    (Array.isArray(rows) ? rows : [])
+      .map(currentScheduleYearKey)
+      .filter(Boolean)
+  )).sort((a, b) => b.localeCompare(a, 'bg'));
+
+  select.innerHTML = `
+    <option value="">-- Избери година --</option>
+    ${years.map(y => `<option value="${y}">${y}</option>`).join('')}
+  `;
+
+  if (selected && years.includes(selected)) {
+    select.value = selected;
+  } else if (!selected && years.length) {
+    select.value = years[0];
+  }
+}
+
+function renderCurrentScheduleRowsForSelectedYear() {
+  const tbody = document.querySelector("#currentScheduleTable tbody");
+  const select = document.getElementById('currentScheduleYearFilter');
+
+  if (!tbody || !select) return;
+
+  const selectedYear = select.value;
+
+  if (!selectedYear) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" style="color:#777; padding:10px;">
+          Избери учебна година, за да се визуализират записи.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  const rows = currentScheduleRowsCache.filter(row => {
+    return currentScheduleYearKey(row) === selectedYear;
+  });
+
+  if (!rows.length) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" style="color:#777; padding:10px;">
+          Няма записи за избраната учебна година.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = "";
+
+  rows.forEach(row => {
+    const tr = document.createElement("tr");
+    tr.dataset.id = row.id;
+
+    tr.innerHTML = `
+      <td>${row.start_year ?? ''}-${row.end_year ?? ''}</td>
+      <td>${row.class ?? ''}</td>
+      <td>${row.division ?? ''}</td>
+      <td>${row.term ?? ''}</td>
+      <td>${row.razpredelenie ?? ''}</td>
+      <td>
+        <button
+          type="button"
+          class="delete-current-schedule-btn"
+          data-id="${row.id}"
+          style="padding:4px 8px; background:#dc3545; color:white; border:none; border-radius:4px; cursor:pointer;">
+          Изтрий
+        </button>
+      </td>
+    `;
+
+    tbody.appendChild(tr);
+  });
+}
+
+document
+  .getElementById('currentScheduleYearFilter')
+  ?.addEventListener('change', renderCurrentScheduleRowsForSelectedYear);
+
   // Load and display currentSchedule table
-  async function loadCurrentSchedule() {
+async function loadCurrentSchedule() {
   try {
     const res = await fetch("/schedule/current", { cache: "no-store" });
     const data = await res.json();
@@ -649,45 +759,18 @@ loadAvailableClasses();
       throw new Error(data.error || `HTTP ${res.status}`);
     }
 
-    const tbody = document.querySelector("#currentScheduleTable tbody");
-    if (!tbody) return;
+    currentScheduleRowsCache = Array.isArray(data.currentRows)
+      ? data.currentRows
+      : [];
 
-    if (!data.hasCurrent || !Array.isArray(data.currentRows)) {
-      tbody.innerHTML = `<tr><td colspan="6">Няма записи.</td></tr>`;
-      return;
-    }
+    populateCurrentScheduleYearFilter(currentScheduleRowsCache);
+    renderCurrentScheduleRowsForSelectedYear();
 
-    tbody.innerHTML = "";
-
-    data.currentRows.forEach(row => {
-      const tr = document.createElement("tr");
-      tr.dataset.id = row.id;
-
-      tr.innerHTML = `
-        <td>${row.start_year ?? ''}-${row.end_year ?? ''}</td>
-        <td>${row.class ?? ''}</td>
-        <td>${row.division ?? ''}</td>
-        <td>${row.term ?? ''}</td>
-        <td>${row.razpredelenie ?? ''}</td>
-        <td>
-          <button
-            type="button"
-            class="delete-current-schedule-btn"
-            data-id="${row.id}"
-            style="padding:4px 8px; background:#dc3545; color:white; border:none; border-radius:4px; cursor:pointer;">
-            Изтрий
-          </button>
-        </td>
-      `;
-
-      tbody.appendChild(tr);
-    });
   } catch (err) {
     console.error("Failed to load currentSchedule:", err);
-    alert("Не мога да презаредя currentSchedule. Записите вероятно не са изтрити; провери Console/Railway logs.");
+    alert("Не мога да презаредя currentSchedule. Провери Console/Railway logs.");
   }
 }
-
 document.querySelector("#currentScheduleTable tbody")?.addEventListener("click", async (e) => {
   const btn = e.target.closest(".delete-current-schedule-btn");
   if (!btn) return;
