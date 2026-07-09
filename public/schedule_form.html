@@ -640,17 +640,24 @@ loadAvailableClasses();
   });
 
   // Load and display currentSchedule table
-async function loadCurrentSchedule() {
+  async function loadCurrentSchedule() {
   try {
     const res = await fetch("/schedule/current", { cache: "no-store" });
     const data = await res.json();
 
+    if (!res.ok) {
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+
     const tbody = document.querySelector("#currentScheduleTable tbody");
-    tbody.innerHTML = "";
+    if (!tbody) return;
 
     if (!data.hasCurrent || !Array.isArray(data.currentRows)) {
+      tbody.innerHTML = `<tr><td colspan="6">Няма записи.</td></tr>`;
       return;
     }
+
+    tbody.innerHTML = "";
 
     data.currentRows.forEach(row => {
       const tr = document.createElement("tr");
@@ -677,8 +684,10 @@ async function loadCurrentSchedule() {
     });
   } catch (err) {
     console.error("Failed to load currentSchedule:", err);
+    alert("Не мога да презаредя currentSchedule. Записите вероятно не са изтрити; провери Console/Railway logs.");
   }
 }
+
 document.querySelector("#currentScheduleTable tbody")?.addEventListener("click", async (e) => {
   const btn = e.target.closest(".delete-current-schedule-btn");
   if (!btn) return;

@@ -207,37 +207,26 @@ app.post('/auth/logout', (req, res) => {
 
 
 
-
 app.get('/schedule/resources', requireAuth, async (req, res) => {
+
   try {
-    const names = new Set();
 
-    try {
-      const r2Names = await listDistributionFileNamesFromR2();
-      r2Names.forEach(name => names.add(name));
-    } catch (e) {
-      console.warn('R2 distribution listing failed:', e && e.message ? e.message : e);
-    }
-
-    const legacyDir = path.join(__dirname, 'разпределения');
-
-    try {
-      if (fs.existsSync(legacyDir)) {
-        fs.readdirSync(legacyDir)
-          .filter(name => /\.(csv|txt)$/i.test(name))
-          .forEach(name => names.add(name));
-      }
-    } catch (e) {
-      console.warn('Legacy distribution listing failed:', e && e.message ? e.message : e);
-    }
+    const r2Names = await listDistributionFileNamesFromR2();
 
     return res.json(
-      Array.from(names).sort((a, b) => a.localeCompare(b, 'bg'))
+
+      r2Names.sort((a, b) => a.localeCompare(b, 'bg'))
+
     );
+
   } catch (e) {
+
     console.error('GET /schedule/resources failed:', e);
-    return res.status(500).json({ error: 'Failed to load distribution files.' });
+
+    return res.status(500).json({ error: 'Failed to load distribution files from R2.' });
+
   }
+
 });
 
 app.get('/schedule/resource-file', requireAuth, async (req, res) => {
