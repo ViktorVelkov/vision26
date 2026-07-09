@@ -98,6 +98,116 @@ async function listDistributionFileNamesFromR2() {
 }
 
 
+
+// === Snippets & Exercises UI (local tools) ===
+// Files are under ./public/snippetsexercises
+app.use('/se', express.static(path.join(__dirname, 'snippets+Exercises')));
+
+// Convenience route to open the Snippets form
+app.get('/se_form.html', (req, res) => {
+  res.sendFile(path.join(__dirname, 'snippets+Exercises', 'se_form.html'));
+});
+
+app.get('/snippets-form', (req, res) => {
+  res.redirect('/se_form.html');
+});
+app.use(cors());
+app.use(express.json());
+
+app.set('trust proxy', 1);
+
+// online proxy and authentication
+app.use(session({
+  store: new PgSession({
+    pool,
+    tableName: 'user_sessions',
+    createTableIfMissing: true
+  }),
+  secret: process.env.SESSION_SECRET || 'local-dev-session-secret-change-me',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 1000 * 60 * 60 * 24 * 7
+  }
+}));
+
+function requireAuth(req, res, next) {
+  if (req.session && req.session.user) {
+    return next();
+  }
+
+  if (req.path.startsWith('/api') || req.headers.accept?.includes('application/json')) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  return res.redirect('/login.html');
+}
+
+
+
+app.get('/auth/me', (req, res) => {
+  if (!req.session || !req.session.user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  res.json({ user: req.session.user });
+});
+
+app.post('/auth/login', async (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const password = String(req.body.password || '');
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Missing email or password' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, email, password_hash, role
+         FROM app_users
+        WHERE email = $1
+        LIMIT 1`,
+      [email]
+    );
+
+    const user = rows[0];
+
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid login' });
+    }
+
+    const ok = await bcrypt.compare(password, user.password_hash);
+
+    if (!ok) {
+      return res.status(401).json({ error: 'Invalid login' });
+    }
+
+    req.session.user = {
+      id: user.id,
+      email: user.email,
+      role: user.role
+    };
+
+    res.json({ ok: true, user: req.session.user });
+  } catch (e) {
+    console.error('POST /auth/login failed:', e);
+    res.status(500).json({ error: 'DB error' });
+  }
+});
+
+app.post('/auth/logout', (req, res) => {
+  req.session.destroy(() => {
+    res.clearCookie('connect.sid');
+    res.json({ ok: true });
+  });
+});
+
+
+
+
 app.get('/schedule/resources', requireAuth, async (req, res) => {
   try {
     const names = new Set();
@@ -171,110 +281,6 @@ app.get('/schedule/resource-file', requireAuth, async (req, res) => {
     console.error('GET /schedule/resource-file failed:', e);
     return res.status(500).send('Failed to open distribution file');
   }
-});
-
-// === Snippets & Exercises UI (local tools) ===
-// Files are under ./public/snippetsexercises
-app.use('/se', express.static(path.join(__dirname, 'snippets+Exercises')));
-
-// Convenience route to open the Snippets form
-app.get('/se_form.html', (req, res) => {
-  res.sendFile(path.join(__dirname, 'snippets+Exercises', 'se_form.html'));
-});
-
-app.get('/snippets-form', (req, res) => {
-  res.redirect('/se_form.html');
-});
-app.use(cors());
-app.use(express.json());
-
-app.set('trust proxy', 1);
-
-// online proxy and authentication
-app.use(session({
-  store: new PgSession({
-    pool,
-    tableName: 'user_sessions',
-    createTableIfMissing: true
-  }),
-  secret: process.env.SESSION_SECRET || 'local-dev-session-secret-change-me',
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: 1000 * 60 * 60 * 24 * 7
-  }
-}));
-
-function requireAuth(req, res, next) {
-  if (req.session && req.session.user) {
-    return next();
-  }
-
-  if (req.path.startsWith('/api') || req.headers.accept?.includes('application/json')) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-
-  return res.redirect('/login.html');
-}
-
-app.get('/auth/me', (req, res) => {
-  if (!req.session || !req.session.user) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-
-  res.json({ user: req.session.user });
-});
-
-app.post('/auth/login', async (req, res) => {
-  const email = String(req.body.email || '').trim().toLowerCase();
-  const password = String(req.body.password || '');
-
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Missing email or password' });
-  }
-
-  try {
-    const { rows } = await pool.query(
-      `SELECT id, email, password_hash, role
-         FROM app_users
-        WHERE email = $1
-        LIMIT 1`,
-      [email]
-    );
-
-    const user = rows[0];
-
-    if (!user) {
-      return res.status(401).json({ error: 'Invalid login' });
-    }
-
-    const ok = await bcrypt.compare(password, user.password_hash);
-
-    if (!ok) {
-      return res.status(401).json({ error: 'Invalid login' });
-    }
-
-    req.session.user = {
-      id: user.id,
-      email: user.email,
-      role: user.role
-    };
-
-    res.json({ ok: true, user: req.session.user });
-  } catch (e) {
-    console.error('POST /auth/login failed:', e);
-    res.status(500).json({ error: 'DB error' });
-  }
-});
-
-app.post('/auth/logout', (req, res) => {
-  req.session.destroy(() => {
-    res.clearCookie('connect.sid');
-    res.json({ ok: true });
-  });
 });
 
 // === Local file proxy (for previewing stored filepaths in the browser) ===

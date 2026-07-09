@@ -803,16 +803,38 @@ document.getElementById('clearCurrentScheduleFormBtn')?.addEventListener('click'
 
   // Load available resource files for dropdowns
   let availableResources = [];
- async function loadResources() {
+async function loadResources() {
   try {
-    const res = await fetch("/schedule/resources", { cache: "no-store" });
-    const data = await res.json();
+    const res = await fetch("/schedule/resources", {
+      cache: "no-store",
+      credentials: "same-origin"
+    });
+
+    const text = await res.text();
+
+    if (!res.ok) {
+      throw new Error(text || `HTTP ${res.status}`);
+    }
+
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (parseErr) {
+      console.error("/schedule/resources returned non-JSON:", text.slice(0, 500));
+      throw new Error("/schedule/resources did not return JSON. Check backend route order/deploy/auth.");
+    }
 
     availableResources = Array.isArray(data) ? data : [];
-
     refreshResourceSelectOptions();
   } catch (err) {
     console.error("Failed to load resources:", err);
+    availableResources = [];
+    refreshResourceSelectOptions();
+
+    const status = document.getElementById('distributionUploadStatus');
+    if (status) {
+      status.textContent = `❌ Не мога да заредя списъка с разпределения: ${err.message || err}`;
+    }
   }
 }
 
