@@ -739,7 +739,7 @@ async function addCurrentScheduleRow() {
     class: parseInt(document.getElementById('cs_class')?.value, 10),
     division: (document.getElementById('cs_division')?.value || '').trim(),
     term: parseInt(document.getElementById('cs_term')?.value, 10),
-    razpredelenie: document.getElementById('cs_distribution')?.value || '',
+    razpredelenie: (document.getElementById('cs_distribution')?.value || '').trim(),
     bothTerms: !!document.getElementById('cs_both_terms')?.checked
   };
 
@@ -817,35 +817,32 @@ document.getElementById('clearCurrentScheduleFormBtn')?.addEventListener('click'
 }
 
 function refreshResourceSelectOptions() {
+  const optionHtml = `
+    <option value="">-- Select --</option>
+    ${availableResources.map(file => `<option value="${file}">${file}</option>`).join("")}
+  `;
+
   const selects = document.querySelectorAll("#addScheduleTable .resource-select");
-  
+
   selects.forEach(sel => {
     const selected = sel.value;
-
-    sel.innerHTML = `
-      <option value="">-- Select --</option>
-      ${availableResources.map(file => `<option value="${file}">${file}</option>`).join("")}
-    `;
+    sel.innerHTML = optionHtml;
 
     if (selected && availableResources.includes(selected)) {
       sel.value = selected;
     }
-
-    const currentScheduleDistribution = document.getElementById('cs_distribution');
-
-    if (currentScheduleDistribution) {
-      const selected = currentScheduleDistribution.value;
-
-      currentScheduleDistribution.innerHTML = `
-        <option value="">-- Select --</option>
-        ${availableResources.map(file => `<option value="${file}">${file}</option>`).join("")}
-      `;
-
-      if (selected && availableResources.includes(selected)) {
-        currentScheduleDistribution.value = selected;
-      }
-    }
   });
+
+  const currentScheduleDistribution = document.getElementById('cs_distribution');
+
+  if (currentScheduleDistribution) {
+    const selected = currentScheduleDistribution.value;
+    currentScheduleDistribution.innerHTML = optionHtml;
+
+    if (selected && availableResources.includes(selected)) {
+      currentScheduleDistribution.value = selected;
+    }
+  }
 }
 
 async function uploadDistributionFile() {
