@@ -3951,20 +3951,29 @@ app.get('/homeworks', async (req, res) => {
 });
 
 app.get('/classes', async (req, res) => {
-    try {
-        const result = await pool.query('SELECT "Class", "Division" FROM "ClassesList_2025_2026"');
+  try {
+    const { rows } = await pool.query(
+      `
+      SELECT DISTINCT
+        "class",
+        COALESCE("division", '') AS "division"
+      FROM "currentSchedule"
+      WHERE "class" IS NOT NULL
+      ORDER BY "class" ASC, COALESCE("division", '') ASC
+      `
+    );
 
-        const classes = result.rows.map(row => {
-            const classValue = row.Class;    
-            const divisionValue = row.Division; 
-            return `${row["Class"]}${row["Division"] ? " " + row["Division"] : ""}`;
-        });
+    const classes = rows.map(row => {
+      const cls = String(row.class ?? '').trim();
+      const div = String(row.division ?? '').trim();
+      return div ? `${cls} ${div}` : cls;
+    }).filter(Boolean);
 
-        res.json(classes);
-    } catch (err) {
-        console.error(err);
-        res.status(500).send('Error fetching classes');
-    }
+    res.json(classes);
+  } catch (err) {
+    console.error('GET /classes failed:', err);
+    res.status(500).send('Error fetching classes');
+  }
 });
 
 app.get('/lessons-taken', async (req, res) => {
@@ -5711,6 +5720,109 @@ app.get('/api/current-schedule', async (req, res) => {
   } catch (err) {
     console.error('GET /api/current-schedule failed:', err);
     res.status(500).json({ error: 'Failed to load currentSchedule' });
+  }
+});
+app.get('/schedule/current', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `
+      SELECT
+        id,
+        start_year,
+        end_year,
+        "class",
+        "division",
+        "razpredelenie",
+        "term",
+        "bothTerms"
+      FROM "currentSchedule"
+      ORDER BY
+        start_year DESC NULLS LAST,
+        end_year DESC NULLS LAST,
+        "class" ASC,
+        "division" ASC,
+        "term" ASC,
+        id ASC
+      `
+    );
+
+    return res.json({
+      hasCurrent: rows.length > 0,
+      currentRows: rows
+    });
+  } catch (err) {
+    console.error('GET /schedule/current failed:', err);
+    return res.status(500).json({ error: 'Failed to load currentSchedule' });
+  }
+});
+
+app.post('/schedule/current', requireAuth, async (req, res) => {
+  const body = req.body || {};
+  const startYear = parseInt(body.start_year, 10);
+  const endYear = parseInt(body.end_year, 10);
+  const cls = parseInt(body.class, 10);
+  const division = String(body.division || '').trim();
+  const term = parseInt(body.term, 10);
+  const razpredelenie = String(body.razpredelenie || '').trim();
+  const bothTerms = !!body.bothTerms;
+
+  if (!Number.isInteger(startYear) || !Number.isInteger(endYear) || startYear >= endYear) {
+    return res.status(400).json({ error: 'Invalid academic year.' });
+  }
+
+  if (!Number.isInteger(cls) || cls <= 0) {
+    return res.status(400).json({ error: 'Invalid class.' });
+  }
+
+  if (![1, 2].includes(term)) {
+    return res.status(400).json({ error: 'Invalid term.' });
+  }
+
+  if (!razpredelenie) {
+    return res.status(400).json({ error: 'Missing distribution file.' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `
+      INSERT INTO "currentSchedule"
+        (start_year, end_year, "class", "division", "term", "razpredelenie", "bothTerms")
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING id, start_year, end_year, "class", "division", "term", "razpredelenie", "bothTerms"
+      `,
+      [startYear, endYear, cls, division || null, term, razpredelenie, bothTerms]
+    );
+
+    return res.status(201).json({ ok: true, row: rows[0] });
+  } catch (err) {
+    console.error('POST /schedule/current failed:', err);
+    return res.status(500).json({ error: 'Failed to add currentSchedule row.' });
+  }
+});
+
+app.delete('/schedule/current/:id', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+
+  if (!Number.isInteger(id)) {
+    return res.status(400).json({ error: 'Invalid id.' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `DELETE FROM "currentSchedule"
+        WHERE id = $1
+        RETURNING id`,
+      [id]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Row not found.' });
+    }
+
+    return res.json({ ok: true, id: rows[0].id });
+  } catch (err) {
+    console.error('DELETE /schedule/current/:id failed:', err);
+    return res.status(500).json({ error: 'Failed to delete currentSchedule row.' });
   }
 });
 

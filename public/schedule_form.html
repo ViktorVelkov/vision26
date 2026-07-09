@@ -243,6 +243,7 @@
           <th>Division</th>
           <th>Term</th>
           <th>Разпределение</th>
+          <th>Действие</th>
         </tr>
       </thead>
       <tbody>
@@ -250,7 +251,57 @@
       </tbody>
     </table>
 </div>
+<div id="currentScheduleEditor" style="margin-bottom: 30px; padding: 14px; border: 1px solid #ccc; border-radius: 8px; background: #fff;">
+  <h3>➕ Добави клас към графика</h3>
 
+  <div style="display:grid; grid-template-columns: repeat(6, minmax(120px, 1fr)); gap:10px; align-items:end;">
+    <label>Start Year
+      <input type="number" id="cs_start_year" min="2000" max="2100" placeholder="2025" style="width:100%; box-sizing:border-box; padding:6px;">
+    </label>
+
+    <label>End Year
+      <input type="number" id="cs_end_year" min="2000" max="2100" placeholder="2026" style="width:100%; box-sizing:border-box; padding:6px;">
+    </label>
+
+    <label>Class
+      <input type="number" id="cs_class" min="1" max="12" placeholder="9" style="width:100%; box-sizing:border-box; padding:6px;">
+    </label>
+
+    <label>Division
+      <input type="text" id="cs_division" placeholder="Е / МодулА" style="width:100%; box-sizing:border-box; padding:6px;">
+    </label>
+
+    <label>Term
+      <select id="cs_term" style="width:100%; box-sizing:border-box; padding:6px;">
+        <option value="1">1</option>
+        <option value="2">2</option>
+      </select>
+    </label>
+
+    <label>Разпределение
+      <select id="cs_distribution" style="width:100%; box-sizing:border-box; padding:6px;">
+        <option value="">-- Select --</option>
+      </select>
+    </label>
+  </div>
+
+  <label style="margin-top:10px; display:flex; align-items:center; gap:8px;">
+    <input type="checkbox" id="cs_both_terms">
+    <span>Важи и за двата срока</span>
+  </label>
+
+  <div style="margin-top:12px; display:flex; gap:10px; align-items:center;">
+    <button type="button" id="addCurrentScheduleBtn" style="padding:6px 12px; background:#28a745; color:white; border:none; border-radius:4px; cursor:pointer;">
+      Добави към графика
+    </button>
+
+    <button type="button" id="clearCurrentScheduleFormBtn" style="padding:6px 12px; background:#6c757d; color:white; border:none; border-radius:4px; cursor:pointer;">
+      Изчисти
+    </button>
+
+    <span id="currentScheduleFormStatus" style="color:#555;"></span>
+  </div>
+</div>
   <div id="addScheduleWrapper">
     <h3>📗 За добавяне</h3>
     <label for="yearSelector"><strong>Избери учебна година:</strong></label>
@@ -382,13 +433,42 @@
 <script>
 document.addEventListener("DOMContentLoaded", () => {
   // --- Generator tab logic (keep) ---
-  let availableClasses = [];
-  fetch("/classes")
-    .then(res => res.json())
-    .then(classes => {
-      availableClasses = classes;
-    })
-    .catch(err => console.error("Failed to load class list:", err));
+let availableClasses = [];
+
+async function loadAvailableClasses() {
+  try {
+    const res = await fetch("/classes", { cache: "no-store" });
+    const classes = await res.json();
+
+    availableClasses = Array.isArray(classes) ? classes : [];
+    refreshWeeklyClassSelects();
+  } catch (err) {
+    console.error("Failed to load class list:", err);
+    availableClasses = [];
+  }
+}
+
+function classOptionsHtml() {
+  return `
+    <option value="">-- Select Class --</option>
+    ${availableClasses.map(cls => `<option value="${cls}">${cls}</option>`).join("")}
+  `;
+}
+
+function refreshWeeklyClassSelects() {
+  document.querySelectorAll('#daysContainer select[name$="[subject]"]').forEach(sel => {
+    const selected = sel.value;
+
+    sel.innerHTML = classOptionsHtml();
+
+    if (selected && availableClasses.includes(selected)) {
+      sel.value = selected;
+    }
+  });
+}
+
+loadAvailableClasses();
+
 
   document.querySelectorAll(".add-class-btn").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -397,11 +477,10 @@ document.addEventListener("DOMContentLoaded", () => {
       const index = container.children.length;
       const entry = document.createElement("div");
       const selectHTML = `
-        <select name="${day}[${index}][subject]" required>
-          <option value="">-- Select Class --</option>
-          ${availableClasses.map(cls => `<option value="${cls}">${cls}</option>`).join("")}
-        </select>
-      `;
+          <select name="${day}[${index}][subject]" required>
+            ${classOptionsHtml()}
+          </select>
+        `;
       entry.innerHTML = `
         <input type="time" name="${day}[${index}][start_time]" required>
         <input type="time" name="${day}[${index}][end_time]" required>
@@ -561,34 +640,149 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // Load and display currentSchedule table
-  async function loadCurrentSchedule() {
-    try {
-      const res = await fetch("/schedule/current");
-      const data = await res.json();
-      const tbody = document.querySelector("#currentScheduleTable tbody");
-      tbody.innerHTML = "";
-      if (!data.hasCurrent || !Array.isArray(data.currentRows)) {
-        return;
-      }
-      data.currentRows.forEach(row => {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td>${row.start_year ?? ''}-${row.end_year ?? ''}</td>
-          <td>${row.class}</td>
-          <td>${row.division}</td>
-          <td>${row.term}</td>
-          <td>${row.razpredelenie}</td>
-        `;
-        tbody.appendChild(tr);
-      });
-    } catch (err) {
-      console.error("Failed to load currentSchedule:", err);
+async function loadCurrentSchedule() {
+  try {
+    const res = await fetch("/schedule/current", { cache: "no-store" });
+    const data = await res.json();
+
+    const tbody = document.querySelector("#currentScheduleTable tbody");
+    tbody.innerHTML = "";
+
+    if (!data.hasCurrent || !Array.isArray(data.currentRows)) {
+      return;
     }
+
+    data.currentRows.forEach(row => {
+      const tr = document.createElement("tr");
+      tr.dataset.id = row.id;
+
+      tr.innerHTML = `
+        <td>${row.start_year ?? ''}-${row.end_year ?? ''}</td>
+        <td>${row.class ?? ''}</td>
+        <td>${row.division ?? ''}</td>
+        <td>${row.term ?? ''}</td>
+        <td>${row.razpredelenie ?? ''}</td>
+        <td>
+          <button
+            type="button"
+            class="delete-current-schedule-btn"
+            data-id="${row.id}"
+            style="padding:4px 8px; background:#dc3545; color:white; border:none; border-radius:4px; cursor:pointer;">
+            Изтрий
+          </button>
+        </td>
+      `;
+
+      tbody.appendChild(tr);
+    });
+  } catch (err) {
+    console.error("Failed to load currentSchedule:", err);
   }
+}
+document.querySelector("#currentScheduleTable tbody")?.addEventListener("click", async (e) => {
+  const btn = e.target.closest(".delete-current-schedule-btn");
+  if (!btn) return;
+
+  const id = parseInt(btn.dataset.id, 10);
+  if (!Number.isInteger(id)) return;
+
+  if (!confirm(`Да изтрия ли записа #${id} от currentSchedule?`)) return;
+
+  try {
+    const res = await fetch(`/schedule/current/${encodeURIComponent(id)}`, {
+      method: "DELETE"
+    });
+
+    const result = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      throw new Error(result.error || `HTTP ${res.status}`);
+    }
+
+    await loadCurrentSchedule();
+    await loadAvailableClasses();
+  } catch (err) {
+    console.error("Delete currentSchedule failed:", err);
+    alert("❌ Неуспешно изтриване на запис.");
+  }
+});
+
+
+function clearCurrentScheduleForm() {
+  const currentYear = new Date().getFullYear();
+
+  const startEl = document.getElementById('cs_start_year');
+  const endEl = document.getElementById('cs_end_year');
+
+  if (startEl && !startEl.value) startEl.value = currentYear;
+  if (endEl && !endEl.value) endEl.value = currentYear + 1;
+
+  const clsEl = document.getElementById('cs_class');
+  const divEl = document.getElementById('cs_division');
+  const termEl = document.getElementById('cs_term');
+  const distEl = document.getElementById('cs_distribution');
+  const bothEl = document.getElementById('cs_both_terms');
+  const status = document.getElementById('currentScheduleFormStatus');
+
+  if (clsEl) clsEl.value = '';
+  if (divEl) divEl.value = '';
+  if (termEl) termEl.value = '1';
+  if (distEl) distEl.value = '';
+  if (bothEl) bothEl.checked = false;
+  if (status) status.textContent = '';
+}
+
+async function addCurrentScheduleRow() {
+  const payload = {
+    start_year: parseInt(document.getElementById('cs_start_year')?.value, 10),
+    end_year: parseInt(document.getElementById('cs_end_year')?.value, 10),
+    class: parseInt(document.getElementById('cs_class')?.value, 10),
+    division: (document.getElementById('cs_division')?.value || '').trim(),
+    term: parseInt(document.getElementById('cs_term')?.value, 10),
+    razpredelenie: document.getElementById('cs_distribution')?.value || '',
+    bothTerms: !!document.getElementById('cs_both_terms')?.checked
+  };
+
+  const status = document.getElementById('currentScheduleFormStatus');
+
+  if (status) status.textContent = 'Записване...';
+
+  try {
+    const res = await fetch('/schedule/current', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const result = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      throw new Error(result.error || `HTTP ${res.status}`);
+    }
+
+    if (status) status.textContent = '✅ Добавено.';
+
+    await loadCurrentSchedule();
+    await loadAvailableClasses();
+    clearCurrentScheduleForm();
+  } catch (err) {
+    console.error('Add currentSchedule failed:', err);
+
+    if (status) {
+      status.textContent = `❌ ${err.message || err}`;
+    }
+
+    alert('❌ Неуспешно добавяне към графика.');
+  }
+}
+
+document.getElementById('addCurrentScheduleBtn')?.addEventListener('click', addCurrentScheduleRow);
+document.getElementById('clearCurrentScheduleFormBtn')?.addEventListener('click', clearCurrentScheduleForm);
+
 
   // Initial load
   loadCurrentSchedule();
-
+  clearCurrentScheduleForm();
   // Load available academic years into the dropdown
   async function loadAvailableYears() {
     try {
@@ -624,7 +818,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 function refreshResourceSelectOptions() {
   const selects = document.querySelectorAll("#addScheduleTable .resource-select");
-
+  
   selects.forEach(sel => {
     const selected = sel.value;
 
@@ -635,6 +829,21 @@ function refreshResourceSelectOptions() {
 
     if (selected && availableResources.includes(selected)) {
       sel.value = selected;
+    }
+
+    const currentScheduleDistribution = document.getElementById('cs_distribution');
+
+    if (currentScheduleDistribution) {
+      const selected = currentScheduleDistribution.value;
+
+      currentScheduleDistribution.innerHTML = `
+        <option value="">-- Select --</option>
+        ${availableResources.map(file => `<option value="${file}">${file}</option>`).join("")}
+      `;
+
+      if (selected && availableResources.includes(selected)) {
+        currentScheduleDistribution.value = selected;
+      }
     }
   });
 }
