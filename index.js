@@ -147,6 +147,17 @@ function requireAuth(req, res, next) {
 }
 
 
+async function ensureHolidaysTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS holidays (
+      date date PRIMARY KEY,
+      note text,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+}
+
+
 
 app.get('/auth/me', (req, res) => {
   if (!req.session || !req.session.user) {
@@ -206,6 +217,148 @@ app.post('/auth/logout', (req, res) => {
 });
 
 
+//// holidays 
+
+function normalizeHolidayDate(value) {
+  const s = String(value || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return '';
+  return s;
+}
+
+async function readHolidaysFromDb() {
+  await ensureHolidaysTable();
+
+  const { rows } = await pool.query(`
+    SELECT to_char(date, 'YYYY-MM-DD') AS date, COALESCE(note, '') AS note
+    FROM holidays
+    ORDER BY date ASC
+  `);
+
+  return rows;
+}
+
+app.get('/holidays', requireAuth, async (req, res) => {
+  try {
+    const rows = await readHolidaysFromDb();
+    return res.json(rows.map(r => r.date));
+  } catch (err) {
+    console.error('GET /holidays failed:', err);
+    return res.status(500).json({ error: 'Failed to load holidays.' });
+  }
+});
+
+app.post('/holidays/add', requireAuth, async (req, res) => {
+  try {
+    await ensureHolidaysTable();
+
+    const date = normalizeHolidayDate(req.body?.date);
+    const note = String(req.body?.note || '').trim() || null;
+
+    if (!date) {
+      return res.status(400).json({ error: 'Invalid holiday date. Expected YYYY-MM-DD.' });
+    }
+
+    await pool.query(
+      `
+      INSERT INTO holidays (date, note)
+      VALUES ($1::date, $2)
+      ON CONFLICT (date) DO UPDATE
+      SET note = COALESCE(EXCLUDED.note, holidays.note)
+      `,
+      [date, note]
+    );
+
+    return res.json({ ok: true, date });
+  } catch (err) {
+    console.error('POST /holidays/add failed:', err);
+    return res.status(500).json({ error: 'Failed to add holiday.' });
+  }
+});
+
+app.post('/holidays/import-file', requireAuth, async (req, res) => {
+  try {
+    await ensureHolidaysTable();
+
+    const filePath = path.join(__dirname, 'holidays12th.txt');
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'holidays12th.txt not found.' });
+    }
+
+    const dates = fs.readFileSync(filePath, 'utf8')
+      .split(/\r?\n/)
+      .map(line => normalizeHolidayDate(line))
+      .filter(Boolean);
+
+    let inserted = 0;
+
+    for (const date of dates) {
+      const result = await pool.query(
+        `
+        INSERT INTO holidays (date, note)
+        VALUES ($1::date, 'imported from holidays12th.txt')
+        ON CONFLICT (date) DO NOTHING
+        `,
+        [date]
+      );
+
+      inserted += result.rowCount || 0;
+    }
+
+    return res.json({
+      ok: true,
+      total: dates.length,
+      inserted
+    });
+  } catch (err) {
+    console.error('POST /holidays/import-file failed:', err);
+    return res.status(500).json({ error: 'Failed to import holidays12th.txt.' });
+  }
+});
+
+app.delete('/holidays/delete', requireAuth, async (req, res) => {
+  try {
+    await ensureHolidaysTable();
+
+    const date = normalizeHolidayDate(req.body?.date || req.query?.date);
+
+    if (!date) {
+      return res.status(400).json({ error: 'Invalid holiday date. Expected YYYY-MM-DD.' });
+    }
+
+    const result = await pool.query(
+      `DELETE FROM holidays WHERE date = $1::date`,
+      [date]
+    );
+
+    return res.json({
+      ok: true,
+      date,
+      deleted: result.rowCount || 0
+    });
+  } catch (err) {
+    console.error('DELETE /holidays/delete failed:', err);
+    return res.status(500).json({ error: 'Failed to delete holiday.' });
+  }
+});
+
+app.post('/holidays/clear', requireAuth, async (req, res) => {
+  try {
+    await ensureHolidaysTable();
+
+    const result = await pool.query(`DELETE FROM holidays`);
+
+    return res.json({
+      ok: true,
+      deleted: result.rowCount || 0
+    });
+  } catch (err) {
+    console.error('POST /holidays/clear failed:', err);
+    return res.status(500).json({ error: 'Failed to clear holidays.' });
+  }
+});
+
+///
 
 app.get('/schedule/resources', requireAuth, async (req, res) => {
 
@@ -1844,7 +1997,8 @@ app.use('/files', express.static('/Users/viktorvelkov/Documents', {
     } catch (_) {}
   }
 }));
-app.use("/holidays", holidayRouter);
+
+
 app.use("/", scheduleSelectionRouter);
 require('./public/lesCal_post')(app, pool);
 // All POST endpoints for calendar actions (push/merge etc.) are defined in ./public/lesCal_post.js below.
@@ -6056,14 +6210,5 @@ app.post('/api/generatedyearplan/bulk', async (req, res) => {
 });
 
 
-app.get('/api/holidays', (req, res) => {
-  try {
-    const p = path.join(__dirname, '..', 'holidays.txt'); // нагласи спрямо структурата ти
-    const txt = fs.readFileSync(p, 'utf8');
-    res.type('text/plain').send(txt);
-  } catch (e) {
-    res.status(404).type('text/plain').send('holidays.txt not found');
-  }
-});
 ///// -- end of scheduler
 
