@@ -224,7 +224,7 @@ function renderLessonHeader(lesson){
       open.classList.remove('disabled');
       open.setAttribute('target', '_blank');
       open.setAttribute('rel', 'noopener');
-      open.textContent = 'Отвори файла към урока';
+      open.textContent = 'Файла към урока-не работи';
     } else {
       open.removeAttribute('href');
       open.classList.add('disabled');
