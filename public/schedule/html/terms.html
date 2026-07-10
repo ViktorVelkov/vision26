@@ -148,62 +148,81 @@
 
     tabs.forEach(b => b.addEventListener('click', () => show(b.dataset.tab)));
     show('t1');
+function normalizeTermDate(value) {
+  const s = String(value || '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : '';
+}
 
-    document.getElementById('genTerm1')?.addEventListener('click', async () => {
-      const wipeGyp1 = document.querySelector('input[name="t1_wipe_gyp"]:checked')?.value === '1';
-      const wipeDp1  = document.querySelector('input[name="t1_wipe_dp"]:checked')?.value === '1';
+function getSelectedScheduleYearParts() {
+  const raw = document.getElementById('scheduleYearSelect')?.value || '';
+  const [startRaw, endRaw] = raw.split('-');
+  const startYear = parseInt(startRaw, 10);
+  const endYear = parseInt(endRaw, 10);
 
-      console.log('[T1]', {
-        useRecurrence: document.getElementById('t1_useRecurrence').checked,
-        baseWeekParity: document.getElementById('t1_baseWeekParity')?.value,
-        wipeGeneratedYearPlan: wipeGyp1,
-        wipeDistributionProgress: wipeDp1,
-      });
+  return Number.isInteger(startYear) && Number.isInteger(endYear)
+    ? { start_year: startYear, end_year: endYear }
+    : { start_year: null, end_year: null };
+}
 
-      const { generateScheduleWithTopicsFromApi } = await import('../generator/generator.js');
+async function generateTermPlan(term) {
+  const prefix = `t${term}`;
+  const label = term === 1 ? 'първи срок' : 'втори срок';
 
-      const res = await generateScheduleWithTopicsFromApi({
-        term: 1,
-        termStart: document.getElementById('t1_start').value,
-        termEnd: document.getElementById('t1_end').value,
-        useRecurrence: document.getElementById('t1_useRecurrence').checked ? 1 : 0,
-        baseWeekParity: Number(document.getElementById('t1_baseWeekParity')?.value || 1),
-        wipeGeneratedYearPlan: wipeGyp1,
-        wipeDistributionProgress: wipeDp1,
-      });
+  const termStart = normalizeTermDate(document.getElementById(`${prefix}_start`)?.value);
+  const termEnd = normalizeTermDate(document.getElementById(`${prefix}_end`)?.value);
 
-      console.log('Първи срок:', res);
-      alert('Генерирането за първи срок приключи успешно.');
-      console.log('ASSIGNED[0] T1:', res?.[0]);
-    });
+  if (!termStart || !termEnd) {
+    alert(`Попълни начална и крайна дата за ${label}. Форматът трябва да е YYYY-MM-DD.`);
+    return;
+  }
 
-    document.getElementById('genTerm2')?.addEventListener('click', async () => {
-      const wipeGyp2 = document.querySelector('input[name="t2_wipe_gyp"]:checked')?.value === '1';
-      const wipeDp2  = document.querySelector('input[name="t2_wipe_dp"]:checked')?.value === '1';
+  if (termStart > termEnd) {
+    alert(`Началната дата за ${label} не може да е след крайната дата.`);
+    return;
+  }
 
-      console.log('[T2]', {
-        useRecurrence: document.getElementById('t2_useRecurrence').checked,
-        baseWeekParity: document.getElementById('t2_baseWeekParity')?.value,
-        wipeGeneratedYearPlan: wipeGyp2,
-        wipeDistributionProgress: wipeDp2,
-      });
+  const wipeGeneratedYearPlan =
+    document.querySelector(`input[name="${prefix}_wipe_gyp"]:checked`)?.value === '1';
 
-      const { generateScheduleWithTopicsFromApi } = await import('../generator/generator.js');
+  const wipeDistributionProgress =
+    document.querySelector(`input[name="${prefix}_wipe_dp"]:checked`)?.value === '1';
 
-      const res = await generateScheduleWithTopicsFromApi({
-        term: 2,
-        termStart: document.getElementById('t2_start').value,
-        termEnd: document.getElementById('t2_end').value,
-        useRecurrence: document.getElementById('t2_useRecurrence').checked ? 1 : 0,
-        baseWeekParity: Number(document.getElementById('t2_baseWeekParity')?.value || 1),
-        wipeGeneratedYearPlan: wipeGyp2,
-        wipeDistributionProgress: wipeDp2,
-      });
+  const useRecurrence = document.getElementById(`${prefix}_useRecurrence`)?.checked ? 1 : 0;
+  const baseWeekParity = Number(document.getElementById(`${prefix}_baseWeekParity`)?.value || 1);
 
-      console.log('Втори срок:', res);
-      alert('Генерирането за втори срок приключи успешно.');
-      console.log('ASSIGNED[0] T2:', res?.[0]);
-    });
-  </script>
+  const { start_year, end_year } = getSelectedScheduleYearParts();
+
+  if (!start_year || !end_year) {
+    alert('Избери учебна година преди генериране.');
+    return;
+  }
+
+  window.selectedScheduleStartYear = start_year;
+  window.selectedScheduleEndYear = end_year;
+
+  const args = {
+    term,
+    termStart,
+    termEnd,
+    start_year,
+    end_year,
+    useRecurrence,
+    baseWeekParity,
+    wipeGeneratedYearPlan,
+    wipeDistributionProgress,
+  };
+
+  console.log(`[T${term}]`, args);
+
+  const { generateScheduleWithTopicsFromApi } = await import('../generator/generator.js');
+  const res = await generateScheduleWithTopicsFromApi(args);
+
+  console.log(term === 1 ? 'Първи срок:' : 'Втори срок:', res);
+  alert(`Генерирането за ${label} приключи успешно.`);
+  console.log(`ASSIGNED[0] T${term}:`, res?.[0]);
+}
+
+document.getElementById('genTerm1')?.addEventListener('click', () => generateTermPlan(1));
+document.getElementById('genTerm2')?.addEventListener('click', () => generateTermPlan(2));  </script>
 </body>
 </html>
