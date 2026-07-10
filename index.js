@@ -275,6 +275,19 @@ app.post('/holidays/add', requireAuth, async (req, res) => {
   }
 });
 
+app.get('/api/holidays', requireAuth, async (req, res) => {
+  try {
+    const rows = await readHolidaysFromDb();
+    const body = rows.map(r => r.date).join('\n');
+
+    return res
+      .type('text/plain')
+      .send(body ? `${body}\n` : '');
+  } catch (err) {
+    console.error('GET /api/holidays failed:', err);
+    return res.status(500).type('text/plain').send('');
+  }
+});
 
 app.post('/holidays/import-upload', requireAuth, upload.single('holidayFile'), async (req, res) => {
   try {
