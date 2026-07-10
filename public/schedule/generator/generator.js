@@ -126,6 +126,19 @@ async function persistGeneratedYearPlan(assigned, term) {
   }
 }
 
+function scheduleYearQueryForGenerator() {
+  const fromSelect = document.getElementById('scheduleYearSelect')?.value || '';
+  const [selectStartRaw, selectEndRaw] = fromSelect.split('-');
+
+  const params = new URLSearchParams(window.location.search);
+  const startYear = params.get('start_year') || window.selectedScheduleStartYear || selectStartRaw || '';
+  const endYear = params.get('end_year') || window.selectedScheduleEndYear || selectEndRaw || '';
+
+  return startYear && endYear
+    ? `?start_year=${encodeURIComponent(startYear)}&end_year=${encodeURIComponent(endYear)}`
+    : '';
+}
+
 async function fetchProgressMetaFromCurrentSchedule() {
   const r = await fetch('/api/current-schedule', { headers: { Accept: 'application/json' } });
   if (!r.ok) throw new Error(await r.text());
@@ -274,7 +287,7 @@ export async function generateScheduleFromApi({
   wipeGeneratedYearPlan = true,
   wipeDistributionProgress = true,
 }) {
-  const res = await fetch(`/api/scheduleentries/${term}`, {
+  const res = await fetch(`/api/scheduleentries/${term}${scheduleYearQueryForGenerator()}`, {
     headers: { Accept: 'application/json' },
   });
 

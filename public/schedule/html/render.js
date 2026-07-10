@@ -1,6 +1,13 @@
 // browser-side helpers
 let selectedScheduleYear = null;
 let scheduleYearReadyPromise = null;
+let lastRenderedTerm = null;
+let lastRenderedElement = null;
+
+function publishSelectedScheduleYear() {
+  window.selectedScheduleStartYear = selectedScheduleYear?.start_year || '';
+  window.selectedScheduleEndYear = selectedScheduleYear?.end_year || '';
+}
 
 function scheduleYearQueryString() {
   if (!selectedScheduleYear) return '';
@@ -29,7 +36,7 @@ async function loadScheduleYearOptions() {
 
       select.value = `${selectedScheduleYear.start_year}-${selectedScheduleYear.end_year}`;
     }
-
+    publishSelectedScheduleYear();
     select.addEventListener('change', () => {
       const [startRaw, endRaw] = select.value.split('-');
       const start = parseInt(startRaw, 10);
@@ -38,7 +45,7 @@ async function loadScheduleYearOptions() {
       selectedScheduleYear = Number.isInteger(start) && Number.isInteger(end)
         ? { start_year: start, end_year: end }
         : null;
-
+      publishSelectedScheduleYear();
       window.dispatchEvent(new CustomEvent('schedule-year-changed', {
         detail: selectedScheduleYear
       }));
@@ -47,6 +54,7 @@ async function loadScheduleYearOptions() {
     console.error('Failed to load schedule years:', err);
     select.innerHTML = '<option value="">Грешка</option>';
   }
+  
 }
 
 window.addEventListener('DOMContentLoaded', () => {
@@ -54,7 +62,11 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 export const scheduleByTerm = async t => {
-  if (!selectedScheduleYear && scheduleYearReadyPromise) {
+  if (!selectedScheduleYear) {
+    if (!scheduleYearReadyPromise) {
+      scheduleYearReadyPromise = loadScheduleYearOptions();
+    }
+
     await scheduleYearReadyPromise;
   }
 
@@ -62,8 +74,11 @@ export const scheduleByTerm = async t => {
     .then(r => r.json());
 };
 
-export const renderTableByTerm = (t, el) =>
-  scheduleByTerm(t).then(rows => {
+  export const renderTableByTerm = (t, el) => {
+  lastRenderedTerm = t;
+  lastRenderedElement = el;
+
+  return scheduleByTerm(t).then(rows => {    
     if (!el) return;
     if (!rows || rows.length === 0) {
       el.innerHTML = '<div class="kv">Няма записи.</div>';
@@ -126,3 +141,10 @@ export const renderTableByTerm = (t, el) =>
 
     el.innerHTML = `<table>${headHtml}<tbody>${bodyHtml}</tbody></table>`;
   });
+};
+
+window.addEventListener('schedule-year-changed', () => {
+  if (lastRenderedTerm && lastRenderedElement) {
+    renderTableByTerm(lastRenderedTerm, lastRenderedElement);
+  }
+});
