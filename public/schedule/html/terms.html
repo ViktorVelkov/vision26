@@ -29,7 +29,12 @@
       <button class="tab" data-tab="t3" type="button">Таб 3</button>
       <button class="tab" data-tab="t4" type="button">Таб 4</button>
     </div>
-
+    <div id="scheduleYearBar" style="display:flex; justify-content:center; align-items:center; gap:10px; margin: 18px 0 10px;">
+      <label for="scheduleYearSelect" style="font-weight:600;">Учебна година:</label>
+      <select id="scheduleYearSelect" style="padding:8px 12px; border:1px solid #cfd5dd; border-radius:8px; min-width:160px;">
+        <option value="">Зареждане...</option>
+      </select>
+    </div>
     <section class="panel" data-panel="t1">
       <div class="grid">
         <label>Първи срок — начало <input type="date" id="t1_start"></label>

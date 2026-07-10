@@ -5823,41 +5823,66 @@ app.get('/api/lessons/:id/photos', async (req, res) => {
 
 ///scheduler 
 
-app.get('/api/scheduleentries/:term', async (req, res) => {
-  const term = Number(req.params.term);
+app.get('/api/scheduleentries/:term', requireAuth, async (req, res) => {
+  const term = parseInt(req.params.term, 10);
+  const startYear = parseInt(req.query.start_year, 10);
+  const endYear = parseInt(req.query.end_year, 10);
 
-  if (![1, 2, 3].includes(term)) {
-    return res.status(400).json({
-      error: 'Invalid term. Allowed values are only 1, 2, or 3.'
-    });
+  if (![1, 2].includes(term)) {
+    return res.status(400).json({ error: 'Invalid term.' });
   }
 
-      const { rows } = await client.query(
+  if (!Number.isInteger(startYear) || !Number.isInteger(endYear) || startYear >= endYear) {
+    return res.status(400).json({ error: 'Invalid academic year.' });
+  }
+
+  try {
+    const { rows } = await pool.query(
       `
-      select term, weekday, start_time, end_time, subject, recurrence, week_parity, ordernumber
-      from scheduleentries
-      where term = $1
-      order by
-        case lower(trim(weekday))
-          when 'monday' then 1
-          when 'tuesday' then 2
-          when 'wednesday' then 3
-          when 'thursday' then 4
-          when 'friday' then 5
-          when 'saturday' then 6
-          when 'sunday' then 7
-          else 99
-        end,
-        ordernumber::int asc nulls last,
-        start_time asc
+      SELECT *
+      FROM scheduleentries
+      WHERE term = $1
+        AND start_year = $2
+        AND end_year = $3
+      ORDER BY
+        CASE weekday
+          WHEN 'Monday' THEN 1
+          WHEN 'Tuesday' THEN 2
+          WHEN 'Wednesday' THEN 3
+          WHEN 'Thursday' THEN 4
+          WHEN 'Friday' THEN 5
+          ELSE 6
+        END,
+        start_time ASC,
+        ordernumber ASC NULLS LAST
       `,
-      [term]
+      [term, startYear, endYear]
     );
 
-    res.json(rows);
-      
+    return res.json(rows);
+  } catch (err) {
+    console.error('GET /api/scheduleentries/:term failed:', err);
+    return res.status(500).json({ error: 'Failed to load scheduleentries.' });
+  }
 });
 
+
+app.get('/api/scheduleentries-years', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT DISTINCT start_year, end_year
+      FROM scheduleentries
+      WHERE start_year IS NOT NULL
+        AND end_year IS NOT NULL
+      ORDER BY start_year DESC, end_year DESC
+    `);
+
+    return res.json(rows);
+  } catch (err) {
+    console.error('GET /api/scheduleentries-years failed:', err);
+    return res.status(500).json({ error: 'Failed to load schedule years.' });
+  }
+});
 
 // currentSchedule – list distributions per class
 app.get('/api/current-schedule', async (req, res) => {
