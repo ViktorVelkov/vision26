@@ -794,7 +794,13 @@ document.getElementById('importHolidaysUploadBtn')?.addEventListener('click', as
     const res = await fetch("/schedule/save", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ entries })
+      body: JSON.stringify({
+        start_year: startYear,
+        end_year: endYear,
+        term,
+        replace: true,
+        entries
+      })
     });
     const result = await res.json();
     alert(result.message || "Schedule saved.");
@@ -1373,38 +1379,30 @@ function renderLoadedWeeklyScheduleEntries(rows) {
   }
 }
 async function loadWeeklyScheduleForYear(startYear, endYear) {
+  selectedWeeklyScheduleYear = null;
   setWeeklyYearInputsForScheduleEntries(startYear, endYear);
 
-  const allRows = [];
+  const activeTerm = parseInt(document.getElementById('termInput')?.value || '1', 10) || 1;
 
-  for (const term of [1, 2]) {
-    const url = `/api/scheduleentries/${term}?start_year=${encodeURIComponent(startYear)}&end_year=${encodeURIComponent(endYear)}`;
-    const res = await fetch(url, { cache: 'no-store' });
+  const url = `/api/scheduleentries/${activeTerm}?start_year=${encodeURIComponent(startYear)}&end_year=${encodeURIComponent(endYear)}`;
+  const res = await fetch(url, { cache: 'no-store' });
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`Не мога да заредя графика за срок ${term}: ${text || res.status}`);
-    }
-
-    const rows = await res.json();
-
-    if (Array.isArray(rows)) {
-      rows.forEach(row => {
-        allRows.push({
-          ...row,
-          term: row.term ?? term
-        });
-      });
-    }
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Не мога да заредя графика за срок ${activeTerm}: ${text || res.status}`);
   }
 
-  renderLoadedWeeklyScheduleEntries(allRows);
+  const rows = await res.json();
+  const safeRows = Array.isArray(rows)
+    ? rows.map(row => ({ ...row, term: row.term ?? activeTerm }))
+    : [];
 
+  renderLoadedWeeklyScheduleEntries(safeRows);
   markWeeklySchedulePristine();
 
-  return allRows;
+  return safeRows;
 }
-  
+
   async function loadGeneratedPlanYears() {
     try {
       const res = await fetch('/schedule/available-years-generated');
@@ -1731,6 +1729,27 @@ const buttons = Array.from(document.querySelectorAll('button, .chip, .pill'));
   }
 }
 
+document.querySelectorAll(".term-btn").forEach(btn => {
+  btn.addEventListener("click", async () => {
+    if (weeklyScheduleDirty && serializeWeeklyScheduleForm() !== weeklyScheduleBaseline) {
+      const proceed = confirm('Има незапазени промени. Да сменя ли срока без запис?');
+      if (!proceed) return;
+    }
+
+    document.querySelectorAll(".term-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("termInput").value = btn.dataset.term;
+
+    if (selectedWeeklyScheduleYear) {
+      await loadWeeklyScheduleForYear(
+        selectedWeeklyScheduleYear.startYear,
+        selectedWeeklyScheduleYear.endYear
+      );
+    } else {
+      markWeeklySchedulePristine();
+    }
+  });
+});
 </script>
 
 

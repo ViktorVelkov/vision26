@@ -5396,57 +5396,81 @@ app.get('/exercise-file', async (req, res) => {
     return res.status(500).send('File preview error');
   }
 });
-app.post("/schedule/save", async (req, res) => {
-  const { entries } = req.body;
-  if (!Array.isArray(entries)) return res.status(400).json({ error: "Invalid data format." });
+app.post('/schedule/save', requireAuth, async (req, res) => {
+  const body = req.body || {};
+  const entries = Array.isArray(body.entries) ? body.entries : [];
+  const replace = body.replace === true;
+  const startYear = parseInt(body.start_year, 10);
+  const endYear = parseInt(body.end_year, 10);
+  const term = parseInt(body.term, 10);
 
-  const query = `
-    INSERT INTO "scheduleentries" (
-      start_year, end_year, term, weekday, start_time, end_time, subject, recurrence, week_parity
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-  `;
+  if (!entries.length) {
+    return res.status(400).json({ error: 'No schedule entries provided.' });
+  }
 
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-
-    for (const entry of entries) {
-      const {
-        start_year,
-        end_year,
-        term,
-        weekday,
-        start_time,
-        end_time,
-        subject,
-        recurrence,
-        week_parity
-      } = entry;
-
-      if (
-        !start_year || !end_year || !term || !weekday ||
-        !start_time || !end_time || !subject
-      ) continue;
-
-      await client.query(query, [
-        start_year,
-        end_year,
-        term,
-        weekday,
-        start_time,
-        end_time,
-        subject,
-        recurrence || "WEEKLY",
-        week_parity || 1
-      ]);
+  if (replace) {
+    if (!Number.isInteger(startYear) || !Number.isInteger(endYear) || startYear >= endYear) {
+      return res.status(400).json({ error: 'Invalid academic year for replace save.' });
     }
 
-    await client.query("COMMIT");
-    res.json({ message: "Schedule saved successfully." });
+    if (![1, 2].includes(term)) {
+      return res.status(400).json({ error: 'Invalid term for replace save.' });
+    }
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    if (replace) {
+      await client.query(
+        `DELETE FROM scheduleentries
+         WHERE start_year = $1
+           AND end_year = $2
+           AND term = $3`,
+        [startYear, endYear, term]
+      );
+    }
+
+    for (const entry of entries) {
+      const rowStartYear = parseInt(entry.start_year ?? startYear, 10);
+      const rowEndYear = parseInt(entry.end_year ?? endYear, 10);
+      const rowTerm = parseInt(entry.term ?? term, 10);
+      const weekday = String(entry.weekday || '').trim();
+      const startTime = String(entry.start_time || '').trim();
+      const endTime = String(entry.end_time || '').trim();
+      const subject = String(entry.subject || '').trim();
+
+      const recurrence = String(entry.recurrence || 'WEEKLY').trim().toUpperCase() === 'BIWEEKLY'
+        ? 'BIWEEKLY'
+        : 'WEEKLY';
+
+      const weekParity = parseInt(entry.week_parity, 10) === 2 ? 2 : 1;
+
+      if (!weekday || !startTime || !endTime || !subject) {
+        continue;
+      }
+
+      await client.query(
+        `INSERT INTO scheduleentries
+          (start_year, end_year, term, weekday, start_time, end_time, subject, recurrence, week_parity)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [rowStartYear, rowEndYear, rowTerm, weekday, startTime, endTime, subject, recurrence, weekParity]
+      );
+    }
+
+    await client.query('COMMIT');
+
+    return res.json({
+      message: 'Schedule saved.',
+      replaced: replace,
+      inserted: entries.length
+    });
   } catch (err) {
-    await client.query("ROLLBACK");
-    console.error("Error saving schedule:", err);
-    res.status(500).json({ error: "Failed to save schedule." });
+    await client.query('ROLLBACK');
+    console.error('POST /schedule/save failed:', err);
+    return res.status(500).json({ error: 'Failed to save schedule.' });
   } finally {
     client.release();
   }
