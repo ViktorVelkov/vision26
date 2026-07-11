@@ -515,6 +515,64 @@ document.addEventListener("DOMContentLoaded", () => {
   // --- Generator tab logic (keep) ---
 let availableClasses = [];
 
+let weeklyScheduleDirty = false;
+let weeklyScheduleBaseline = '';
+
+function serializeWeeklyScheduleForm() {
+  const startYear = document.getElementById('startYear')?.value || '';
+  const endYear = document.getElementById('endYear')?.value || '';
+  const term = document.getElementById('termInput')?.value || '';
+  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+
+  const rows = [];
+
+  for (const day of days) {
+    const blocks = document.querySelectorAll(`#${day}-classes > div`);
+
+    blocks.forEach(block => {
+      rows.push({
+        day,
+        start_time: block.querySelector(`input[name^="${day}"][name$="[start_time]"]`)?.value || '',
+        end_time: block.querySelector(`input[name^="${day}"][name$="[end_time]"]`)?.value || '',
+        subject: block.querySelector(`select[name^="${day}"][name$="[subject]"]`)?.value || '',
+        recurrence: block.querySelector(`input[name^="${day}"][name$="[every_two_weeks]"]`)?.checked ? 'BIWEEKLY' : 'WEEKLY',
+        week_parity: block.querySelector(`select[name^="${day}"][name$="[parity]"]`)?.value || '1'
+      });
+    });
+  }
+
+  return JSON.stringify({ startYear, endYear, term, rows });
+}
+
+function setWeeklyScheduleDirty(isDirty) {
+  weeklyScheduleDirty = !!isDirty;
+
+  const submitBtn = document.querySelector('#scheduleForm button[type="submit"]');
+  if (!submitBtn) return;
+
+  submitBtn.disabled = !weeklyScheduleDirty;
+  submitBtn.textContent = weeklyScheduleDirty ? 'Запази промените' : 'Няма промени';
+  submitBtn.style.opacity = weeklyScheduleDirty ? '1' : '0.55';
+  submitBtn.style.cursor = weeklyScheduleDirty ? 'pointer' : 'not-allowed';
+}
+
+function markWeeklyScheduleDirty() {
+  const current = serializeWeeklyScheduleForm();
+  setWeeklyScheduleDirty(current !== weeklyScheduleBaseline);
+}
+
+function markWeeklySchedulePristine() {
+  weeklyScheduleBaseline = serializeWeeklyScheduleForm();
+  setWeeklyScheduleDirty(false);
+}
+
+function bindWeeklyRowDirtyTracking(rowElement) {
+  if (!rowElement) return;
+
+  rowElement.addEventListener('input', markWeeklyScheduleDirty);
+  rowElement.addEventListener('change', markWeeklyScheduleDirty);
+}
+
 async function loadAvailableClasses() {
   try {
     const res = await fetch("/classes", { cache: "no-store" });
@@ -553,6 +611,8 @@ loadAvailableClasses();
   document.querySelectorAll(".add-class-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const day = btn.dataset.day;
+      createWeeklyEntryFormRow(day);
+      markWeeklyScheduleDirty();
       const container = document.getElementById(day + "-classes");
       const index = container.children.length;
       const entry = document.createElement("div");
@@ -575,9 +635,12 @@ loadAvailableClasses();
         </select>
         <button type="button" class="delete-class-btn" style="color: red; margin-left: 10px;">❌</button>
       `;
-      entry.querySelector(".delete-class-btn").addEventListener("click", () => {
-        entry.remove();
+      entry.querySelector('.delete-class-btn')?.addEventListener('click', () => {
+      entry.remove();
+        markWeeklyScheduleDirty();
       });
+
+      bindWeeklyRowDirtyTracking(entry);
       container.appendChild(entry);
     });
   });
@@ -643,6 +706,10 @@ loadAvailableClasses();
   });
   document.getElementById("holidayForm").addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (!weeklyScheduleDirty && serializeWeeklyScheduleForm() === weeklyScheduleBaseline) {
+      alert('Няма промени за записване.');
+      return;
+    }
     const start = document.getElementById("holidayStart").value;
     const end = document.getElementById("holidayEnd").value;
     const isRange = toggle.checked;
@@ -759,6 +826,7 @@ document.getElementById('importHolidaysUploadBtn')?.addEventListener('click', as
     });
     const result = await res.json();
     alert(result.message || "Schedule saved.");
+    markWeeklySchedulePristine();
   });
 
 let currentScheduleRowsCache = [];
@@ -1319,6 +1387,8 @@ async function loadWeeklyScheduleForYear(startYear, endYear) {
 
   renderLoadedWeeklyScheduleEntries(allRows);
 
+  markWeeklySchedulePristine();
+
   return allRows;
 }
   
@@ -1414,6 +1484,7 @@ async function loadWeeklyScheduleForYear(startYear, endYear) {
 
   // Load scheduleentries years and wire toggle
   loadScheduleEntriesYears();
+  markWeeklySchedulePristine();
   const _schedYearsToggleBtn = document.getElementById('schedYearsToggleBtn');
   const _schedYearsPanel = document.getElementById('schedYearsPanel');
   if (_schedYearsToggleBtn && _schedYearsPanel) {
