@@ -608,42 +608,13 @@ function refreshWeeklyClassSelects() {
 loadAvailableClasses();
 
 
-  document.querySelectorAll(".add-class-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const day = btn.dataset.day;
-      createWeeklyEntryFormRow(day);
-      markWeeklyScheduleDirty();
-      const container = document.getElementById(day + "-classes");
-      const index = container.children.length;
-      const entry = document.createElement("div");
-      const selectHTML = `
-          <select name="${day}[${index}][subject]" required>
-            ${classOptionsHtml()}
-          </select>
-        `;
-      entry.innerHTML = `
-        <input type="time" name="${day}[${index}][start_time]" required>
-        <input type="time" name="${day}[${index}][end_time]" required>
-        ${selectHTML}
-        <label style="margin-left:10px;display:flex;align-items:center;gap:6px;font-size:0.9rem;">
-          <input type="checkbox" name="${day}[${index}][every_two_weeks]" value="1">
-          every 2 weeks
-        </label>
-        <select name="${day}[${index}][parity]" title="Week group" style="margin-left:6px;">
-          <option value="1" selected>starts on Week A</option>
-          <option value="2">starts on Week B</option>
-        </select>
-        <button type="button" class="delete-class-btn" style="color: red; margin-left: 10px;">❌</button>
-      `;
-      entry.querySelector('.delete-class-btn')?.addEventListener('click', () => {
-      entry.remove();
-        markWeeklyScheduleDirty();
-      });
-
-      bindWeeklyRowDirtyTracking(entry);
-      container.appendChild(entry);
-    });
+document.querySelectorAll(".add-class-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const day = btn.dataset.day;
+    createWeeklyEntryFormRow(day);
+    markWeeklyScheduleDirty();
   });
+});
 
   document.querySelectorAll(".tab-btn").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -706,10 +677,7 @@ loadAvailableClasses();
   });
   document.getElementById("holidayForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    if (!weeklyScheduleDirty && serializeWeeklyScheduleForm() === weeklyScheduleBaseline) {
-      alert('Няма промени за записване.');
-      return;
-    }
+    
     const start = document.getElementById("holidayStart").value;
     const end = document.getElementById("holidayEnd").value;
     const isRange = toggle.checked;
@@ -786,6 +754,10 @@ document.getElementById('importHolidaysUploadBtn')?.addEventListener('click', as
 // --- Generator tab: Schedule submission logic (keep) ---
   document.getElementById("scheduleForm").addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (!weeklyScheduleDirty && serializeWeeklyScheduleForm() === weeklyScheduleBaseline) {
+      alert('Няма промени за записване.');
+      return;
+    }
     const startYear = parseInt(document.getElementById("startYear").value);
     const endYear = parseInt(document.getElementById("endYear").value);
     const term = parseInt(document.getElementById("termInput").value);
@@ -1282,9 +1254,91 @@ function normalizeScheduleEntryWeekday(value) {
 function clearLoadedWeeklyScheduleEntries() {
   document.querySelectorAll('.loaded-weekly-schedule-list').forEach(el => el.remove());
 }
+function normalizeTimeForTimeInput(value) {
+  const s = String(value || '').trim();
+  const m = s.match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return '';
+  return `${String(m[1]).padStart(2, '0')}:${m[2]}`;
+}
+
+function createWeeklyEntryFormRow(day, row = {}) {
+  const container = document.getElementById(`${day}-classes`);
+  if (!container) return null;
+
+  const index = container.children.length;
+  const entry = document.createElement('div');
+
+  entry.innerHTML = `
+    <input type="time" name="${day}[${index}][start_time]" required>
+    <input type="time" name="${day}[${index}][end_time]" required>
+
+    <select name="${day}[${index}][subject]" required>
+      ${classOptionsHtml()}
+    </select>
+
+    <label style="margin-left:10px;display:flex;align-items:center;gap:6px;font-size:0.9rem;">
+      <input type="checkbox" name="${day}[${index}][every_two_weeks]" value="1">
+      every 2 weeks
+    </label>
+
+    <select name="${day}[${index}][parity]" title="Week group" style="margin-left:6px;">
+      <option value="1" selected>starts on Week A</option>
+      <option value="2">starts on Week B</option>
+    </select>
+
+    <button type="button" class="delete-class-btn" style="color: red; margin-left: 10px;">❌</button>
+  `;
+
+  const startInput = entry.querySelector(`input[name="${day}[${index}][start_time]"]`);
+  const endInput = entry.querySelector(`input[name="${day}[${index}][end_time]"]`);
+  const subjectSelect = entry.querySelector(`select[name="${day}[${index}][subject]"]`);
+  const everyTwoWeeks = entry.querySelector(`input[name="${day}[${index}][every_two_weeks]"]`);
+  const paritySelect = entry.querySelector(`select[name="${day}[${index}][parity]"]`);
+
+  if (startInput) startInput.value = normalizeTimeForTimeInput(row.start_time);
+  if (endInput) endInput.value = normalizeTimeForTimeInput(row.end_time);
+
+  if (subjectSelect && row.subject) {
+    const subjectValue = String(row.subject);
+    const hasOption = Array.from(subjectSelect.options).some(opt => opt.value === subjectValue);
+
+    if (!hasOption) {
+      const opt = document.createElement('option');
+      opt.value = subjectValue;
+      opt.textContent = subjectValue;
+      subjectSelect.appendChild(opt);
+    }
+
+    subjectSelect.value = subjectValue;
+  }
+
+  if (everyTwoWeeks) {
+    everyTwoWeeks.checked = String(row.recurrence || '').toUpperCase() === 'BIWEEKLY';
+  }
+
+  if (paritySelect) {
+    const parity = String(row.week_parity || '1');
+    paritySelect.value = parity === '2' ? '2' : '1';
+  }
+
+  entry.querySelector('.delete-class-btn')?.addEventListener('click', () => {
+    entry.remove();
+    markWeeklyScheduleDirty();
+  });
+
+  bindWeeklyRowDirtyTracking(entry);
+  container.appendChild(entry);
+
+  return entry;
+}
 
 function renderLoadedWeeklyScheduleEntries(rows) {
   clearLoadedWeeklyScheduleEntries();
+
+  ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].forEach(day => {
+    const container = document.getElementById(`${day}-classes`);
+    if (container) container.innerHTML = '';
+  });
 
   const grouped = new Map();
 
@@ -1301,9 +1355,6 @@ function renderLoadedWeeklyScheduleEntries(rows) {
   const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
   for (const day of dayNames) {
-    const card = document.querySelector(`.day-block[data-day="${day}"]`);
-    if (!card) continue;
-
     const dayRows = grouped.get(day) || [];
 
     dayRows.sort((a, b) => {
@@ -1316,49 +1367,11 @@ function renderLoadedWeeklyScheduleEntries(rows) {
       return String(a.subject || '').localeCompare(String(b.subject || ''), 'bg', { sensitivity: 'base' });
     });
 
-    const list = document.createElement('div');
-    list.className = 'loaded-weekly-schedule-list';
-    list.style.marginTop = '12px';
-    list.style.display = 'flex';
-    list.style.flexDirection = 'column';
-    list.style.gap = '8px';
-
-    if (!dayRows.length) {
-      const empty = document.createElement('div');
-      empty.className = 'loaded-weekly-schedule-item';
-      empty.style.padding = '8px 10px';
-      empty.style.border = '1px solid #e5e7eb';
-      empty.style.borderRadius = '10px';
-      empty.style.background = '#f8fafc';
-      empty.style.color = '#64748b';
-      empty.textContent = 'Няма записи за избраната година.';
-
-      list.appendChild(empty);
-      card.appendChild(list);
-      continue;
-    }
-
     for (const row of dayRows) {
-      const item = document.createElement('div');
-      item.className = 'loaded-weekly-schedule-item';
-      item.style.padding = '8px 10px';
-      item.style.border = '1px solid #e5e7eb';
-      item.style.borderRadius = '10px';
-      item.style.background = '#f8fafc';
-
-      const recurrence = row.recurrence ? ` · ${row.recurrence}` : '';
-      const parity = row.week_parity ? ` · седм. ${row.week_parity}` : '';
-      const term = row.term ? ` · срок ${row.term}` : '';
-
-      item.textContent = `${row.start_time || ''}–${row.end_time || ''} · ${row.subject || ''}${term}${recurrence}${parity}`;
-
-      list.appendChild(item);
+      createWeeklyEntryFormRow(day, row);
     }
-
-    card.appendChild(list);
   }
 }
-
 async function loadWeeklyScheduleForYear(startYear, endYear) {
   setWeeklyYearInputsForScheduleEntries(startYear, endYear);
 
