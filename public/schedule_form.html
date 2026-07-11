@@ -1197,35 +1197,49 @@ loadResources();
   }
 
   // Load academic years present in scheduleentries
-  async function loadScheduleEntriesYears() {
-    try {
-      const res = await fetch('/schedule/available-years-scheduleentries');
-      const years = await res.json();
-      const list = document.getElementById('scheduleYearsList');
-      if (!list) return;
-      list.innerHTML = '';
-      years.forEach(({ start_year, end_year }) => {
-        const li = document.createElement('li');
-        li.innerHTML = `
-          <button type="button" class="year-pill" data-range="${start_year}-${end_year}"
-                  style="padding:6px 10px;border:1px solid #ccc;border-radius:16px;background:#f0f3f7;cursor:pointer;">
-            ${start_year}-${end_year}
-          </button>`;
-        list.appendChild(li);
-      });
-      list.addEventListener('click', (e) => {
+        async function loadScheduleEntriesYears() {
+          try {
+            const res = await fetch('/schedule/available-years-scheduleentries');
+            const years = await res.json();
+            const list = document.getElementById('scheduleYearsList');
+            if (!list) return;
+            list.innerHTML = '';
+            years.forEach(({ start_year, end_year }) => {
+              const li = document.createElement('li');
+              li.innerHTML = `
+                <button type="button" class="year-pill" data-range="${start_year}-${end_year}"
+                        style="padding:6px 10px;border:1px solid #ccc;border-radius:16px;background:#f0f3f7;cursor:pointer;">
+                  ${start_year}-${end_year}
+                </button>`;
+              list.appendChild(li);
+            });
+            list.addEventListener('click', async (e) => {
         const btn = e.target.closest('button.year-pill');
         if (!btn) return;
+
         const [s, eY] = btn.dataset.range.split('-').map(n => parseInt(n, 10));
+
         const sInput = document.getElementById('startYear');
         const eInput = document.getElementById('endYear');
+
         if (sInput) sInput.value = Number.isFinite(s) ? s : '';
         if (eInput) eInput.value = Number.isFinite(eY) ? eY : '';
+
         [sInput, eInput].forEach(el => {
           if (!el) return;
           el.classList.add('pulsing');
           setTimeout(() => el.classList.remove('pulsing'), 400);
         });
+
+        document.querySelectorAll('#scheduleYearsList .year-pill').forEach(el => {
+          el.classList.remove('weekly-year-selected');
+        });
+
+        btn.classList.add('weekly-year-selected');
+
+        if (Number.isFinite(s) && Number.isFinite(eY)) {
+          await loadWeeklyScheduleForYear(s, eY);
+        }
       });
     } catch (err) {
       console.error('Failed to load scheduleentries years:', err);
@@ -1388,6 +1402,73 @@ function renderWeeklyScheduleRows(rows) {
     grouped.get(day).push(row);
   }
 
+  const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+
+  for (const day of dayNames) {
+    const card = document.querySelector(`.day-block[data-day="${day}"]`);
+    if (!card) continue;
+
+    const dayRows = grouped.get(day) || [];
+
+    dayRows.sort((a, b) => {
+      const c1 = String(a.start_time || '').localeCompare(String(b.start_time || ''));
+      if (c1) return c1;
+
+      const c2 = Number(a.term || 0) - Number(b.term || 0);
+      if (c2) return c2;
+
+      return String(a.subject || '').localeCompare(String(b.subject || ''), 'bg', { sensitivity: 'base' });
+    });
+
+    const list = document.createElement('div');
+    list.className = 'loaded-weekly-schedule-list';
+    list.style.marginTop = '12px';
+    list.style.display = 'flex';
+    list.style.flexDirection = 'column';
+    list.style.gap = '8px';
+
+    if (!dayRows.length) {
+      const empty = document.createElement('div');
+      empty.className = 'loaded-weekly-schedule-item';
+      empty.style.padding = '8px 10px';
+      empty.style.border = '1px solid #e5e7eb';
+      empty.style.borderRadius = '10px';
+      empty.style.background = '#f8fafc';
+      empty.style.color = '#64748b';
+      empty.textContent = 'Няма записи за избраната година.';
+      list.appendChild(empty);
+      card.appendChild(list);
+      continue;
+    }
+
+    for (const row of dayRows) {
+      const item = document.createElement('div');
+      item.className = 'loaded-weekly-schedule-item';
+      item.style.padding = '8px 10px';
+      item.style.border = '1px solid #e5e7eb';
+      item.style.borderRadius = '10px';
+      item.style.background = '#f8fafc';
+
+      const recurrence = row.recurrence ? ` · ${row.recurrence}` : '';
+      const parity = row.week_parity ? ` · седм. ${row.week_parity}` : '';
+      const term = row.term ? ` · срок ${row.term}` : '';
+
+      item.textContent = `${row.start_time || ''}–${row.end_time || ''} · ${row.subject || ''}${term}${recurrence}${parity}`;
+      list.appendChild(item);
+    }
+
+    card.appendChild(list);
+  }
+}  clearLoadedWeeklySchedule();
+
+  const grouped = new Map();
+
+  for (const row of rows) {
+    const day = normalizeWeekdayName(row.weekday);
+    if (!grouped.has(day)) grouped.set(day, []);
+    grouped.get(day).push(row);
+  }
+
   for (const [day, dayRows] of grouped.entries()) {
     dayRows.sort((a, b) => {
       const c1 = String(a.start_time || '').localeCompare(String(b.start_time || ''));
@@ -1438,8 +1519,7 @@ async function loadWeeklyScheduleForYear(startYear, endYear) {
   return rows;
 }
 
-function bindWeeklyScheduleYearButtons() {
-  const buttons = Array.from(document.querySelectorAll('button, .chip, .pill'));
+const buttons = Array.from(document.querySelectorAll('button, .chip, .pill'));
 
   for (const btn of buttons) {
     const parsed = parseAcademicYearLabel(btn.textContent);
