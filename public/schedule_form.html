@@ -1459,56 +1459,8 @@ function renderWeeklyScheduleRows(rows) {
 
     card.appendChild(list);
   }
-}  clearLoadedWeeklySchedule();
 
-  const grouped = new Map();
-
-  for (const row of rows) {
-    const day = normalizeWeekdayName(row.weekday);
-    if (!grouped.has(day)) grouped.set(day, []);
-    grouped.get(day).push(row);
-  }
-
-  for (const [day, dayRows] of grouped.entries()) {
-    dayRows.sort((a, b) => {
-      const c1 = String(a.start_time || '').localeCompare(String(b.start_time || ''));
-      if (c1) return c1;
-      return String(a.subject || '').localeCompare(String(b.subject || ''), 'bg', { sensitivity: 'base' });
-    });
-
-    const title = Array.from(document.querySelectorAll('h2, h3, h4, strong'))
-      .find(el => String(el.textContent || '').trim() === day);
-
-    if (!title) continue;
-
-    const card = title.closest('section, .card, div');
-    if (!card) continue;
-
-    const list = document.createElement('div');
-    list.className = 'loaded-weekly-schedule-list';
-    list.style.marginTop = '12px';
-    list.style.display = 'flex';
-    list.style.flexDirection = 'column';
-    list.style.gap = '8px';
-
-    for (const row of dayRows) {
-      const item = document.createElement('div');
-      item.style.padding = '8px 10px';
-      item.style.border = '1px solid #e5e7eb';
-      item.style.borderRadius = '10px';
-      item.style.background = '#f8fafc';
-
-      const recurrence = row.recurrence ? ` · ${row.recurrence}` : '';
-      const parity = row.week_parity ? ` · седм. ${row.week_parity}` : '';
-      const term = row.term ? ` · срок ${row.term}` : '';
-
-      item.textContent = `${row.start_time || ''}–${row.end_time || ''} · ${row.subject || ''}${term}${recurrence}${parity}`;
-      list.appendChild(item);
-    }
-
-    card.appendChild(list);
-  }
-
+  
 
 async function loadWeeklyScheduleForYear(startYear, endYear) {
   setWeeklyYearInputs(startYear, endYear);
