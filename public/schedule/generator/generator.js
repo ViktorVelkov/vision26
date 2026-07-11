@@ -247,6 +247,7 @@ export function assignTopicsToSlots(slots, topicsMap, progressMap) {
 }
 
 export async function generateScheduleWithTopicsFromApi(args) {
+  
   await confirmAndResetIfNeeded({
     wipeGeneratedYearPlan: !!args?.wipeGeneratedYearPlan,
     wipeDistributionProgress: !!args?.wipeDistributionProgress,
@@ -283,6 +284,7 @@ export async function generateScheduleFromApi({
   termEnd,
   useRecurrence = 0,
   baseWeekParity = 1,
+  lessonDurationMinutes = 40,
   holidaysPath = '/Users/viktorvelkov/Documents/teacher-app-backend/holidays.txt',
   wipeGeneratedYearPlan = true,
   wipeDistributionProgress = true,
@@ -347,6 +349,7 @@ export async function generateScheduleFromApi({
     holidays: holidaySet,
     useRecurrence,
     baseWeekParity,
+    lessonDurationMinutes,
   });
 }
 

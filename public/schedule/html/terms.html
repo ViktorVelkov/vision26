@@ -96,7 +96,21 @@
         </select>
       </div>
       <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px;align-items:center;">
-        <div style="font-size:13px;color:#374151;">Изтриване преди запис</div>
+        <label for="lessonDurationInput" style="font-weight:600; margin-left:14px;">
+          Продължителност на час:
+        </label>
+
+        <input
+          type="text"
+          id="lessonDurationInput"
+          value="40"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          style="padding:8px 12px; border:1px solid #cfd5dd; border-radius:8px; width:70px;"
+        >
+
+        <span style="color:#64748b;">минути</span><br>
+        <div style="font-size:13px;color:#374151;">Изтриване преди запис на:</div>
 
         <div style="display:flex;gap:14px;align-items:center;font-size:13px;">
           <span>generatedyearplan:</span>
@@ -148,9 +162,17 @@
 
     tabs.forEach(b => b.addEventListener('click', () => show(b.dataset.tab)));
     show('t1');
+
 function normalizeTermDate(value) {
   const s = String(value || '').trim();
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : '';
+}
+
+function getLessonDurationMinutes() {
+  const raw = document.getElementById('lessonDurationInput')?.value || '40';
+  const value = parseInt(raw, 10);
+
+  return Number.isInteger(value) && value > 0 ? value : 40;
 }
 
 function getSelectedScheduleYearParts() {
@@ -187,10 +209,10 @@ async function generateTermPlan(term) {
   const wipeDistributionProgress =
     document.querySelector(`input[name="${prefix}_wipe_dp"]:checked`)?.value === '1';
 
-  const useRecurrence = document.getElementById(`${prefix}_useRecurrence`)?.checked ? 1 : 0;
-  const baseWeekParity = Number(document.getElementById(`${prefix}_baseWeekParity`)?.value || 1);
-
-  const { start_year, end_year } = getSelectedScheduleYearParts();
+    const useRecurrence = document.getElementById(`${prefix}_useRecurrence`)?.checked ? 1 : 0;
+    const baseWeekParity = Number(document.getElementById(`${prefix}_baseWeekParity`)?.value || 1);
+    const lessonDurationMinutes = getLessonDurationMinutes();
+    const { start_year, end_year } = getSelectedScheduleYearParts();
 
   if (!start_year || !end_year) {
     alert('Избери учебна година преди генериране.');
@@ -208,6 +230,7 @@ async function generateTermPlan(term) {
     end_year,
     useRecurrence,
     baseWeekParity,
+    lessonDurationMinutes,
     wipeGeneratedYearPlan,
     wipeDistributionProgress,
   };

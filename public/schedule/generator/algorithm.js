@@ -169,7 +169,8 @@ function generateSchedule({
   holidaysPath,
   holidays,
   useRecurrence = 0,
-  baseWeekParity = 1
+  baseWeekParity = 1,
+  lessonDurationMinutes = 40
 }) {
   if (!Array.isArray(rows)) throw new Error('generateSchedule: rows must be an array');
   if (!isYmd(termStart) || !isYmd(termEnd)) {
@@ -179,7 +180,8 @@ function generateSchedule({
   const start = parseYmdToDate(termStart);
   const end = parseYmdToDate(termEnd);
   if (start.getTime() > end.getTime()) throw new Error('generateSchedule: termStart must be <= termEnd');
-
+  const lessonDuration = Number(lessonDurationMinutes);
+  const slotMinutes = Number.isFinite(lessonDuration) && lessonDuration > 0 ? lessonDuration : 40;
   // Normalize + filter valid rows
   const normalized = rows
     .map((r) => {
@@ -248,7 +250,7 @@ function slotCountForRow(row) {
   const fromDuration = Number(row?.source?.duration ?? row?.duration);
 
   if (Number.isFinite(fromDuration) && fromDuration > 0) {
-    return Math.max(1, Math.round(fromDuration / 40));
+    return Math.max(1, Math.round(fromDuration / slotMinutes));  
   }
 
   const startMin = timeToMinutes(row?.start_time);
@@ -256,8 +258,8 @@ function slotCountForRow(row) {
 
   if (startMin == null || endMin == null || endMin <= startMin) return 1;
 
-  return Math.max(1, Math.round((endMin - startMin) / 40));
-}
+    return Math.max(1, Math.round((endMin - startMin) / slotMinutes));
+  }
 
   function mondayYmdOfDate(dt) {
     const d = new Date(dt.getTime());
@@ -346,9 +348,8 @@ for (let slotIndex = 0; slotIndex < slotCount; slotIndex += 1) {
   let slotEndTime = rr.end_time;
 
   if (rowStartMinutes != null && rowEndMinutes != null && rowEndMinutes > rowStartMinutes) {
-    const slotStartMinutes = rowStartMinutes + slotIndex * 40;
-    const slotEndMinutes = Math.min(slotStartMinutes + 40, rowEndMinutes);
-
+    const slotStartMinutes = rowStartMinutes + slotIndex * slotMinutes;
+    const slotEndMinutes = Math.min(slotStartMinutes + slotMinutes, rowEndMinutes);
     slotStartTime = minutesToTime(slotStartMinutes);
     slotEndTime = minutesToTime(slotEndMinutes);
   }
@@ -366,7 +367,7 @@ for (let slotIndex = 0; slotIndex < slotCount; slotIndex += 1) {
         end_time: slotEndTime,
         start_iso: startDt.toISOString(),
         end_iso: endDt.toISOString(),
-        duration: 40,
+        duration: slotMinutes,
         source: rr.source,
       });
     }
