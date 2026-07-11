@@ -1169,6 +1169,159 @@ loadResources();
   loadAvailableYears();
 
   // Load academic years detected in generatedyearplan and bind dropdown
+  function setWeeklyYearInputsForScheduleEntries(startYear, endYear) {
+  const sInput = document.getElementById('startYear');
+  const eInput = document.getElementById('endYear');
+
+  if (sInput) sInput.value = Number.isFinite(startYear) ? startYear : '';
+  if (eInput) eInput.value = Number.isFinite(endYear) ? endYear : '';
+
+  [sInput, eInput].forEach(el => {
+    if (!el) return;
+    el.classList.add('pulsing');
+    setTimeout(() => el.classList.remove('pulsing'), 400);
+  });
+}
+
+function normalizeScheduleEntryWeekday(value) {
+  const s = String(value || '').trim().toLowerCase();
+
+  const map = {
+    monday: 'Monday',
+    понеделник: 'Monday',
+    '1': 'Monday',
+
+    tuesday: 'Tuesday',
+    вторник: 'Tuesday',
+    '2': 'Tuesday',
+
+    wednesday: 'Wednesday',
+    сряда: 'Wednesday',
+    '3': 'Wednesday',
+
+    thursday: 'Thursday',
+    четвъртък: 'Thursday',
+    '4': 'Thursday',
+
+    friday: 'Friday',
+    петък: 'Friday',
+    '5': 'Friday'
+  };
+
+  return map[s] || String(value || '').trim();
+}
+
+function clearLoadedWeeklyScheduleEntries() {
+  document.querySelectorAll('.loaded-weekly-schedule-list').forEach(el => el.remove());
+}
+
+function renderLoadedWeeklyScheduleEntries(rows) {
+  clearLoadedWeeklyScheduleEntries();
+
+  const grouped = new Map();
+
+  for (const row of rows) {
+    const day = normalizeScheduleEntryWeekday(row.weekday);
+
+    if (!grouped.has(day)) {
+      grouped.set(day, []);
+    }
+
+    grouped.get(day).push(row);
+  }
+
+  const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+
+  for (const day of dayNames) {
+    const card = document.querySelector(`.day-block[data-day="${day}"]`);
+    if (!card) continue;
+
+    const dayRows = grouped.get(day) || [];
+
+    dayRows.sort((a, b) => {
+      const c1 = String(a.start_time || '').localeCompare(String(b.start_time || ''));
+      if (c1) return c1;
+
+      const c2 = Number(a.term || 0) - Number(b.term || 0);
+      if (c2) return c2;
+
+      return String(a.subject || '').localeCompare(String(b.subject || ''), 'bg', { sensitivity: 'base' });
+    });
+
+    const list = document.createElement('div');
+    list.className = 'loaded-weekly-schedule-list';
+    list.style.marginTop = '12px';
+    list.style.display = 'flex';
+    list.style.flexDirection = 'column';
+    list.style.gap = '8px';
+
+    if (!dayRows.length) {
+      const empty = document.createElement('div');
+      empty.className = 'loaded-weekly-schedule-item';
+      empty.style.padding = '8px 10px';
+      empty.style.border = '1px solid #e5e7eb';
+      empty.style.borderRadius = '10px';
+      empty.style.background = '#f8fafc';
+      empty.style.color = '#64748b';
+      empty.textContent = 'Няма записи за избраната година.';
+
+      list.appendChild(empty);
+      card.appendChild(list);
+      continue;
+    }
+
+    for (const row of dayRows) {
+      const item = document.createElement('div');
+      item.className = 'loaded-weekly-schedule-item';
+      item.style.padding = '8px 10px';
+      item.style.border = '1px solid #e5e7eb';
+      item.style.borderRadius = '10px';
+      item.style.background = '#f8fafc';
+
+      const recurrence = row.recurrence ? ` · ${row.recurrence}` : '';
+      const parity = row.week_parity ? ` · седм. ${row.week_parity}` : '';
+      const term = row.term ? ` · срок ${row.term}` : '';
+
+      item.textContent = `${row.start_time || ''}–${row.end_time || ''} · ${row.subject || ''}${term}${recurrence}${parity}`;
+
+      list.appendChild(item);
+    }
+
+    card.appendChild(list);
+  }
+}
+
+async function loadWeeklyScheduleForYear(startYear, endYear) {
+  setWeeklyYearInputsForScheduleEntries(startYear, endYear);
+
+  const allRows = [];
+
+  for (const term of [1, 2]) {
+    const url = `/api/scheduleentries/${term}?start_year=${encodeURIComponent(startYear)}&end_year=${encodeURIComponent(endYear)}`;
+    const res = await fetch(url, { cache: 'no-store' });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Не мога да заредя графика за срок ${term}: ${text || res.status}`);
+    }
+
+    const rows = await res.json();
+
+    if (Array.isArray(rows)) {
+      rows.forEach(row => {
+        allRows.push({
+          ...row,
+          term: row.term ?? term
+        });
+      });
+    }
+  }
+
+  renderLoadedWeeklyScheduleEntries(allRows);
+
+  return allRows;
+}
+  
   async function loadGeneratedPlanYears() {
     try {
       const res = await fetch('/schedule/available-years-generated');
