@@ -228,6 +228,36 @@ function generateSchedule({
   }
 
   const msPerDay = 24 * 60 * 60 * 1000;
+function timeToMinutes(time) {
+  const parts = String(time || '').split(':').map(Number);
+  const h = parts[0];
+  const m = parts[1];
+
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  return h * 60 + m;
+}
+
+function minutesToTime(totalMinutes) {
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
+}
+
+function slotCountForRow(row) {
+  const fromDuration = Number(row?.source?.duration ?? row?.duration);
+
+  if (Number.isFinite(fromDuration) && fromDuration > 0) {
+    return Math.max(1, Math.round(fromDuration / 40));
+  }
+
+  const startMin = timeToMinutes(row?.start_time);
+  const endMin = timeToMinutes(row?.end_time);
+
+  if (startMin == null || endMin == null || endMin <= startMin) return 1;
+
+  return Math.max(1, Math.round((endMin - startMin) / 40));
+}
 
   function mondayYmdOfDate(dt) {
     const d = new Date(dt.getTime());
@@ -297,7 +327,8 @@ function generateSchedule({
     const dayRows = byDay.get(wd);
     if (!dayRows || dayRows.length === 0) continue;
 
-    const wIdx = useRecurrence ? weekIndexForDateYmd(ymd) : null;
+    const academicWeekIndex = weekIndexForDateYmd(ymd);
+    const wIdx = useRecurrence ? academicWeekIndex : null;
     const wParity = (useRecurrence && wIdx != null) ? parityForWeekIndex(wIdx) : null;
 
     for (const rr of dayRows) {
@@ -306,25 +337,50 @@ function generateSchedule({
         if (rowParity !== wParity) continue;
       }
 
-      const startDt = combineDateAndTime(ymd, rr.start_time);
-      const endDt = combineDateAndTime(ymd, rr.end_time);
+      const rowStartMinutes = timeToMinutes(rr.start_time);
+const rowEndMinutes = timeToMinutes(rr.end_time);
+const slotCount = slotCountForRow(rr);
+
+for (let slotIndex = 0; slotIndex < slotCount; slotIndex += 1) {
+  let slotStartTime = rr.start_time;
+  let slotEndTime = rr.end_time;
+
+  if (rowStartMinutes != null && rowEndMinutes != null && rowEndMinutes > rowStartMinutes) {
+    const slotStartMinutes = rowStartMinutes + slotIndex * 40;
+    const slotEndMinutes = Math.min(slotStartMinutes + 40, rowEndMinutes);
+
+    slotStartTime = minutesToTime(slotStartMinutes);
+    slotEndTime = minutesToTime(slotEndMinutes);
+  }
+
+  const startDt = combineDateAndTime(ymd, slotStartTime);
+  const endDt = combineDateAndTime(ymd, slotEndTime);
 
       out.push({
         date: ymd,
         weekday: wd,
-        start_time: rr.start_time,
-        end_time: rr.end_time,
+        week_number: academicWeekIndex,
+        slot_index: slotIndex + 1,
+        slot_count: slotCount,
+        start_time: slotStartTime,
+        end_time: slotEndTime,
         start_iso: startDt.toISOString(),
         end_iso: endDt.toISOString(),
+        duration: 40,
         source: rr.source,
       });
+    }
     }
   }
 
   // Final sort: by date, then time
   out.sort((a, b) => {
-    if (a.date !== b.date) return a.date.localeCompare(b.date);
-    return a.start_time.localeCompare(b.start_time);
+  if (a.date !== b.date) return a.date.localeCompare(b.date);
+
+    const c1 = a.start_time.localeCompare(b.start_time);
+    if (c1) return c1;
+
+    return (a.slot_index || 0) - (b.slot_index || 0);
   });
 
   return out;
