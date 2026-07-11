@@ -1306,6 +1306,165 @@ loadResources();
     }
   });
 });
+
+
+function parseAcademicYearLabel(label) {
+  const match = String(label || '').match(/(\d{4})\s*-\s*(\d{4})/);
+  if (!match) return null;
+
+  return {
+    startYear: parseInt(match[1], 10),
+    endYear: parseInt(match[2], 10),
+  };
+}
+
+function setWeeklyYearInputs(startYear, endYear) {
+  const startInput =
+    document.getElementById('startYear') ||
+    document.getElementById('start_year') ||
+    document.getElementById('scheduleStartYear');
+
+  const endInput =
+    document.getElementById('endYear') ||
+    document.getElementById('end_year') ||
+    document.getElementById('scheduleEndYear');
+
+  if (startInput) startInput.value = startYear;
+  if (endInput) endInput.value = endYear;
+}
+
+async function fetchWeeklyScheduleRows(startYear, endYear) {
+  const rows = [];
+
+  for (const term of [1, 2]) {
+    const url = `/api/scheduleentries/${term}?start_year=${encodeURIComponent(startYear)}&end_year=${encodeURIComponent(endYear)}`;
+    const res = await fetch(url, { cache: 'no-store' });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Не мога да заредя графика за срок ${term}: ${text || res.status}`);
+    }
+
+    const data = await res.json();
+    if (Array.isArray(data)) {
+      data.forEach(row => rows.push({ ...row, term: row.term ?? term }));
+    }
+  }
+
+  return rows;
+}
+
+function normalizeWeekdayName(value) {
+  const s = String(value || '').trim().toLowerCase();
+
+  const map = {
+    monday: 'Monday',
+    понеделник: 'Monday',
+    tuesday: 'Tuesday',
+    вторник: 'Tuesday',
+    wednesday: 'Wednesday',
+    сряда: 'Wednesday',
+    thursday: 'Thursday',
+    четвъртък: 'Thursday',
+    friday: 'Friday',
+    петък: 'Friday',
+  };
+
+  return map[s] || value;
+}
+
+function clearLoadedWeeklySchedule() {
+  document.querySelectorAll('.loaded-weekly-schedule-list').forEach(el => el.remove());
+}
+
+function renderWeeklyScheduleRows(rows) {
+  clearLoadedWeeklySchedule();
+
+  const grouped = new Map();
+
+  for (const row of rows) {
+    const day = normalizeWeekdayName(row.weekday);
+    if (!grouped.has(day)) grouped.set(day, []);
+    grouped.get(day).push(row);
+  }
+
+  for (const [day, dayRows] of grouped.entries()) {
+    dayRows.sort((a, b) => {
+      const c1 = String(a.start_time || '').localeCompare(String(b.start_time || ''));
+      if (c1) return c1;
+      return String(a.subject || '').localeCompare(String(b.subject || ''), 'bg', { sensitivity: 'base' });
+    });
+
+    const title = Array.from(document.querySelectorAll('h2, h3, h4, strong'))
+      .find(el => String(el.textContent || '').trim() === day);
+
+    if (!title) continue;
+
+    const card = title.closest('section, .card, div');
+    if (!card) continue;
+
+    const list = document.createElement('div');
+    list.className = 'loaded-weekly-schedule-list';
+    list.style.marginTop = '12px';
+    list.style.display = 'flex';
+    list.style.flexDirection = 'column';
+    list.style.gap = '8px';
+
+    for (const row of dayRows) {
+      const item = document.createElement('div');
+      item.style.padding = '8px 10px';
+      item.style.border = '1px solid #e5e7eb';
+      item.style.borderRadius = '10px';
+      item.style.background = '#f8fafc';
+
+      const recurrence = row.recurrence ? ` · ${row.recurrence}` : '';
+      const parity = row.week_parity ? ` · седм. ${row.week_parity}` : '';
+      const term = row.term ? ` · срок ${row.term}` : '';
+
+      item.textContent = `${row.start_time || ''}–${row.end_time || ''} · ${row.subject || ''}${term}${recurrence}${parity}`;
+      list.appendChild(item);
+    }
+
+    card.appendChild(list);
+  }
+}
+
+async function loadWeeklyScheduleForYear(startYear, endYear) {
+  setWeeklyYearInputs(startYear, endYear);
+
+  const rows = await fetchWeeklyScheduleRows(startYear, endYear);
+  renderWeeklyScheduleRows(rows);
+
+  return rows;
+}
+
+function bindWeeklyScheduleYearButtons() {
+  const buttons = Array.from(document.querySelectorAll('button, .chip, .pill'));
+
+  for (const btn of buttons) {
+    const parsed = parseAcademicYearLabel(btn.textContent);
+    if (!parsed) continue;
+
+    btn.addEventListener('click', async () => {
+      try {
+        document.querySelectorAll('.weekly-year-selected').forEach(el => {
+          el.classList.remove('weekly-year-selected');
+        });
+
+        btn.classList.add('weekly-year-selected');
+
+        await loadWeeklyScheduleForYear(parsed.startYear, parsed.endYear);
+      } catch (err) {
+        console.error('Failed to load weekly schedule:', err);
+        alert(err.message || 'Не мога да заредя седмичния график.');
+      }
+    });
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  bindWeeklyScheduleYearButtons();
+});
 </script>
 
 
