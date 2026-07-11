@@ -517,6 +517,8 @@ let availableClasses = [];
 
 let weeklyScheduleDirty = false;
 let weeklyScheduleBaseline = '';
+let selectedWeeklyScheduleYear = null;
+const weeklyScheduleTermSessions = new Map();
 
 function serializeWeeklyScheduleForm() {
   const startYear = document.getElementById('startYear')?.value || '';
@@ -543,6 +545,71 @@ function serializeWeeklyScheduleForm() {
 
   return JSON.stringify({ startYear, endYear, term, rows });
 }
+
+function getActiveWeeklyTerm() {
+  return parseInt(document.getElementById('termInput')?.value || '1', 10) || 1;
+}
+
+function getWeeklySessionKey(term = getActiveWeeklyTerm()) {
+  if (!selectedWeeklyScheduleYear) return '';
+  return `${selectedWeeklyScheduleYear.startYear}-${selectedWeeklyScheduleYear.endYear}-term-${term}`;
+}
+
+function readWeeklyScheduleRowsFromForm() {
+  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+  const rows = [];
+
+  for (const day of days) {
+    const blocks = document.querySelectorAll(`#${day}-classes > div`);
+
+    blocks.forEach(block => {
+      rows.push({
+        weekday: day,
+        start_time: block.querySelector(`input[name^="${day}"][name$="[start_time]"]`)?.value || '',
+        end_time: block.querySelector(`input[name^="${day}"][name$="[end_time]"]`)?.value || '',
+        subject: block.querySelector(`select[name^="${day}"][name$="[subject]"]`)?.value || '',
+        recurrence: block.querySelector(`input[name^="${day}"][name$="[every_two_weeks]"]`)?.checked ? 'BIWEEKLY' : 'WEEKLY',
+        week_parity: block.querySelector(`select[name^="${day}"][name$="[parity]"]`)?.value || '1',
+        term: getActiveWeeklyTerm()
+      });
+    });
+  }
+
+  return rows;
+}
+
+function saveCurrentWeeklyTermSession() {
+  const key = getWeeklySessionKey();
+  if (!key) return;
+
+  weeklyScheduleTermSessions.set(key, {
+    rows: readWeeklyScheduleRowsFromForm(),
+    baseline: weeklyScheduleBaseline,
+    dirty: weeklyScheduleDirty
+  });
+}
+
+function restoreWeeklyTermSession(term = getActiveWeeklyTerm()) {
+  const key = getWeeklySessionKey(term);
+  if (!key || !weeklyScheduleTermSessions.has(key)) return false;
+
+  const session = weeklyScheduleTermSessions.get(key);
+
+  renderLoadedWeeklyScheduleEntries(session.rows || []);
+
+  weeklyScheduleBaseline = session.baseline || serializeWeeklyScheduleForm();
+  setWeeklyScheduleDirty(!!session.dirty);
+
+  return true;
+}
+
+function clearWeeklyScheduleFormRows() {
+  ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].forEach(day => {
+    const container = document.getElementById(`${day}-classes`);
+    if (container) container.innerHTML = '';
+  });
+}
+
 
 function setWeeklyScheduleDirty(isDirty) {
   weeklyScheduleDirty = !!isDirty;
@@ -626,14 +693,36 @@ document.querySelectorAll(".add-class-btn").forEach(btn => {
     });
   });
 
-  // Term selector (keep)
-  document.querySelectorAll(".term-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".term-btn").forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      document.getElementById("termInput").value = btn.dataset.term;
-    });
+// Term selector
+document.querySelectorAll(".term-btn").forEach(btn => {
+  btn.addEventListener("click", async () => {
+    const nextTerm = parseInt(btn.dataset.term || '1', 10) || 1;
+    const currentTerm = getActiveWeeklyTerm();
+
+    if (nextTerm === currentTerm) return;
+
+    saveCurrentWeeklyTermSession();
+
+    document.querySelectorAll(".term-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("termInput").value = String(nextTerm);
+
+    if (!selectedWeeklyScheduleYear) {
+      clearWeeklyScheduleFormRows();
+      markWeeklySchedulePristine();
+      return;
+    }
+
+    const restored = restoreWeeklyTermSession(nextTerm);
+    if (restored) return;
+
+    await loadWeeklyScheduleForYear(
+      selectedWeeklyScheduleYear.startYear,
+      selectedWeeklyScheduleYear.endYear,
+      { forceFetch: false }
+    );
   });
+});
 
   // --- Holidays tab logic (keep) ---
   const holidayList = document.getElementById("holidayList");
@@ -805,6 +894,7 @@ document.getElementById('importHolidaysUploadBtn')?.addEventListener('click', as
     const result = await res.json();
     alert(result.message || "Schedule saved.");
     markWeeklySchedulePristine();
+    saveCurrentWeeklyTermSession();
   });
 
 let currentScheduleRowsCache = [];
@@ -1378,11 +1468,18 @@ function renderLoadedWeeklyScheduleEntries(rows) {
     }
   }
 }
-async function loadWeeklyScheduleForYear(startYear, endYear) {
-  selectedWeeklyScheduleYear = null;
+
+async function loadWeeklyScheduleForYear(startYear, endYear, options = {}) {
+  const { forceFetch = false } = options;
+
+  selectedWeeklyScheduleYear = { startYear, endYear };
   setWeeklyYearInputsForScheduleEntries(startYear, endYear);
 
-  const activeTerm = parseInt(document.getElementById('termInput')?.value || '1', 10) || 1;
+  const activeTerm = getActiveWeeklyTerm();
+
+  if (!forceFetch && restoreWeeklyTermSession(activeTerm)) {
+    return readWeeklyScheduleRowsFromForm();
+  }
 
   const url = `/api/scheduleentries/${activeTerm}?start_year=${encodeURIComponent(startYear)}&end_year=${encodeURIComponent(endYear)}`;
   const res = await fetch(url, { cache: 'no-store' });
@@ -1393,12 +1490,14 @@ async function loadWeeklyScheduleForYear(startYear, endYear) {
   }
 
   const rows = await res.json();
+
   const safeRows = Array.isArray(rows)
     ? rows.map(row => ({ ...row, term: row.term ?? activeTerm }))
     : [];
 
   renderLoadedWeeklyScheduleEntries(safeRows);
   markWeeklySchedulePristine();
+  saveCurrentWeeklyTermSession();
 
   return safeRows;
 }
@@ -1470,10 +1569,21 @@ async function loadWeeklyScheduleForYear(startYear, endYear) {
         });
 
         btn.classList.add('weekly-year-selected');
+    if (Number.isFinite(s) && Number.isFinite(eY)) {
+      saveCurrentWeeklyTermSession();
 
-        if (Number.isFinite(s) && Number.isFinite(eY)) {
-          await loadWeeklyScheduleForYear(s, eY);
-        }
+      selectedWeeklyScheduleYear = {
+        startYear: s,
+        endYear: eY
+      };
+
+      const activeTerm = getActiveWeeklyTerm();
+      const restored = restoreWeeklyTermSession(activeTerm);
+
+      if (!restored) {
+        await loadWeeklyScheduleForYear(s, eY, { forceFetch: false });
+      }
+    }
       });
     } catch (err) {
       console.error('Failed to load scheduleentries years:', err);
