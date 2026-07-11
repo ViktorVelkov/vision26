@@ -1508,7 +1508,7 @@ function renderWeeklyScheduleRows(rows) {
 
     card.appendChild(list);
   }
-}
+
 
 async function loadWeeklyScheduleForYear(startYear, endYear) {
   setWeeklyYearInputs(startYear, endYear);
@@ -1542,9 +1542,6 @@ const buttons = Array.from(document.querySelectorAll('button, .chip, .pill'));
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  bindWeeklyScheduleYearButtons();
-});
 </script>
 
 
