@@ -18,6 +18,53 @@
       border: 1px solid #fde68a;
       border-radius: 10px;
       padding: 10px;
+      overflow-x: auto;
+      max-width: 100%;
+      font-size: 13px;
+      line-height: 1.25;
+    }
+
+    #tableTerm1 table,
+    #tableTerm2 table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: auto;
+    }
+
+    #tableTerm1 th,
+    #tableTerm1 td,
+    #tableTerm2 th,
+    #tableTerm2 td {
+      padding: 5px 7px;
+      font-size: 13px;
+      line-height: 1.2;
+      vertical-align: middle;
+      text-align: left;
+      white-space: nowrap;
+    }
+
+    #tableTerm1 th,
+    #tableTerm2 th {
+      font-weight: 700;
+      background: #fff3b0;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    #tableTerm1 td:nth-child(8),
+    #tableTerm2 td:nth-child(8) {
+      white-space: normal;
+      min-width: 90px;
+    }
+
+    #tableTerm1 td:nth-child(9),
+    #tableTerm2 td:nth-child(9) {
+      white-space: normal;
+      max-width: 120px;
+      overflow-wrap: anywhere;
+      font-size: 12px;
+      color: #4b5563;
     }
     label{font-size:12px;color:#374151;display:flex;flex-direction:column;gap:6px}
     input[type="date"]{padding:8px 10px;border:1px solid #d1d5db;border-radius:10px;font-size:13px}
