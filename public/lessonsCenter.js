@@ -951,19 +951,8 @@ async function doLessonIdOrNameSearch(q){
         completionsUl.appendChild(li);
       });
       // lessons
-      lessonsTbody.innerHTML = '';
-      (data.lessons||[]).forEach(row=>{
-        const tr = document.createElement('tr');
-        tr.innerHTML =
-          `<td>${row.lesson_id}</td>`+
-          `<td>${row.tripplet_id||''}</td>`+
-          `<td>${row.name||''}</td>`+
-          `<td>${row.class??''}</td>`+
-          `<td>
-            <button class="btn btn-small btn-snippet-info" data-snippet-id="${row.lesson_id}" type="button">Инфо</button>
-          </td>`;
-        lessonsTbody.appendChild(tr);
-      });
+       // lessons
+      renderLessonSearchRows(Array.isArray(data.lessons) ? data.lessons : []);
       // Add info button listeners
       lessonsTbody.querySelectorAll('.btn-snippet-info').forEach(btn=>{
         btn.addEventListener('click', async (e)=>{
