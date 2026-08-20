@@ -950,34 +950,9 @@ async function doLessonIdOrNameSearch(q){
         li.querySelector('a').addEventListener('click', (e)=>{ e.preventDefault(); snippetInp.value=String(c.id); doSnippetSearch(String(c.id)); });
         completionsUl.appendChild(li);
       });
-      // lessons
-       // lessons
-      renderLessonSearchRows(Array.isArray(data.lessons) ? data.lessons : []);
-      // Add info button listeners
-      lessonsTbody.querySelectorAll('.btn-snippet-info').forEach(btn=>{
-        btn.addEventListener('click', async (e)=>{
-          const lessonId = btn.getAttribute('data-snippet-id');
-          if (!lessonId) return;
-          try{
-            // Fetch snippet meta
-            const r = await fetch(`/snippet-ref?id=${encodeURIComponent(lessonId)}`);
-            if (!r.ok) { alert('Грешка при зареждане на инфо'); return; }
-            const info = await r.json();
-            // Render info table
-            let html = '<table style="width:100%; border-collapse:collapse;">';
-            html += '<tr><th>Поле</th><th>Стойност</th></tr>';
-            Object.entries(info).forEach(([k,v])=>{
-              html += `<tr><td>${k}</td><td>${v==null?'':v}</td></tr>`;
-            });
-            html += '</table>';
-            // Show in modal or alert
-            const w = window.open('', '', 'width=600,height=400');
-            w.document.write('<html><head><title>Инфо за снипет</title></head><body>'+html+'</body></html>');
-            w.document.close();
-          }catch(e){ alert('Грешка при зареждане на инфо'); }
-        });
-      });
-    }catch(e){ console.error(e); }
+      //lessons
+        renderLessonSearchRows(Array.isArray(data.lessons) ? data.lessons : []);
+      }catch(e){ console.error(e); }
   }
 
   const debouncedSearch = debounce(()=> doSnippetSearch(snippetInp.value), 250);

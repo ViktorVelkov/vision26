@@ -3643,6 +3643,195 @@ function sameIntArray(a, b) {
   });
 }
 
+
+
+app.get('/lessons/by-search', async (req, res) => {
+  const qRaw = (req.query.q || '').trim();
+  if (!qRaw) return res.status(400).json({ error: 'Missing q' });
+  const digits = qRaw.replace(/\D+/g,'');
+  try{
+    if (digits) {
+      const { sql, params } = lessonSelectWithAggregates(`CAST(l.source_token AS text) LIKE $1 || '%'`, [digits]);
+      const a = await pool.query(sql, params);
+      if (a.rows.length) return res.json(a.rows[0]);
+    }
+    const { sql, params } = lessonSelectWithAggregates(`l.tripplet_id ILIKE $1 || '%'`, [qRaw]);
+    const b = await pool.query(sql, params);
+    if (!b.rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json(b.rows[0]);
+  }catch(err){
+    console.error('GET /lessons/by-search failed:', err);
+    res.status(500).json({ error: 'DB error' });
+  }
+});
+
+// GET /lessons/search-by-snippet?q=27001
+// Returns { completions:[{id,name}], lessons:[{lesson_id,tripplet_id,description,class}] }
+app.get('/lessons/search-by-snippet', async (req, res) => {
+  const qRaw = (req.query.q || '').trim();
+  if (!qRaw) return res.json({ completions: [], lessons: [] });
+
+  try {
+    const params = [];
+    const whereParts = [];
+    const srcPrefix = qRaw.replace(/\D+/g, '');
+    if (srcPrefix) { params.push(srcPrefix + '%'); whereParts.push(`CAST(l.source_token AS text) LIKE $${params.length}`); }
+    if (qRaw) { params.push(qRaw + '%'); whereParts.push(`l.tripplet_id ILIKE $${params.length}`); }
+
+    let completions = [];
+    if (whereParts.length) {
+      const sql = `
+        SELECT DISTINCT l.tripplet_id AS id,
+               COALESCE(l.description,'')   AS name
+          FROM "Lessons" l
+         WHERE ${whereParts.join(' OR ')}
+         ORDER BY l.tripplet_id
+         LIMIT 20`;
+      const { rows } = await pool.query(sql, params);
+      completions = rows;
+    }
+
+    const { rows: lessons } = await pool.query(
+      `SELECT
+         l.lesson_id,
+         l.tripplet_id,
+         l.description,
+         l.class,
+         COALESCE((SELECT ARRAY_AGG(s.item_id ORDER BY s.position)
+                     FROM lesson_scripted s
+                    WHERE s.lesson_id = l.lesson_id AND s.item_type='theory'), '{}'::int[]) AS theory_snippets,
+         COALESCE((SELECT ARRAY_AGG(s.item_id::text ORDER BY s.position)
+                     FROM lesson_scripted s
+                    WHERE s.lesson_id = l.lesson_id AND s.item_type='exercise'), '{}'::text[]) AS exercises_ids
+         FROM "Lessons" l
+        WHERE (${whereParts.length ? whereParts.join(' OR ') : 'TRUE'})
+        ORDER BY l.updated_at DESC NULLS LAST, l.lesson_id DESC
+        LIMIT 200`,
+      params
+    );
+
+    res.json({ completions, lessons });
+  } catch (err) {
+    console.error('search-by-snippet (by source/tripplet) failed:', err);
+    res.status(500).json({ error: 'DB error' });
+  }
+});
+
+
+// GET /assessments/by-lesson-skill?triplet=001001001&componentID=27001&className=11%20А
+// Returns latest assessment per student for that lesson+skill, for the given class/division.
+app.get('/assessments/by-lesson-skill', async (req, res) => {
+  const triplet = (req.query.triplet||'').trim();
+  const componentID = parseInt(req.query.componentID, 10);
+  const className = (req.query.className||'').trim();
+  if (!triplet || !Number.isInteger(componentID) || !className) {
+    return res.status(400).json({ error: 'Missing triplet, componentID or className' });
+  }
+  // Parse class/division
+  const cls = parseInt(className, 10);
+  const div = className.includes(' ') ? className.substring(className.indexOf(' ')+1).trim() : '';
+  if (!Number.isInteger(cls)) return res.status(400).json({ error: 'Invalid className' });
+  try {
+    // Students of the class
+    const { rows: students } = await pool.query(
+      `SELECT "ID" AS id, ("First_Name" || ' ' || "Sirname") AS name
+         FROM "Students"
+        WHERE "Grade" = $1 AND "Division" = $2
+        ORDER BY "First_Name", "Sirname"`,
+      [cls, div]
+    );
+
+    // Latest assessment per student for this triplet+componentID
+    const { rows: asses } = await pool.query(
+      `SELECT DISTINCT ON (s."studentID")
+              s."studentID" AS id,
+              s."assessment",
+              TO_CHAR(s."entryTime", 'YYYY-MM-DD HH24:MI') AS entryTime
+         FROM "student_assessment_skills_exercises" s
+        WHERE s."lessonTriplet" = $1
+          AND s."componentID" = $2
+        ORDER BY s."studentID", s."entryTime" DESC, s.id DESC`,
+      [triplet, componentID]
+    );
+    const byId = new Map(asses.map(r => [parseInt(r.id,10), r]));
+    const out = students.map(st => {
+      const hit = byId.get(parseInt(st.id,10));
+      return {
+        studentID: st.id,
+        name: st.name,
+        assessment: hit ? (hit.assessment==null? null : parseInt(hit.assessment,10)) : null,
+        entryTime: hit ? hit.entryTime : null
+      };
+    });
+    res.json(out);
+  } catch (e) {
+    console.error('GET /assessments/by-lesson-skill failed:', e);
+    res.status(500).json({ error: 'DB error' });
+  }
+});
+app.get('/lessons/search-basic', requireAuth, async (req, res) => {
+  const mode = String(req.query.mode || '').trim();
+  const q = String(req.query.q || '').trim();
+
+  if (!q) {
+    return res.json({ lessons: [] });
+  }
+
+  const selectSql = `
+    SELECT lesson_id,
+           name,
+           description,
+           description2,
+           url,
+           filepath,
+           class,
+           division,
+           tripplet_id,
+           source_token,
+           section_token,
+           lesson_token,
+           updated_at
+      FROM "Lessons"
+  `;
+
+  try {
+    if (mode === 'id') {
+      const lessonId = parseInt(q, 10);
+
+      if (!Number.isInteger(lessonId)) {
+        return res.status(400).json({ error: 'Invalid lesson id' });
+      }
+
+      const { rows } = await pool.query(
+        `${selectSql}
+          WHERE lesson_id = $1
+          ORDER BY lesson_id ASC
+          LIMIT 25`,
+        [lessonId]
+      );
+
+      return res.json({ lessons: rows });
+    }
+
+    if (mode === 'name') {
+      const { rows } = await pool.query(
+        `${selectSql}
+          WHERE COALESCE(name, '') ILIKE '%' || $1 || '%'
+             OR COALESCE(description, '') ILIKE '%' || $1 || '%'
+          ORDER BY updated_at DESC NULLS LAST, lesson_id DESC
+          LIMIT 25`,
+        [q]
+      );
+
+      return res.json({ lessons: rows });
+    }
+
+    return res.status(400).json({ error: 'Invalid search mode' });
+  } catch (e) {
+    console.error('GET /lessons/search-basic failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  }
+});
 app.get('/lessons/:id', requireAuth, async (req, res) => {
   const lessonId = parseInt(req.params.id, 10);
 
@@ -3833,194 +4022,6 @@ app.patch('/lessons/:id', async (req, res) => {
     return res.json({ ok: true, lesson_id: id });
   } catch (err) {
     console.error('PATCH /lessons/:id failed:', err);
-    return res.status(500).json({ error: 'DB error' });
-  }
-});
-
-app.get('/lessons/by-search', async (req, res) => {
-  const qRaw = (req.query.q || '').trim();
-  if (!qRaw) return res.status(400).json({ error: 'Missing q' });
-  const digits = qRaw.replace(/\D+/g,'');
-  try{
-    if (digits) {
-      const { sql, params } = lessonSelectWithAggregates(`CAST(l.source_token AS text) LIKE $1 || '%'`, [digits]);
-      const a = await pool.query(sql, params);
-      if (a.rows.length) return res.json(a.rows[0]);
-    }
-    const { sql, params } = lessonSelectWithAggregates(`l.tripplet_id ILIKE $1 || '%'`, [qRaw]);
-    const b = await pool.query(sql, params);
-    if (!b.rows.length) return res.status(404).json({ error: 'Not found' });
-    res.json(b.rows[0]);
-  }catch(err){
-    console.error('GET /lessons/by-search failed:', err);
-    res.status(500).json({ error: 'DB error' });
-  }
-});
-
-// GET /lessons/search-by-snippet?q=27001
-// Returns { completions:[{id,name}], lessons:[{lesson_id,tripplet_id,description,class}] }
-app.get('/lessons/search-by-snippet', async (req, res) => {
-  const qRaw = (req.query.q || '').trim();
-  if (!qRaw) return res.json({ completions: [], lessons: [] });
-
-  try {
-    const params = [];
-    const whereParts = [];
-    const srcPrefix = qRaw.replace(/\D+/g, '');
-    if (srcPrefix) { params.push(srcPrefix + '%'); whereParts.push(`CAST(l.source_token AS text) LIKE $${params.length}`); }
-    if (qRaw) { params.push(qRaw + '%'); whereParts.push(`l.tripplet_id ILIKE $${params.length}`); }
-
-    let completions = [];
-    if (whereParts.length) {
-      const sql = `
-        SELECT DISTINCT l.tripplet_id AS id,
-               COALESCE(l.description,'')   AS name
-          FROM "Lessons" l
-         WHERE ${whereParts.join(' OR ')}
-         ORDER BY l.tripplet_id
-         LIMIT 20`;
-      const { rows } = await pool.query(sql, params);
-      completions = rows;
-    }
-
-    const { rows: lessons } = await pool.query(
-      `SELECT
-         l.lesson_id,
-         l.tripplet_id,
-         l.description,
-         l.class,
-         COALESCE((SELECT ARRAY_AGG(s.item_id ORDER BY s.position)
-                     FROM lesson_scripted s
-                    WHERE s.lesson_id = l.lesson_id AND s.item_type='theory'), '{}'::int[]) AS theory_snippets,
-         COALESCE((SELECT ARRAY_AGG(s.item_id::text ORDER BY s.position)
-                     FROM lesson_scripted s
-                    WHERE s.lesson_id = l.lesson_id AND s.item_type='exercise'), '{}'::text[]) AS exercises_ids
-         FROM "Lessons" l
-        WHERE (${whereParts.length ? whereParts.join(' OR ') : 'TRUE'})
-        ORDER BY l.updated_at DESC NULLS LAST, l.lesson_id DESC
-        LIMIT 200`,
-      params
-    );
-
-    res.json({ completions, lessons });
-  } catch (err) {
-    console.error('search-by-snippet (by source/tripplet) failed:', err);
-    res.status(500).json({ error: 'DB error' });
-  }
-});
-
-
-// GET /assessments/by-lesson-skill?triplet=001001001&componentID=27001&className=11%20А
-// Returns latest assessment per student for that lesson+skill, for the given class/division.
-app.get('/assessments/by-lesson-skill', async (req, res) => {
-  const triplet = (req.query.triplet||'').trim();
-  const componentID = parseInt(req.query.componentID, 10);
-  const className = (req.query.className||'').trim();
-  if (!triplet || !Number.isInteger(componentID) || !className) {
-    return res.status(400).json({ error: 'Missing triplet, componentID or className' });
-  }
-  // Parse class/division
-  const cls = parseInt(className, 10);
-  const div = className.includes(' ') ? className.substring(className.indexOf(' ')+1).trim() : '';
-  if (!Number.isInteger(cls)) return res.status(400).json({ error: 'Invalid className' });
-  try {
-    // Students of the class
-    const { rows: students } = await pool.query(
-      `SELECT "ID" AS id, ("First_Name" || ' ' || "Sirname") AS name
-         FROM "Students"
-        WHERE "Grade" = $1 AND "Division" = $2
-        ORDER BY "First_Name", "Sirname"`,
-      [cls, div]
-    );
-
-    // Latest assessment per student for this triplet+componentID
-    const { rows: asses } = await pool.query(
-      `SELECT DISTINCT ON (s."studentID")
-              s."studentID" AS id,
-              s."assessment",
-              TO_CHAR(s."entryTime", 'YYYY-MM-DD HH24:MI') AS entryTime
-         FROM "student_assessment_skills_exercises" s
-        WHERE s."lessonTriplet" = $1
-          AND s."componentID" = $2
-        ORDER BY s."studentID", s."entryTime" DESC, s.id DESC`,
-      [triplet, componentID]
-    );
-    const byId = new Map(asses.map(r => [parseInt(r.id,10), r]));
-    const out = students.map(st => {
-      const hit = byId.get(parseInt(st.id,10));
-      return {
-        studentID: st.id,
-        name: st.name,
-        assessment: hit ? (hit.assessment==null? null : parseInt(hit.assessment,10)) : null,
-        entryTime: hit ? hit.entryTime : null
-      };
-    });
-    res.json(out);
-  } catch (e) {
-    console.error('GET /assessments/by-lesson-skill failed:', e);
-    res.status(500).json({ error: 'DB error' });
-  }
-});
-app.get('/lessons/search-basic', requireAuth, async (req, res) => {
-  const mode = String(req.query.mode || '').trim();
-  const q = String(req.query.q || '').trim();
-
-  if (!q) {
-    return res.json({ lessons: [] });
-  }
-
-  const selectSql = `
-    SELECT lesson_id,
-           name,
-           description,
-           description2,
-           url,
-           filepath,
-           class,
-           division,
-           tripplet_id,
-           source_token,
-           section_token,
-           lesson_token,
-           updated_at
-      FROM "Lessons"
-  `;
-
-  try {
-    if (mode === 'id') {
-      const lessonId = parseInt(q, 10);
-
-      if (!Number.isInteger(lessonId)) {
-        return res.status(400).json({ error: 'Invalid lesson id' });
-      }
-
-      const { rows } = await pool.query(
-        `${selectSql}
-          WHERE lesson_id = $1
-          ORDER BY lesson_id ASC
-          LIMIT 25`,
-        [lessonId]
-      );
-
-      return res.json({ lessons: rows });
-    }
-
-    if (mode === 'name') {
-      const { rows } = await pool.query(
-        `${selectSql}
-          WHERE COALESCE(name, '') ILIKE '%' || $1 || '%'
-             OR COALESCE(description, '') ILIKE '%' || $1 || '%'
-          ORDER BY updated_at DESC NULLS LAST, lesson_id DESC
-          LIMIT 25`,
-        [q]
-      );
-
-      return res.json({ lessons: rows });
-    }
-
-    return res.status(400).json({ error: 'Invalid search mode' });
-  } catch (e) {
-    console.error('GET /lessons/search-basic failed:', e);
     return res.status(500).json({ error: 'DB error' });
   }
 });
