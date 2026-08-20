@@ -167,7 +167,7 @@
   }
 
   // --- State & DOM cache ---
-  var STATE = { students: [], snippets: [], idx: 0 };
+  var STATE = { students: [], idx: 0 };
   var el = {};
 
   function cacheDom(){
@@ -195,9 +195,7 @@
       el.card.setAttribute('data-student-id', String(st.id));
       el.card.setAttribute('data-student-name', fullName(st));
     }
-    // Skills
-    renderSnippetsInto(el.skillsList, STATE.snippets);
-
+  
     // Picker & buttons state
     if (el.picker){ el.picker.value = fullName(st); }
     if (el.prevBtn) el.prevBtn.disabled = (i <= 0);
@@ -228,15 +226,8 @@
   document.addEventListener('DOMContentLoaded', async function(){
     cacheDom();
     var classInfo = window.CLASS_INFO || null;
-    var triplet   = window.TRIPLET || '';
 
-    var results = await Promise.all([
-      fetchStudents(classInfo),
-      fetchSnippets(triplet)
-    ]);
-    STATE.students = results[0] || [];
-    STATE.snippets = results[1] || [];
-
+    STATE.students = await fetchStudents(classInfo);
     // Debug aid
     try {
       console.log('[AW2] Loaded students:', STATE.students.length);
