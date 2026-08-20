@@ -10,6 +10,9 @@
   const exAddInput = $('#ex_add_id');  const snippetInp = $('#snippetSearch');
   const snAddInput = $('#sn_add_id');
   const snippetBtn = $('#snippetSearchBtn');
+  const searchModeTabs = Array.from(document.querySelectorAll('.searchModeTab'));
+  const lessonSearchLabel = document.getElementById('lessonSearchLabel');
+  let lessonSearchMode = 'snippet';
   const completionsUl = $('#snippetCompletions');
   const lessonsTbody = $('#snippetLessons');
 
@@ -834,7 +837,105 @@ async function setExercisesTable(ids){
     return vals.map(v => parseInt(v,10)).filter(Number.isInteger);
   }
 
+
+  function setLessonSearchMode(mode){
+  lessonSearchMode = ['snippet', 'id', 'name'].includes(mode) ? mode : 'snippet';
+
+  searchModeTabs.forEach(tab => {
+    const active = tab.dataset.searchMode === lessonSearchMode;
+    tab.classList.toggle('active', active);
+    tab.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+
+  if (lessonSearchLabel && snippetInp) {
+    if (lessonSearchMode === 'id') {
+      lessonSearchLabel.textContent = 'Въведи lesson_id';
+      snippetInp.placeholder = 'напр. 4';
+      snippetInp.type = 'number';
+    } else if (lessonSearchMode === 'name') {
+      lessonSearchLabel.textContent = 'Въведи име/тема на урока';
+      snippetInp.placeholder = 'напр. Вектори';
+      snippetInp.type = 'text';
+    } else {
+      lessonSearchLabel.textContent = 'Въведи ID на снипет (може и частично)';
+      snippetInp.placeholder = 'напр. 27001 или 27001001';
+      snippetInp.type = 'text';
+    }
+  }
+
+  if (completionsUl) completionsUl.innerHTML = '';
+  if (lessonsTbody) lessonsTbody.innerHTML = '';
+}
+
+function renderLessonSearchRows(rows){
+  lessonsTbody.innerHTML = '';
+
+  (rows || []).forEach(row => {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      `<td>${row.lesson_id}</td>`+
+      `<td>${row.tripplet_id || ''}</td>`+
+      `<td>${row.name || row.description || ''}</td>`+
+      `<td>${row.class ?? ''}</td>`+
+      `<td>
+        <button class="btn btn-small btn-load-lesson" data-lesson-id="${row.lesson_id}" type="button">Зареди</button>
+      </td>`;
+    lessonsTbody.appendChild(tr);
+  });
+
+  lessonsTbody.querySelectorAll('.btn-load-lesson').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const lessonId = btn.getAttribute('data-lesson-id');
+      if (!lessonId) return;
+
+      try {
+        const r = await fetch(`/lessons/${encodeURIComponent(lessonId)}`);
+        if (!r.ok) {
+          alert('Грешка при зареждане на урока');
+          return;
+        }
+
+        const row = await r.json();
+        fillFormFromRow(row);
+      } catch (e) {
+        console.error(e);
+        alert('Грешка при зареждане на урока');
+      }
+    });
+  });
+}
+
+async function doLessonIdOrNameSearch(q){
+  const qTrim = String(q || '').trim();
+
+  if (!qTrim) {
+    completionsUl.innerHTML = '';
+    lessonsTbody.innerHTML = '';
+    return;
+  }
+
+  try {
+    const params = new URLSearchParams({ mode: lessonSearchMode, q: qTrim });
+    const r = await fetch(`/lessons/search-basic?${params.toString()}`);
+
+    if (!r.ok) {
+      completionsUl.innerHTML = '';
+      lessonsTbody.innerHTML = '';
+      return;
+    }
+
+    const data = await r.json();
+    completionsUl.innerHTML = '';
+    renderLessonSearchRows(Array.isArray(data.lessons) ? data.lessons : []);
+  } catch (e) {
+    console.error(e);
+  }
+}
+
   async function doSnippetSearch(q){
+    if (lessonSearchMode !== 'snippet') {
+      return doLessonIdOrNameSearch(q);
+    }
     const qTrim = String(q||'').trim();
     if(!qTrim){ completionsUl.innerHTML=''; lessonsTbody.innerHTML=''; return; }
     try{
@@ -891,6 +992,13 @@ async function setExercisesTable(ids){
   }
 
   const debouncedSearch = debounce(()=> doSnippetSearch(snippetInp.value), 250);
+ 
+  searchModeTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      setLessonSearchMode(tab.dataset.searchMode);
+      if (snippetInp) snippetInp.focus();
+    });
+  });
   if (snippetInp) snippetInp.addEventListener('input', debouncedSearch);
   if (snippetBtn) snippetBtn.addEventListener('click', ()=> doSnippetSearch(snippetInp.value));
 

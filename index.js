@@ -3643,6 +3643,47 @@ function sameIntArray(a, b) {
   });
 }
 
+app.get('/lessons/:id', requireAuth, async (req, res) => {
+  const lessonId = parseInt(req.params.id, 10);
+
+  if (!Number.isInteger(lessonId)) {
+    return res.status(400).json({ error: 'Invalid lesson id' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT lesson_id,
+              name,
+              description,
+              description2,
+              url,
+              filepath,
+              class,
+              division,
+              tripplet_id,
+              source_token,
+              section_token,
+              lesson_token,
+              theory_snippets,
+              exercises_ids,
+              updated_at
+         FROM "Lessons"
+        WHERE lesson_id = $1
+        LIMIT 1`,
+      [lessonId]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Lesson not found' });
+    }
+
+    return res.json(rows[0]);
+  } catch (e) {
+    console.error('GET /lessons/:id failed:', e);
+    return res.status(500).json({ error: 'DB error' });
+  }
+});
+
 app.patch('/lessons/:id', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isInteger(id)) {
@@ -3918,6 +3959,69 @@ app.get('/assessments/by-lesson-skill', async (req, res) => {
   } catch (e) {
     console.error('GET /assessments/by-lesson-skill failed:', e);
     res.status(500).json({ error: 'DB error' });
+  }
+});
+app.get('/lessons/search-basic', requireAuth, async (req, res) => {
+  const mode = String(req.query.mode || '').trim();
+  const q = String(req.query.q || '').trim();
+
+  if (!q) {
+    return res.json({ lessons: [] });
+  }
+
+  const selectSql = `
+    SELECT lesson_id,
+           name,
+           description,
+           description2,
+           url,
+           filepath,
+           class,
+           division,
+           tripplet_id,
+           source_token,
+           section_token,
+           lesson_token,
+           updated_at
+      FROM "Lessons"
+  `;
+
+  try {
+    if (mode === 'id') {
+      const lessonId = parseInt(q, 10);
+
+      if (!Number.isInteger(lessonId)) {
+        return res.status(400).json({ error: 'Invalid lesson id' });
+      }
+
+      const { rows } = await pool.query(
+        `${selectSql}
+          WHERE lesson_id = $1
+          ORDER BY lesson_id ASC
+          LIMIT 25`,
+        [lessonId]
+      );
+
+      return res.json({ lessons: rows });
+    }
+
+    if (mode === 'name') {
+      const { rows } = await pool.query(
+        `${selectSql}
+          WHERE COALESCE(name, '') ILIKE '%' || $1 || '%'
+             OR COALESCE(description, '') ILIKE '%' || $1 || '%'
+          ORDER BY updated_at DESC NULLS LAST, lesson_id DESC
+          LIMIT 25`,
+        [q]
+      );
+
+      return res.json({ lessons: rows });
+    }
+
+    return res.status(400).json({ error: 'Invalid search mode' });
+  } catch (e) {
+    console.error('GET /lessons/search-basic failed:', e);
+    return res.status(500).json({ error: 'DB error' });
   }
 });
 
