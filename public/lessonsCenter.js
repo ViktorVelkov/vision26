@@ -849,15 +849,12 @@ async function setExercisesTable(ids){
 
   if (lessonSearchLabel && snippetInp) {
     if (lessonSearchMode === 'id') {
-      lessonSearchLabel.textContent = 'Въведи lesson_id';
       snippetInp.placeholder = 'напр. 4';
       snippetInp.type = 'number';
     } else if (lessonSearchMode === 'name') {
-      lessonSearchLabel.textContent = 'Въведи име/тема на урока';
       snippetInp.placeholder = 'напр. Вектори';
       snippetInp.type = 'text';
     } else {
-      lessonSearchLabel.textContent = 'Въведи ID на снипет (може и частично)';
       snippetInp.placeholder = 'напр. 27001 или 27001001';
       snippetInp.type = 'text';
     }

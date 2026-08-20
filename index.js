@@ -3686,7 +3686,7 @@ app.get('/lessons/search-by-snippet', async (req, res) => {
           FROM "Lessons" l
          WHERE ${whereParts.join(' OR ')}
          ORDER BY l.tripplet_id
-         LIMIT 20`;
+         `;
       const { rows } = await pool.query(sql, params);
       completions = rows;
     }
@@ -3706,7 +3706,7 @@ app.get('/lessons/search-by-snippet', async (req, res) => {
          FROM "Lessons" l
         WHERE (${whereParts.length ? whereParts.join(' OR ') : 'TRUE'})
         ORDER BY l.updated_at DESC NULLS LAST, l.lesson_id DESC
-        LIMIT 200`,
+        `,
       params
     );
 
@@ -3806,7 +3806,7 @@ app.get('/lessons/search-basic', requireAuth, async (req, res) => {
         `${selectSql}
           WHERE lesson_id = $1
           ORDER BY lesson_id ASC
-          LIMIT 25`,
+          `,
         [lessonId]
       );
 
@@ -3819,7 +3819,7 @@ app.get('/lessons/search-basic', requireAuth, async (req, res) => {
           WHERE COALESCE(name, '') ILIKE '%' || $1 || '%'
              OR COALESCE(description, '') ILIKE '%' || $1 || '%'
           ORDER BY updated_at DESC NULLS LAST, lesson_id DESC
-          LIMIT 25`,
+          `,
         [q]
       );
 
