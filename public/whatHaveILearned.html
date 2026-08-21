@@ -71,7 +71,18 @@
     .pill{min-width:28px;height:28px;border:1px solid #cfd4dc;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-weight:600;cursor:pointer;user-select:none;color:#334155;background:#fff}
     .pill:hover{background:#f3f4f6}
     .pill.is-active{background:#3b82f6;color:#fff;border-color:#3b82f6}
-  </style>
+ .primary-btn--green {
+  background:#22c55e;
+}
+
+.primary-btn--green:hover {
+  background:#16a34a;
+}
+
+.primary-btn--green:disabled {
+  background:#bbf7d0;
+}
+ </style>
 </head>
 <body>
   <h1>Избор на клас</h1>
@@ -122,8 +133,19 @@
       <tbody id="lessonSkillsBody"></tbody>
     </table>
     <div class="assess-cta">
-      <button id="openAssessBtn" class="primary-btn primary-btn--lg primary-btn--light">Оцени класа</button>
-    </div>
+  <button
+    id="includeDefaultAssessmentSkillsBtn"
+    class="primary-btn primary-btn--lg primary-btn--green"
+    type="button">
+    Добави стандартни умения
+  </button>
+
+  <button
+    id="openAssessBtn"
+    class="primary-btn primary-btn--lg primary-btn--light">
+    Оцени класа
+  </button>
+</div>
   </div>
   <div class="row" id="yearPlanHeaderRow" style="margin-top:16px;">
     <button id="toggleYearPlanBtn" class="icon-btn" title="Покажи/скрий годишния план">+</button>

@@ -2542,6 +2542,35 @@ app.post('/keyskills', async (req, res) => {
 });
 
 
+app.get('/keyskills/default-assessment', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+          "ID" AS id,
+          "Name" AS name,
+          "keyWords",
+          "order",
+          "relatedTopic",
+          uslovie,
+          class,
+          "lessonCode",
+          lesson_id
+       FROM "KeySkills"
+       WHERE "ID" IN (3, 4)
+       ORDER BY CASE "ID"
+         WHEN 3 THEN 1
+         WHEN 4 THEN 2
+         ELSE 99
+       END`
+    );
+
+    res.json(rows);
+  } catch (e) {
+    console.error('GET /keyskills/default-assessment failed:', e);
+    res.status(500).json({ error: 'DB error' });
+  }
+});
+
 app.patch('/keyskills/:id', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });

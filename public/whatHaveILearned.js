@@ -89,12 +89,25 @@
   }
   const addSkillBtn = document.getElementById('addSkillRowBtn');
   const openAssessBtn = document.getElementById('openAssessBtn');
+  const includeDefaultAssessmentSkillsBtn =
+  document.getElementById('includeDefaultAssessmentSkillsBtn');
+  let includeDefaultAssessmentSkills = false; 
   let currentSkillsTriplet = null; // remembers which triplet is loaded
   let currentLessonName = null; // remembers current lesson name
   let currentLessonId = null; // remembers current lesson_id (Lessons.lesson_id)
   const yearPlanTable = document.getElementById('yearPlanTable');
   const yearPlanBody = yearPlanTable ? yearPlanTable.querySelector('tbody') : null;
 
+  if (includeDefaultAssessmentSkillsBtn) {
+  includeDefaultAssessmentSkillsBtn.addEventListener('click', () => {
+    includeDefaultAssessmentSkills = !includeDefaultAssessmentSkills;
+
+    includeDefaultAssessmentSkillsBtn.textContent =
+      includeDefaultAssessmentSkills
+        ? 'Стандартните умения са включени'
+        : 'Добави стандартни умения';
+  });
+}
   const flash = (el, ok=true) => {
     el.classList.remove('flash-success','flash-error');
     void el.offsetWidth;
@@ -616,6 +629,9 @@ if (addSkillBtn){
     createDraftSkillRow();
   });
 }
+
+
+
 // ------------- Assessment window (cards) -------------
 function escapeHtml(s) {
   return String(s ?? '')
@@ -639,10 +655,10 @@ async function openAssessmentWindow() {
   }
 
   const url =
-    `/aw2.html?cls=${encodeURIComponent(cls)}` +
-    `&triplet=${encodeURIComponent(currentSkillsTriplet)}` +
-    `&lessonId=${encodeURIComponent(String(currentLessonId || ''))}`;
-
+  `/aw2.html?cls=${encodeURIComponent(cls)}` +
+  `&triplet=${encodeURIComponent(currentSkillsTriplet)}` +
+  `&lessonId=${encodeURIComponent(String(currentLessonId || ''))}` +
+  `&defaultSkills=${includeDefaultAssessmentSkills ? '1' : '0'}`;
   const w = window.open(
     url,
     'assess-' + Date.now(),

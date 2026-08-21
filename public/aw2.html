@@ -584,17 +584,58 @@
     }catch(_){ return null; }
   }
 
-  async function fetchKeySkills(lid){
-    try{
-      var resp = await fetch('/keyskills?lessonId=' + encodeURIComponent(String(lid)));
-      if (!resp.ok) return [];
-      var rows = await resp.json();
-      return Array.isArray(rows) ? rows : [];
-    }catch(e){
-      console.warn('[aw2] keyskills fetch failed', e);
-      return [];
-    }
+function shouldIncludeDefaultSkills(){
+  try {
+    var sp = new URLSearchParams(window.location.search || '');
+    return sp.get('defaultSkills') === '1';
+  } catch (_) {
+    return false;
   }
+}
+
+async function fetchKeySkills(lid){
+  try {
+    var requests = [
+      fetch('/keyskills?lessonId=' + encodeURIComponent(String(lid)))
+    ];
+
+    if (shouldIncludeDefaultSkills()) {
+      requests.push(
+        fetch('/keyskills/default-assessment')
+      );
+    }
+
+    var responses = await Promise.all(requests);
+    var combined = [];
+
+    for (var i = 0; i < responses.length; i++) {
+      if (!responses[i].ok) continue;
+
+      var rows = await responses[i].json();
+
+      if (Array.isArray(rows)) {
+        combined = combined.concat(rows);
+      }
+    }
+
+    var seen = new Set();
+
+    return combined.filter(function(row){
+      if (!row || row.id == null) return false;
+
+      var key = String(row.id);
+
+      if (seen.has(key)) return false;
+
+      seen.add(key);
+      return true;
+    });
+
+  } catch (e) {
+    console.warn('[aw2] keyskills fetch failed', e);
+    return [];
+  }
+}
 
   function buildSkillLi(ks){
     var li = document.createElement('li');
