@@ -116,9 +116,34 @@ Object.keys(skillResults || {}).forEach(function(sid){
         rows.push({
           lessonTriplet: triplet,
           isSnippet: false,
-          componentID: toIntOrNull(
-            t && (t.exerciseID ?? t.exerciseId ?? t.id)
-          ),
+          componentID: (function(){
+  if (!t) return null;
+
+  const exerciseId = t.exerciseID ?? t.exerciseId ?? t.id;
+  const resourceId = t.resource ?? t.ResourceID ?? t.resourceId;
+  const page = t.page ?? t.Page;
+  const number = t.number ?? t.Number;
+
+  const parts = [];
+
+  if (exerciseId != null && String(exerciseId).trim() !== '') {
+    parts.push('[ид:' + String(exerciseId).trim() + ']');
+  }
+
+  if (resourceId != null && String(resourceId).trim() !== '') {
+    parts.push(String(resourceId).trim());
+  }
+
+  if (page != null && String(page).trim() !== '') {
+    parts.push(String(page).trim());
+  }
+
+  if (number != null && String(number).trim() !== '') {
+    parts.push(String(number).trim());
+  }
+
+  return parts.length ? parts.join('-') : null;
+})(),
           assessment: hasScore ? t.rating : null,
           comment: hasNote ? t.note.trim() : null,
           studentID: sidNum
