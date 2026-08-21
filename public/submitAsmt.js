@@ -68,23 +68,34 @@ document.addEventListener("DOMContentLoaded", function(){
 
       const rows = [];
 
-      // 1) Skills (KeySkills): from skillResults { sid: { keySkillId: {score, note} } }
-      Object.keys(skillResults || {}).forEach(function(sid){
-        const sidNum = normSid(sid);
-        if (sidNum == null) return;
-        const perSkill = skillResults[sid] || {};
-        Object.keys(perSkill).forEach(function(skillId){
-          const payload = perSkill[skillId] || {};
-          rows.push({
-            lessonTriplet: triplet,
-            isSnippet: true,
-            componentID: toIntOrNull(skillId), // skill id numeric part
-            assessment: (payload.score ?? null),
-            comment: (payload.note ?? null),
-            studentID: sidNum
-          });
-        });
-      });
+// 1) Skills (KeySkills): записваме само ако има оценка или бележка.
+Object.keys(skillResults || {}).forEach(function(sid){
+  const sidNum = normSid(sid);
+  if (sidNum == null) return;
+
+  const perSkill = skillResults[sid] || {};
+
+  Object.keys(perSkill).forEach(function(skillId){
+    const payload = perSkill[skillId] || {};
+
+    const hasScore = typeof payload.score === 'number';
+    const hasNote =
+      payload.note != null &&
+      String(payload.note).trim() !== '';
+
+    // Няма нито оценка, нито бележка -> не записваме ред.
+    if (!hasScore && !hasNote) return;
+
+    rows.push({
+      lessonTriplet: triplet,
+      isSnippet: true,
+      componentID: toIntOrNull(skillId),
+      assessment: hasScore ? payload.score : null,
+      comment: hasNote ? String(payload.note).trim() : null,
+      studentID: sidNum
+    });
+  });
+});
 
       // 2) Exercises (addedTasks): isSnippet=false, componentID=task.id, assessment=task.rating, comment=task.note
       Object.keys(addedTasks || {}).forEach(function(sid){
@@ -95,7 +106,7 @@ document.addEventListener("DOMContentLoaded", function(){
           rows.push({
             lessonTriplet: triplet,
             isSnippet: false,
-            componentID: toIntOrNull(t && (t.id ?? (t.key || ''))),
+            componentID: toIntOrNull(t && t.id),
             assessment: (typeof t.rating === 'number' ? t.rating : null),
             comment: (t && typeof t.note === 'string' ? t.note : null),
             studentID: sidNum
