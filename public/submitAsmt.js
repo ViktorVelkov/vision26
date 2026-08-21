@@ -99,7 +99,7 @@ const hasScore =
       lessonTriplet: triplet,
       isSnippet: true,
       componentID: parseInt(skillId, 10),
-      assessment: hasScore ? ratingValue : null,
+      assessment: hasScore ? scoreValue : null,
       comment: hasNote ? String(payload.note).trim() : null,
       studentID: sidNum
     });
@@ -112,8 +112,16 @@ const hasScore =
         if (sidNum == null) return;
         const tasks = addedTasks[sid] || [];
         tasks.forEach(function(t){
-        const hasScore = typeof t.rating === 'number';
-        const hasNote =
+        const ratingValue =
+          (t && t.rating != null && String(t.rating).trim() !== '')
+            ? parseInt(t.rating, 10)
+            : null;
+
+        const hasScore =
+          Number.isInteger(ratingValue) &&
+          ratingValue >= 0 &&
+          ratingValue <= 3;
+          const hasNote =
           t &&
           typeof t.note === 'string' &&
           t.note.trim() !== '';
@@ -152,7 +160,7 @@ const hasScore =
 
   return parts.length ? parts.join('-') : null;
 })(),
-          assessment: hasScore ? t.rating : null,
+          assessment: hasScore ? ratingValue : null,
           comment: hasNote ? t.note.trim() : null,
           studentID: sidNum
         });
