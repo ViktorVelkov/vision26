@@ -463,11 +463,13 @@ function renderRightRows(rows) {
         var rid = (r.resource ?? r.Resource ?? r.resourceid ?? r.ResourceID ?? '');
         var page = (r.page ?? r.Page ?? '');
         var num = (r.number ?? r.Number ?? '');
+        var exerciseId =
+        (r.exerciseID ?? r.exerciseId ?? r.ID ?? r.id ?? '');
         var rel = (r.relatedSnippet ?? r.relatedsnippet ?? '');
         var com = (r.comments ?? '');
         var addCell = '<td class="add-cell" title="Добави задача">'
-                        + '<button class="circle-btn circle-btn--all" data-action="add-all" data-r="' + escapeHtml(String(rid)) + '" data-p="' + escapeHtml(String(page)) + '" data-n="' + escapeHtml(String(num)) + '" title="Добави за всички">A</button>'
-                        + '<button class="circle-btn circle-btn--one" data-action="add-one" data-r="' + escapeHtml(String(rid)) + '" data-p="' + escapeHtml(String(page)) + '" data-n="' + escapeHtml(String(num)) + '" title="Добави за този ученик">+</button>'
+                        + '<button class="circle-btn circle-btn--all" data-action="add-all" data-r="' + escapeHtml(String(rid)) + '" data-p="' + escapeHtml(String(page)) + '" data-n="' + escapeHtml(String(num)) + '" title="Добави за всички" data-id="' + escapeHtml(String(exerciseId)) + '">A</button>'
+                        + '<button class="circle-btn circle-btn--one" data-action="add-one" data-r="' + escapeHtml(String(rid)) + '" data-p="' + escapeHtml(String(page)) + '" data-n="' + escapeHtml(String(num)) + '" title="Добави за този ученик"data-id="' + escapeHtml(String(exerciseId)) + '">+</button>'
                         + '</td>';
                         
         return '<tr>'
@@ -520,12 +522,27 @@ function doRightSearchByRidPage(){
 }
 
 // Build normalized task object for relationship triple (resource-page-number)
-function buildRelTask(resource, page, number) {
+function buildRelTask(resource, page, number, exerciseId) {
     const r = parseInt(resource, 10) || 0;
     const p = parseInt(page, 10) || 0;
     const n = (number == null ? '' : String(number).trim());
-    const key = 'rel:' + r + '-' + p + '-' + n;
-    return { key, kind: 'exercise', resource: r, page: p, number: n, label: (r + '-' + p + '-' + n) };
+
+    const id = parseInt(exerciseId, 10);
+
+    const key = Number.isInteger(id)
+        ? ('exercise:' + id)
+        : ('rel:' + r + '-' + p + '-' + n);
+
+    return {
+        key,
+        kind: 'exercise',
+        id: Number.isInteger(id) ? id : null,
+        exerciseID: Number.isInteger(id) ? id : null,
+        resource: r,
+        page: p,
+        number: n,
+        label: (r + '-' + p + '-' + n)
+    };
 }
 // Delegate clicks from right result rows for Add All / Add One + push to undo history
 if (rightBodyEl) {
@@ -534,8 +551,12 @@ if (rightBodyEl) {
         if (!btn) return;
 
         const action = btn.dataset.action;
-        const task = buildRelTask(btn.dataset.r, btn.dataset.p, btn.dataset.n);
-
+        const task = buildRelTask(
+          btn.dataset.r,
+          btn.dataset.p,
+          btn.dataset.n,
+          btn.dataset.id
+        );
         // Ensure data store exists
         window.ADDED_TASKS = window.ADDED_TASKS || {};
         function ensureForStudent(sid) {

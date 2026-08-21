@@ -104,17 +104,26 @@ Object.keys(skillResults || {}).forEach(function(sid){
         if (sidNum == null) return;
         const tasks = addedTasks[sid] || [];
         tasks.forEach(function(t){
-          rows.push({
-            lessonTriplet: triplet,
-            isSnippet: false,
-            componentID: toIntOrNull(
-              t && (t.exerciseID ?? t.exerciseId ?? t.id)
-            ), 
-             assessment: (typeof t.rating === 'number' ? t.rating : null),
-            comment: (t && typeof t.note === 'string' ? t.note : null),
-            studentID: sidNum
-          });
+        const hasScore = typeof t.rating === 'number';
+        const hasNote =
+          t &&
+          typeof t.note === 'string' &&
+          t.note.trim() !== '';
+
+        // Няма оценка и няма бележка -> не записваме задача.
+        if (!hasScore && !hasNote) return;
+
+        rows.push({
+          lessonTriplet: triplet,
+          isSnippet: false,
+          componentID: toIntOrNull(
+            t && (t.exerciseID ?? t.exerciseId ?? t.id)
+          ),
+          assessment: hasScore ? t.rating : null,
+          comment: hasNote ? t.note.trim() : null,
+          studentID: sidNum
         });
+      });
       });
 
       // 3) General comments: isSnippet=false, componentID=NULL, assessment=NULL, comment=text
