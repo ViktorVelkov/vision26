@@ -85,11 +85,12 @@ Object.keys(skillResults || {}).forEach(function(sid){
 
     // Няма нито оценка, нито бележка -> не записваме ред.
     if (!hasScore && !hasNote) return;
+    if (!/^\d+$/.test(String(skillId))) return;
 
     rows.push({
       lessonTriplet: triplet,
       isSnippet: true,
-      componentID: toIntOrNull(skillId),
+      componentID: parseInt(skillId, 10),
       assessment: hasScore ? payload.score : null,
       comment: hasNote ? String(payload.note).trim() : null,
       studentID: sidNum
@@ -106,8 +107,10 @@ Object.keys(skillResults || {}).forEach(function(sid){
           rows.push({
             lessonTriplet: triplet,
             isSnippet: false,
-            componentID: toIntOrNull(t && t.id),
-            assessment: (typeof t.rating === 'number' ? t.rating : null),
+            componentID: toIntOrNull(
+              t && (t.exerciseID ?? t.exerciseId ?? t.id)
+            ), 
+             assessment: (typeof t.rating === 'number' ? t.rating : null),
             comment: (t && typeof t.note === 'string' ? t.note : null),
             studentID: sidNum
           });
