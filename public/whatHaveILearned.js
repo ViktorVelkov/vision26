@@ -8,8 +8,7 @@
       selectEl.innerHTML = '<option value="">Зареждане…</option>';
       selectEl.disabled = true;
 
-      const res = await fetch('/classes');
-      if (!res.ok) throw new Error('HTTP ' + res.status);
+const res = await fetch('/classes', { cache: 'no-store' });      if (!res.ok) throw new Error('HTTP ' + res.status);
       const classes = await res.json(); // ["11 А", "11 Б", ...]
 
       // Populate
@@ -401,8 +400,11 @@ if (addBtn){
       resultsBody.innerHTML = '';
       resultsWrap.hidden = true;
 
-      const res = await fetch(`/lessons/by-grade?className=${encodeURIComponent(cls)}`);
-      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const res = await fetch(
+        `/lessons/by-grade?className=${encodeURIComponent(cls)}`,
+        { cache: 'no-store' }
+      );     
+     if (!res.ok) throw new Error('HTTP ' + res.status);
       const rows = await res.json();
 
       for (const r of rows){
@@ -490,7 +492,10 @@ async function loadLessonSkills(triplet, lessonId){
     if (lessonId != null && !Number.isNaN(parseInt(lessonId,10))) qs.set('lessonId', String(parseInt(lessonId,10)));
     else qs.set('lessonCode', String(triplet));
 
-    const resp = await fetch(`/keyskills?${qs.toString()}`);
+    const resp = await fetch(
+      `/keyskills?${qs.toString()}`,
+      { cache: 'no-store' }
+    );    
     if (!resp.ok) throw new Error('HTTP '+resp.status);
     const data = await resp.json();
 
@@ -673,5 +678,31 @@ async function openAssessmentWindow() {
 if (openAssessBtn) {
   openAssessBtn.addEventListener('click', openAssessmentWindow);
 }
+function resetWhatHaveILearnedView(){
+  draftRow = null;
+  currentSkillsTriplet = null;
+  currentLessonName = null;
+  currentLessonId = null;
 
+  if (resultsBody) resultsBody.innerHTML = '';
+  if (resultsWrap) resultsWrap.hidden = true;
+
+  const skillsBody = document.getElementById('lessonSkillsBody');
+  const skillsHead = document.getElementById('lessonSkillsHeadRow');
+  const skillsWrap = document.getElementById('skillsWrap');
+
+  if (skillsBody) skillsBody.innerHTML = '';
+  if (skillsHead) skillsHead.innerHTML = '';
+  if (skillsWrap) skillsWrap.hidden = true;
+
+  if (statusEl && selectEl && selectEl.value) {
+    statusEl.textContent = `Избран клас: ${selectEl.value}`;
+  }
+}
+
+window.addEventListener('pageshow', function(ev){
+  if (ev.persisted) {
+    resetWhatHaveILearnedView();
+  }
+});
 })(); // end outer IIFE for whatHaveILearned.js
