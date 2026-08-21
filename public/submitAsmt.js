@@ -78,15 +78,15 @@ Object.keys(skillResults || {}).forEach(function(sid){
   Object.keys(perSkill).forEach(function(skillId){
     const payload = perSkill[skillId] || {};
 
-const ratingValue =
-  (t && t.rating != null && String(t.rating).trim() !== '')
-    ? parseInt(t.rating, 10)
+const scoreValue =
+  (payload.score != null && String(payload.score).trim() !== '')
+    ? parseInt(payload.score, 10)
     : null;
 
 const hasScore =
-  Number.isInteger(ratingValue) &&
-  ratingValue >= 0 &&
-  ratingValue <= 3;
+  Number.isInteger(scoreValue) &&
+  scoreValue >= 0 &&
+  scoreValue <= 3;
       const hasNote =
       payload.note != null &&
       String(payload.note).trim() !== '';
