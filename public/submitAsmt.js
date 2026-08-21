@@ -99,7 +99,7 @@ const hasScore =
       lessonTriplet: triplet,
       isSnippet: true,
       componentID: parseInt(skillId, 10),
-      assessment: hasScore ? payload.score : null,
+      assessment: hasScore ? ratingValue : null,
       comment: hasNote ? String(payload.note).trim() : null,
       studentID: sidNum
     });
