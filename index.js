@@ -2720,6 +2720,12 @@ app.get('/snippets/search', async (req, res) => {
     return res.status(500).json({ error: 'DB error' });
   }
 });
+
+app.get('/snippets/bulk', async (req, res) => {
+  const ids = parseIdsParam(req.query.ids);
+  return fetchSnippetsByIds(ids, res);
+});
+
 app.get('/snippets/:id', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
@@ -2877,10 +2883,7 @@ async function fetchSnippetsByIds(ids, res) {
   }
 }
 
-app.get('/snippets/bulk', async (req, res) => {
-  const ids = parseIdsParam(req.query.ids);
-  return fetchSnippetsByIds(ids, res);
-});
+
 
 // Fallback alias used by the frontend
 app.get('/snippets', async (req, res) => {
