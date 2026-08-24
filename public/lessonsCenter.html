@@ -77,10 +77,9 @@
     .status-tag.new { background:#e6f9ed; border-color:#86efac; color:#166534; }
     .status-tag.updated { background:#eef2ff; border-color:#93c5fd; color:#1e3a8a; }
 
-    /* панел за качества-теореми-задачи */
     .subListsGrid {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 24px;
       align-items: start;
       width: 100%;
@@ -383,25 +382,7 @@
 
   <div class="subListsGrid">
 
-    <div class="subListPanel">
-      <label>Качества/умения(snippets)</label>
-      <table id="sn_table" style="width:100%; border-collapse:collapse; margin-top:6px;">
-        <thead>
-          <tr>
-            <th style="width:110px;">ID</th>
-            <th style="width:160px;">Продълж. (мин)</th>
-            <th style="width:140px;">Сложност</th>
-            <th style="width:46px;"></th>
-          </tr>
-        </thead>
-        <tbody id="sn_table_body"></tbody>
-      </table>
-
-      <div class="subListControls">
-        <input id="sn_add_id" type="number" min="1" placeholder="въведи ID" />
-        <button type="button" class="btn btn-plain" id="addTheory">+ Добави</button>
-      </div>
-    </div>
+   
 
     <div class="subListPanel">
       <label>Теореми</label>

@@ -326,10 +326,6 @@ function formatExercise(ref){
 async function updateRefTable(){
   if (!refWrap) return;
 
-  const snIds = [...snWrap.querySelectorAll('tr.row-item')]
-    .map(r => parseInt(r.dataset.id, 10))
-    .filter(Number.isInteger);
-
   const thIds = [...thWrap.querySelectorAll('tr.row-item')]
     .map(r => parseInt(r.dataset.id, 10))
     .filter(Number.isInteger);
@@ -338,24 +334,13 @@ async function updateRefTable(){
     .map(r => parseInt(r.dataset.id, 10))
     .filter(Number.isInteger);
 
-  const [snMap, thMap, exMap] = await Promise.all([
-    fetchSnippetRefs(snIds),
+  const [thMap, exMap] = await Promise.all([
     fetchTheoremRefs(thIds),
     fetchExerciseRefs(exIds)
   ]);
-
   refWrap.innerHTML = '';
 
-  snIds.forEach(id => {
-    const sn = snMap.get(id);
-    const nm = (sn && sn.name) ? String(sn.name).trim() : '';
-    const us = truncateText((sn && sn.uslovie) ? sn.uslovie : '', 200);
-    const info = [nm, us].filter(Boolean).join(' — ');
-
-    refWrap.insertAdjacentHTML('beforeend',
-      `<tr><td>${id}</td><td>snippet</td><td>${escapeHtml(info)}</td></tr>`
-    );
-  });
+  
 
   thIds.forEach(id => {
     const th = thMap.get(id);
