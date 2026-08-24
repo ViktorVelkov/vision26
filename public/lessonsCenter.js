@@ -146,6 +146,7 @@ async function persistOrderFor(wrap){
 
   // Helper: fill form from a Lessons row (shared by all loaders)
   function fillFormFromRow(row){
+    if (refWrap) refWrap.innerHTML = '';
     currentLessonId = row.lesson_id || currentLessonId;
     // Полета
     setFieldValue(row.lesson_id, 'lessonId', 'lesson_id');
@@ -163,12 +164,16 @@ async function persistOrderFor(wrap){
     if (row.lesson_id) {
       loadScriptedLists(row.lesson_id).catch(console.error);
     } else {
-      // init: visible sublists start empty
       if (snWrap) {
         setSnippetsTable([]);
       }
 
+      setTheoremsTable([]);
       setExercisesTable([]);
+
+      if (refWrap) {
+        refWrap.innerHTML = '';
+      }
     }
 
     // Flash highlight recently filled fields
@@ -202,41 +207,47 @@ async function persistOrderFor(wrap){
 async function loadScriptedLists(lessonId){
   console.log('[lessonsCenter] loadScriptedLists -> lesson_id=', lessonId);
 
+  // Изчистваме информацията от предишния урок веднага
+  if (thWrap) thWrap.innerHTML = '';
+  if (exWrap) exWrap.innerHTML = '';
+  if (refWrap) refWrap.innerHTML = '';
+
   try {
     const r = await fetch(`/lesson-scripted/${lessonId}`);
 
     if (!r.ok) {
-      await setSnippetsTable([]);
+      if (snWrap) await setSnippetsTable([]);
       await setTheoremsTable([]);
       await setExercisesTable([]);
-      await updateRefTable();
+
+      if (refWrap) refWrap.innerHTML = '';
       return;
     }
 
     const d = await r.json();
 
     // Snippets / качества-умения
-      if (snWrap) {
-        if (Array.isArray(d.snippets) && d.snippets.length) {
-          snWrap.innerHTML = '';
+    if (snWrap) {
+      if (Array.isArray(d.snippets) && d.snippets.length) {
+        snWrap.innerHTML = '';
 
-          d.snippets.forEach((m, i) => {
-            snWrap.appendChild(buildSnippetRow({
-              snippet_id: m.snippet_id,
-              timeInMinutes: m.timeInMinutes ?? 0,
-              difficulty: m.difficulty ?? 0
-            }, i));
-          });
+        d.snippets.forEach((m, i) => {
+          snWrap.appendChild(buildSnippetRow({
+            snippet_id: m.snippet_id,
+            timeInMinutes: m.timeInMinutes ?? 0,
+            difficulty: m.difficulty ?? 0
+          }, i));
+        });
 
-          makeTableDraggable(snWrap);
-        } else {
-          await setSnippetsTable(
-            Array.isArray(d.theory_snippets)
-              ? d.theory_snippets
-              : []
-          );
-        }
+        makeTableDraggable(snWrap);
+      } else {
+        await setSnippetsTable(
+          Array.isArray(d.theory_snippets)
+            ? d.theory_snippets
+            : []
+        );
       }
+    }
 
     // Theorems / теореми
     if (Array.isArray(d.theorems) && d.theorems.length) {
@@ -253,7 +264,9 @@ async function loadScriptedLists(lessonId){
       makeTableDraggable(thWrap);
     } else {
       await setTheoremsTable(
-        Array.isArray(d.theorem_ids) ? d.theorem_ids : []
+        Array.isArray(d.theorem_ids)
+          ? d.theorem_ids
+          : []
       );
     }
 
@@ -272,21 +285,28 @@ async function loadScriptedLists(lessonId){
       makeTableDraggable(exWrap);
     } else {
       await setExercisesTable(
-        Array.isArray(d.exercises_ids) ? d.exercises_ids : []
+        Array.isArray(d.exercises_ids)
+          ? d.exercises_ids
+          : []
       );
     }
 
+    // Едва след зареждането на новия урок
+    // обновяваме долната информационна таблица
     await updateRefTable();
+
   } catch (e) {
     console.error('loadScriptedLists failed', e);
 
-    await setSnippetsTable([]);
+    // При грешка изчистваме всичко,
+    // вместо да оставяме информация от предишния урок
+    if (snWrap) await setSnippetsTable([]);
     await setTheoremsTable([]);
     await setExercisesTable([]);
-    await updateRefTable();
+
+    if (refWrap) refWrap.innerHTML = '';
   }
 }
-
 
   function escapeHtml(s){
   return String(s ?? '')
