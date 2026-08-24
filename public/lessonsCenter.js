@@ -764,8 +764,7 @@ async function setExercisesTable(ids){
     makeListDraggable(wrap);
   }
 
-  $('#addTheory').addEventListener('click', async ()=>{
-  const addTheoryBtn = $('#addTheory');
+const addTheoryBtn = $('#addTheory');
 
 if (addTheoryBtn && snWrap) {
   addTheoryBtn.addEventListener('click', async ()=>{
@@ -802,7 +801,7 @@ if (addTheoryBtn && snWrap) {
     updateRefTable();
   });
 }
-  });
+
   $('#addEx').addEventListener('click', async ()=>{
     const v = exAddInput && exAddInput.value ? parseInt(exAddInput.value,10) : NaN;
     if (!Number.isInteger(v) || v <= 0) return;
