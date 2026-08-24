@@ -953,14 +953,10 @@ async function doSnippetSearch(q){
   });
 });
 
-if (searchModeTabs.length) {
-  setLessonSearchMode('id');
-}
-});
-
   if (searchModeTabs.length) {
     setLessonSearchMode('id');
   }
+
   if (snippetInp) snippetInp.addEventListener('input', debouncedSearch);
   if (snippetBtn) snippetBtn.addEventListener('click', ()=> doSnippetSearch(snippetInp.value));
 
