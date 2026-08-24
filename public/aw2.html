@@ -557,18 +557,18 @@
 </script>
 <script>
 // Close the popup window after submitting (only if guard allowed)
-(function(){
-  function closeAfterSubmit(){
-    if (!window.__ASSESS_CAN_CLOSE__) return; // do not close when blocked
-    setTimeout(function(){
-      try { window.close(); } catch(e) {}
-    }, 700);
-  }
-  document.addEventListener('DOMContentLoaded', function(){
-    var btn = document.getElementById('submitAssessBtn');
-    if (btn) btn.addEventListener('click', closeAfterSubmit, { capture:false });
-  });
-})();
+// (function(){
+//   function closeAfterSubmit(){
+//     if (!window.__ASSESS_CAN_CLOSE__) return; // do not close when blocked
+//     setTimeout(function(){
+//       try { window.close(); } catch(e) {}
+//     }, 700);
+//   }
+//   document.addEventListener('DOMContentLoaded', function(){
+//     var btn = document.getElementById('submitAssessBtn');
+//     if (btn) btn.addEventListener('click', closeAfterSubmit, { capture:false });
+//   });
+// })();
 </script>
 <script>
 // --- Authoritative: render assessment skills from KeySkills for the current lesson ---
