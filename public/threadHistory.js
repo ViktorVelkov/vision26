@@ -3,7 +3,53 @@
   let rowsCache = [];
   let detailSortMode = 'entry'; // 'entry' | 'added'
   let lastThreadId = null;
+const exerciseCache = new Map();
 
+async function loadExercisesMap(ids){
+  const wanted = Array.from(new Set(
+    (ids || [])
+      .map(Number)
+      .filter(Number.isFinite)
+  ));
+
+  const missing = wanted.filter(id => !exerciseCache.has(id));
+  if (!missing.length) return;
+
+  try {
+    const resp = await fetch(
+      '/exercises/tuple-keys?ids=' + encodeURIComponent(missing.join(',')),
+      { cache: 'no-store' }
+    );
+
+    if (!resp.ok) return;
+
+    const rows = await resp.json();
+    if (!Array.isArray(rows)) return;
+
+    rows.forEach(function(row){
+      const id = Number(row.id);
+      if (!Number.isFinite(id)) return;
+
+      const tuple = row.tuple_key || {};
+      const resourceId = tuple.ResourceID ?? '';
+      const page = tuple.Page ?? '';
+      const number = tuple.Number ?? '';
+
+      exerciseCache.set(
+        id,
+        `[ID:${id}]-${resourceId}-${page}-${number}`
+      );
+    });
+  } catch (e) {
+    console.warn('[threadHistory] exercise tuple lookup failed:', e);
+  }
+}
+
+function exerciseLabel(id){
+  const n = Number(id);
+  if (!Number.isFinite(n)) return id ?? '';
+  return exerciseCache.get(n) || String(n);
+}
   const threadSummaryBody = document.querySelector('#threadSummaryTable tbody');
   const threadDetailHeader = document.getElementById('threadDetailHeader');
   const threadDetailId = document.getElementById('threadDetailId');
@@ -63,12 +109,18 @@
     const v = r.threadAddedAt || r.thread_added_at || r.threadAdded_at || r.thread_addedAt;
     return !!(v && String(v).trim() !== '');
   }
-function showDetail(threadId){
+
+async function showDetail(threadId){
   if (!threadId || !threadDetailBody) return;
   threadDetailBody.innerHTML = '';
 
   const rows = rowsCache.filter(x => (x.threadid || x.threadID) === threadId);
+const exerciseIds = rows
+  .filter(function(x){ return !(x.issnippet || x.isSnippet); })
+  .map(function(x){ return Number(x.componentid ?? x.componentID); })
+  .filter(Number.isFinite);
 
+await loadExercisesMap(exerciseIds);
    lastThreadId = threadId;
    updateDateHeaderLabel();
     // 1) Подредба
@@ -222,7 +274,11 @@ function showDetail(threadId){
     })();
     const rowId = x.id ?? x.ID ?? '';
     const kind  = (x.issnippet || x.isSnippet) ? 'Умение' : 'Задача';
-    const comp  = x.componentid ?? x.componentID ?? '';
+    const componentId = x.componentid ?? x.componentID ?? '';
+
+const comp = (x.issnippet || x.isSnippet)
+  ? componentId
+  : exerciseLabel(componentId);
     const ass   = x.assessment ?? '';
     const note  = (x.comment == null) ? '' : String(x.comment);
     const fup   = x.followup_id ? `← #${x.followup_id}` : '';

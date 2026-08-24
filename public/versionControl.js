@@ -134,7 +134,7 @@
                 const number = t.Number ?? '';
 
                 const label =
-                  `[ID:${id}]-${resourceID}-${page}-${number}`;
+                  `[ID:${id}]  ${resourceID}-${page}-${number}`;
 
                 exerciseCache.set(id, label);
               }
