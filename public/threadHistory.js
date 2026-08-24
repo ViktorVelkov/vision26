@@ -37,7 +37,7 @@ async function loadExercisesMap(ids){
 
       exerciseCache.set(
         id,
-        `[ID:${id}]-${resourceId}-${page}-${number}`
+        `[ID:${id}] ${resourceId}-${page}-${number}`
       );
     });
   } catch (e) {

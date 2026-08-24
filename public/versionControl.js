@@ -112,6 +112,83 @@
     return snippetCache.get(n) || String(n);
   }
 
+function resetVersionControlPage() {
+  // Поле за търсене
+  const searchInput = document.getElementById('studentSearch');
+  if (searchInput) {
+    searchInput.value = '';
+    searchInput.setAttribute('autocomplete', 'off');
+  }
+
+  // Резултати от търсенето
+  const studentPick = document.getElementById('studentPick');
+  if (studentPick) {
+    studentPick.innerHTML = '';
+  }
+  if (searchRow) searchRow.removeAttribute('hidden');
+  if (studentPick) studentPick.removeAttribute('hidden'); 
+
+  // Основната зона с избрания ученик
+  const studentArea = document.getElementById('studentArea');
+  if (studentArea) {
+    studentArea.hidden = true;
+  }
+
+  // Отделните секции
+  const sectionsToHide = [
+    'unthreadedHeader',
+    'unthreadedWrap',
+    'threadsHeader',
+    'threadsWrap',
+    'threadDetailHeader',
+    'threadDetailWrap',
+    'newActionHeader',
+    'newActionForm',
+    'deleteRowHeader',
+    'deleteRowWrap',
+    'prevEditHeader',
+    'prevEditWrap'
+  ];
+
+  sectionsToHide.forEach(function(id) {
+    const el = document.getElementById(id);
+    if (el) el.hidden = true;
+  });
+
+  // Изчистваме старите таблици
+  const tableBodies = [
+    '#unthreadedTable tbody',
+    '#threadSummaryTable tbody',
+    '#threadDetailTable tbody'
+  ];
+
+  tableBodies.forEach(function(selector) {
+    const tbody = document.querySelector(selector);
+    if (tbody) tbody.innerHTML = '';
+  });
+
+  // Изчистваме ID на показаната нишка
+  const threadDetailId = document.getElementById('threadDetailId');
+  if (threadDetailId) {
+    threadDetailId.textContent = '';
+  }
+
+  // Meta информация за избрания ученик
+  const meta = document.getElementById('meta');
+  if (meta) {
+    meta.textContent = '';
+    meta.hidden = true;
+  }
+
+  currentStudent = null;
+  window.VC_CURRENT_STUDENT = null;
+
+  selectedUnthreaded.clear();
+  groupMembers.clear();
+  idToGroup.clear();
+}
+
+
   // --- Exercise cache (id -> tuple_key label) ---
   const exerciseCache = new Map();
   async function loadExercisesMap(ids){
@@ -320,7 +397,11 @@ if (prevEditBtn){
   let currentStudent = null;
   // Expose selected student for the chronology UI module (vc_chronology)
   window.VC_CURRENT_STUDENT = null;
+  resetVersionControlPage();
 
+  window.addEventListener('pageshow', function(){
+    resetVersionControlPage();
+  });
 // Delete a row/component by id
 if (deleteRowBtn){
   deleteRowBtn.addEventListener('click', async ()=>{
@@ -763,18 +844,7 @@ for (const rootId of groupMembers.keys()){
     }
   });
   // Auto-restore last selected student after a page reload (e.g., after saving a new action)
-  (async function restoreLastStudent(){
-    try {
-      const raw = localStorage.getItem('vc_last_student');
-      if (!raw) return;
-      const obj = JSON.parse(raw);
-      const id = obj && obj.id != null ? parseInt(obj.id, 10) : null;
-      const name = obj && typeof obj.name === 'string' ? obj.name : '';
-      if (!Number.isInteger(id)) return;
 
-      await selectStudent({ id, name: name || String(id) });
-    } catch(_) {}
-  })();
   
   saveActionBtn.addEventListener('click', async ()=>{
     if(!currentStudent){ alert('Избери ученик.'); return; }
