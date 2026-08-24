@@ -196,6 +196,9 @@
 
     .searchModeTabsWrap {
       margin: 10px 0 12px;
+      position: relative;
+
+      z-index: 2;
     }
 
     .searchModeLabel {
@@ -226,6 +229,9 @@
   font-size: 13px;
   line-height: 1.2;
   white-space: nowrap;
+  position: relative;
+  z-index: 2;
+  pointer-events: auto;
 }
 
     .searchModeTab.active {
@@ -269,8 +275,7 @@
 
       <div class="searchModeTabsWrap">
         <div class="searchModeTabs" role="tablist" aria-label="Режим на търсене">
-          <button class="searchModeTab" type="button" role="tab" aria-selected="false" data-search-mode="id">ID</button>
-          <button class="searchModeTab" type="button" role="tab" aria-selected="false" data-search-mode="name">Име на урока</button>
+          <button class="searchModeTab active" type="button" role="tab" aria-selected="true" data-search-mode="id">ID</button>          <button class="searchModeTab" type="button" role="tab" aria-selected="false" data-search-mode="name">Име на урока</button>
         </div>
       </div>
       <div class="row">

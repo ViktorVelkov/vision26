@@ -12,7 +12,7 @@
   const snippetBtn = $('#snippetSearchBtn');
   const searchModeTabs = Array.from(document.querySelectorAll('.searchModeTab'));
   const lessonSearchLabel = document.getElementById('lessonSearchLabel');
-  let lessonSearchMode = 'snippet';
+  let lessonSearchMode = 'id';
   const completionsUl = $('#snippetCompletions');
   const lessonsTbody = $('#snippetLessons');
 
@@ -824,8 +824,7 @@ async function setExercisesTable(ids){
 
 
   function setLessonSearchMode(mode){
-  lessonSearchMode = ['snippet', 'id', 'name'].includes(mode) ? mode : 'snippet';
-
+  lessonSearchMode = ['id', 'name'].includes(mode) ? mode : 'id';
   searchModeTabs.forEach(tab => {
     const active = tab.dataset.searchMode === lessonSearchMode;
     tab.classList.toggle('active', active);
@@ -833,15 +832,14 @@ async function setExercisesTable(ids){
   });
 
   if (lessonSearchLabel && snippetInp) {
-    if (lessonSearchMode === 'id') {
-      snippetInp.placeholder = 'напр. 4';
-      snippetInp.type = 'number';
-    } else if (lessonSearchMode === 'name') {
-      snippetInp.placeholder = 'напр. Вектори';
-      snippetInp.type = 'text';
-    } else {
-      snippetInp.placeholder = 'напр. 27001 или 27001001';
-      snippetInp.type = 'text';
+    if (lessonSearchLabel && snippetInp) {
+      if (lessonSearchMode === 'id') {
+        snippetInp.placeholder = 'напр. 4';
+        snippetInp.type = 'number';
+      } else if (lessonSearchMode === 'name') {
+        snippetInp.placeholder = 'напр. Вектори';
+        snippetInp.type = 'text';
+      }
     }
   }
 
@@ -914,28 +912,9 @@ async function doLessonIdOrNameSearch(q){
   }
 }
 
-  async function doSnippetSearch(q){
-    if (lessonSearchMode !== 'snippet') {
-      return doLessonIdOrNameSearch(q);
-    }
-    const qTrim = String(q||'').trim();
-    if(!qTrim){ completionsUl.innerHTML=''; lessonsTbody.innerHTML=''; return; }
-    try{
-      const r = await fetch(`/lessons/search-by-snippet?q=${encodeURIComponent(qTrim)}`);
-      if(!r.ok){ completionsUl.innerHTML=''; lessonsTbody.innerHTML=''; return; }
-      const data = await r.json();
-      // completions
-      completionsUl.innerHTML = '';
-      (data.completions||[]).forEach(c=>{
-        const li = document.createElement('li');
-        li.innerHTML = `<a href="#" data-id="${c.id}">${c.id}</a> <small>${c.name?('— '+c.name):''}</small>`;
-        li.querySelector('a').addEventListener('click', (e)=>{ e.preventDefault(); snippetInp.value=String(c.id); doSnippetSearch(String(c.id)); });
-        completionsUl.appendChild(li);
-      });
-      //lessons
-        renderLessonSearchRows(Array.isArray(data.lessons) ? data.lessons : []);
-      }catch(e){ console.error(e); }
-  }
+async function doSnippetSearch(q){
+  return doLessonIdOrNameSearch(q);
+}
 
   const debouncedSearch = debounce(()=> doSnippetSearch(snippetInp.value), 250);
  
@@ -944,6 +923,9 @@ async function doLessonIdOrNameSearch(q){
       setLessonSearchMode(tab.dataset.searchMode);
       if (snippetInp) snippetInp.focus();
     });
+    if (searchModeTabs.length) {
+      setLessonSearchMode('id');
+    }
   });
   if (snippetInp) snippetInp.addEventListener('input', debouncedSearch);
   if (snippetBtn) snippetBtn.addEventListener('click', ()=> doSnippetSearch(snippetInp.value));
