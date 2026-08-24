@@ -126,7 +126,18 @@
         if (Array.isArray(arr)){
           for(const row of arr){
             const id = Number(row.id);
-            if (Number.isFinite(id)) exerciseCache.set(id, (row.tuple_key ? JSON.stringify(row.tuple_key) : String(id)));
+              if (Number.isFinite(id)) {
+                const t = row.tuple_key || {};
+
+                const resourceID = t.ResourceID ?? '';
+                const page = t.Page ?? '';
+                const number = t.Number ?? '';
+
+                const label =
+                  `[ID:${id}]-${resourceID}-${page}-${number}`;
+
+                exerciseCache.set(id, label);
+              }
           }
         }
       }
