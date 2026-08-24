@@ -213,23 +213,27 @@ async function loadScriptedLists(lessonId){
     const d = await r.json();
 
     // Snippets / качества-умения
-    if (Array.isArray(d.snippets) && d.snippets.length) {
-      snWrap.innerHTML = '';
+      if (snWrap) {
+        if (Array.isArray(d.snippets) && d.snippets.length) {
+          snWrap.innerHTML = '';
 
-      d.snippets.forEach((m, i) => {
-        snWrap.appendChild(buildSnippetRow({
-          snippet_id: m.snippet_id,
-          timeInMinutes: m.timeInMinutes ?? 0,
-          difficulty: m.difficulty ?? 0
-        }, i));
-      });
+          d.snippets.forEach((m, i) => {
+            snWrap.appendChild(buildSnippetRow({
+              snippet_id: m.snippet_id,
+              timeInMinutes: m.timeInMinutes ?? 0,
+              difficulty: m.difficulty ?? 0
+            }, i));
+          });
 
-      makeTableDraggable(snWrap);
-    } else {
-      await setSnippetsTable(
-        Array.isArray(d.theory_snippets) ? d.theory_snippets : []
-      );
-    }
+          makeTableDraggable(snWrap);
+        } else {
+          await setSnippetsTable(
+            Array.isArray(d.theory_snippets)
+              ? d.theory_snippets
+              : []
+          );
+        }
+      }
 
     // Theorems / теореми
     if (Array.isArray(d.theorems) && d.theorems.length) {
@@ -568,6 +572,8 @@ function buildSnippetRow(meta, index){
 }
 
 async function setSnippetsTable(ids){
+  if (!snWrap) return;
+
   snWrap.innerHTML = '';
   const metas = await fetchSnippetMetaBulk(ids);
   metas.forEach((m, i)=>{
@@ -756,25 +762,43 @@ async function setExercisesTable(ids){
   }
 
   $('#addTheory').addEventListener('click', async ()=>{
-    const v = snAddInput && snAddInput.value ? parseInt(snAddInput.value,10) : NaN;
-    if (!Number.isInteger(v) || v <= 0) return;
+    const addTheoryBtn = $('#addTheory');
 
-    // if already present -> do nothing
-    const existing = Array.from(snWrap.querySelectorAll('tr.row-item'))
-      .map(tr => parseInt(tr.dataset.id,10))
-      .filter(Number.isInteger);
-    if (existing.includes(v)) {
-      snAddInput.value = '';
-      return;
+    if (addTheoryBtn && snWrap) {
+      addTheoryBtn.addEventListener('click', async ()=>{
+        const v = snAddInput && snAddInput.value
+          ? parseInt(snAddInput.value,10)
+          : NaN;
+
+        if (!Number.isInteger(v) || v <= 0) return;
+
+        const existing = Array.from(snWrap.querySelectorAll('tr.row-item'))
+          .map(tr => parseInt(tr.dataset.id,10))
+          .filter(Number.isInteger);
+
+        if (existing.includes(v)) {
+          snAddInput.value = '';
+          return;
+        }
+
+        snWrap.appendChild(
+          buildSnippetRow(
+            {
+              snippet_id: v,
+              timeInMinutes: 0,
+              difficulty: 0
+            },
+            snWrap.children.length
+          )
+        );
+
+        makeTableDraggable(snWrap);
+
+        snAddInput.value = '';
+        persistOrderFor(snWrap);
+        updateRefTable();
+      });
     }
-
-    // Append ONLY the new row, keep existing inputs as-is (no rebuild)
-    snWrap.appendChild(buildSnippetRow({ snippet_id: v, timeInMinutes: 0, difficulty: 0 }, snWrap.children.length));
-    makeTableDraggable(snWrap);
-
-    snAddInput.value = '';
-    persistOrderFor(snWrap);
-    updateRefTable();
   });
   $('#addEx').addEventListener('click', async ()=>{
     const v = exAddInput && exAddInput.value ? parseInt(exAddInput.value,10) : NaN;
@@ -802,8 +826,8 @@ async function setExercisesTable(ids){
   });
 
     // init: snippets/exercises tables start empty; render on load/add
-    setSnippetsTable([]);
-    setExercisesTable([]);
+    if (snWrap) setSnippetsTable([]);
+      setExercisesTable([]);
     
   function collectList(wrap, toInt){
 
@@ -831,8 +855,7 @@ async function setExercisesTable(ids){
     tab.setAttribute('aria-selected', active ? 'true' : 'false');
   });
 
-  if (lessonSearchLabel && snippetInp) {
-    if (lessonSearchLabel && snippetInp) {
+  if (snippetInp) {
       if (lessonSearchMode === 'id') {
         snippetInp.placeholder = 'напр. 4';
         snippetInp.type = 'number';
@@ -841,7 +864,6 @@ async function setExercisesTable(ids){
         snippetInp.type = 'text';
       }
     }
-  }
 
   if (completionsUl) completionsUl.innerHTML = '';
   if (lessonsTbody) lessonsTbody.innerHTML = '';
@@ -919,14 +941,18 @@ async function doSnippetSearch(q){
   const debouncedSearch = debounce(()=> doSnippetSearch(snippetInp.value), 250);
  
   searchModeTabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-      setLessonSearchMode(tab.dataset.searchMode);
-      if (snippetInp) snippetInp.focus();
-    });
-    if (searchModeTabs.length) {
-      setLessonSearchMode('id');
+  tab.addEventListener('click', () => {
+    setLessonSearchMode(tab.dataset.searchMode);
+
+    if (snippetInp) {
+      snippetInp.focus();
     }
   });
+});
+
+if (searchModeTabs.length) {
+  setLessonSearchMode('id');
+}
   if (snippetInp) snippetInp.addEventListener('input', debouncedSearch);
   if (snippetBtn) snippetBtn.addEventListener('click', ()=> doSnippetSearch(snippetInp.value));
 
@@ -1003,11 +1029,11 @@ function clearForm(){
     if (el) el.value = '';
   });
 
-  snWrap.innerHTML = '';
-  thWrap.innerHTML = '';
-  exWrap.innerHTML = '';
+  if (snWrap) snWrap.innerHTML = '';
+  if (thWrap) thWrap.innerHTML = '';
+  if (exWrap) exWrap.innerHTML = '';
 
-  setSnippetsTable([]);
+  if (snWrap) setSnippetsTable([]);
   setTheoremsTable([]);
   setExercisesTable([]);
 
@@ -1063,7 +1089,6 @@ function clearForm(){
         source_token: parseOptionalInt(fieldValue('source_token')),
         section_token: parseOptionalInt(fieldValue('section_token')),
         lesson_token: parseOptionalInt(fieldValue('lesson_token')),
-        theory_snippets: collectList(snWrap, false),
         theorem_ids: collectList(thWrap, false),
         exercises_ids: collectList(exWrap, false)
       };
