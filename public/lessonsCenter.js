@@ -163,8 +163,11 @@ async function persistOrderFor(wrap){
     if (row.lesson_id) {
       loadScriptedLists(row.lesson_id).catch(console.error);
     } else {
-      // If no id, clear lists
-      setSnippetsTable([]);
+      // init: visible sublists start empty
+      if (snWrap) {
+        setSnippetsTable([]);
+      }
+
       setExercisesTable([]);
     }
 
@@ -762,43 +765,43 @@ async function setExercisesTable(ids){
   }
 
   $('#addTheory').addEventListener('click', async ()=>{
-    const addTheoryBtn = $('#addTheory');
+  const addTheoryBtn = $('#addTheory');
 
-    if (addTheoryBtn && snWrap) {
-      addTheoryBtn.addEventListener('click', async ()=>{
-        const v = snAddInput && snAddInput.value
-          ? parseInt(snAddInput.value,10)
-          : NaN;
+if (addTheoryBtn && snWrap) {
+  addTheoryBtn.addEventListener('click', async ()=>{
+    const v = snAddInput && snAddInput.value
+      ? parseInt(snAddInput.value, 10)
+      : NaN;
 
-        if (!Number.isInteger(v) || v <= 0) return;
+    if (!Number.isInteger(v) || v <= 0) return;
 
-        const existing = Array.from(snWrap.querySelectorAll('tr.row-item'))
-          .map(tr => parseInt(tr.dataset.id,10))
-          .filter(Number.isInteger);
+    const existing = Array.from(snWrap.querySelectorAll('tr.row-item'))
+      .map(tr => parseInt(tr.dataset.id, 10))
+      .filter(Number.isInteger);
 
-        if (existing.includes(v)) {
-          snAddInput.value = '';
-          return;
-        }
-
-        snWrap.appendChild(
-          buildSnippetRow(
-            {
-              snippet_id: v,
-              timeInMinutes: 0,
-              difficulty: 0
-            },
-            snWrap.children.length
-          )
-        );
-
-        makeTableDraggable(snWrap);
-
-        snAddInput.value = '';
-        persistOrderFor(snWrap);
-        updateRefTable();
-      });
+    if (existing.includes(v)) {
+      snAddInput.value = '';
+      return;
     }
+
+    snWrap.appendChild(
+      buildSnippetRow(
+        {
+          snippet_id: v,
+          timeInMinutes: 0,
+          difficulty: 0
+        },
+        snWrap.children.length
+      )
+    );
+
+    makeTableDraggable(snWrap);
+
+    snAddInput.value = '';
+    persistOrderFor(snWrap);
+    updateRefTable();
+  });
+}
   });
   $('#addEx').addEventListener('click', async ()=>{
     const v = exAddInput && exAddInput.value ? parseInt(exAddInput.value,10) : NaN;
@@ -953,6 +956,11 @@ async function doSnippetSearch(q){
 if (searchModeTabs.length) {
   setLessonSearchMode('id');
 }
+});
+
+  if (searchModeTabs.length) {
+    setLessonSearchMode('id');
+  }
   if (snippetInp) snippetInp.addEventListener('input', debouncedSearch);
   if (snippetBtn) snippetBtn.addEventListener('click', ()=> doSnippetSearch(snippetInp.value));
 
