@@ -8,13 +8,11 @@
 .ysn-root { right:auto !important; left:16px !important; }
 .ysn-root .ysn-panel{ left:0 !important; right:auto !important; }
     body {
-        background-color: #F5FFFA;
-    }
-    body {
-        font-family: sans-serif;
-        margin: 0;
-        padding: 0;
-    }
+    background-color: #F5FFFA;
+    font-family: sans-serif;
+    margin: 0;
+    padding: 0;
+}
 
     .switch-container {
         display: flex;
@@ -129,19 +127,7 @@
 
 </head>
 <body>
-<script>
-  document.querySelectorAll('#viewSwitch .switch-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('#viewSwitch .switch-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
 
-      const mode = btn.getAttribute('data-mode');
-
-      document.getElementById('uploadSection').style.display = mode === 'upload' ? 'block' : 'none';
-      document.getElementById('manageSection').style.display = mode === 'manage' ? 'block' : 'none';
-    });
-  });
-</script>
     <!-- View Switch -->
     <div id="viewSwitch" class="switch-container">
         <button class="switch-btn active" data-mode="upload">Upload File</button>
@@ -236,187 +222,68 @@
     </div>
 
     <!-- Manage Files Section -->
-    <div id="manageSection" style="display: none;">
-            
-         
-        <div class="upload-layout">
-            <!-- Left side: two manage sections -->
-            <div class="manage-left">
-                <div>
-                   
-                    <!-- Manage search mode switch -->
-<div class="switch-container" style="justify-content:flex-start; gap:10px; margin: 0 0 10px 0;">
-  <button class="switch-btn active" id="mrModeTuple" type="button"
-    style="flex:0 0 auto; padding:10px 12px; font-size:14px;">Търси по параметри</button>
-  <button class="switch-btn" id="mrModeId" type="button"
-    style="flex:0 0 auto; padding:10px 12px; font-size:14px;">Търси по ID</button>
+<div id="manageSection" style="display: none; width: 100%;">
+    <iframe
+        id="manageRecordsFrame"
+        src="./exe_center_visualizer.html"
+        title="Exercises Visualizer"
+        style="
+            display:block;
+            width:100%;
+            height:calc(100vh - 90px);
+            min-height:760px;
+            border:0;
+            background:white;
+        "
+    ></iframe>
 </div>
+   <script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const buttons = Array.from(
+      document.querySelectorAll('#viewSwitch .switch-btn')
+    );
 
-<!-- Tuple search fields -->
-<div id="tupleSearchFields">
-  <input type="text" id="Number_MR" placeholder="Задача Номер" /><br>
-  <input type="text" id="Page_MR" placeholder="Страница" /><br>
-  <select id="keywordDropdown_MR">
-    <option disabled selected>-- Избери ресурс --</option>
-  </select><br>
-</div>
+    const uploadSection =
+      document.getElementById('uploadSection');
 
-<!-- ID search field -->
-<div id="idSearchField" style="display:none;">
-  <input type="text" id="ExerciseID_MR" placeholder="ID на упражнението" /><br>
-</div>
+    const manageSection =
+      document.getElementById('manageSection');
 
-<div>
-  <button id="searchBtnA" style="width:300px">Search</button>
-  <button id="clear_MR" style="width:300px">Clear</button>
-</div><br>
-                    <!-- 
-                    <h5>Полета за промяна:</h5>
-                    <div class="upload-box">
-                         <label for="file1">Качване на условие:</label>
-                        <input type="file" id="file1" name="fileA" /><br>
-                    </div>
-                    <input type="text" id="difficulty_MR" placeholder="Сложност" />
-                    <div class="form-group">
-                        <label for="dateLastSolved">Последно решаван на:</label>
-                        <input type="date" id="dateLastSolved" />
-                    </div>
-</style>
-<style>
-  /* Page-specific override: place sticky notes on the left for exe_solutions */
-  .ysn-root{ right:auto !important; left:16px !important; }
-</style>
-                    <div class="form-group">
-                        <label for="dateForRevision">Дата за преговор:</label>
-                        <input type="date" id="dateForRevision" />
-                    </div>
-                    <div class="form-group">
-                        <label for="comments">Коментари:</label>
-                        <textarea id="comments" placeholder="Добави коментар" rows="3"></textarea>
-                    </div>
--->
+    function setView(mode) {
+      const showManage = mode === 'manage';
 
-                    <table id="manageTable" border="1" style="margin-top: 1rem; border-collapse: collapse; width: 100%;">
-                        <thead style="background-color: #cce5ff;">
-                            <tr>
-                            <th>ID</th>
-                            <th>Page</th>
-                            <th>Number</th>
-                            <th>SourceID</th>
-                            <th>Date Last Solved</th>
-                            <th>Date for Revision</th>
-                            <th>Comments</th>
-                            <th>Solution</th>
-                            <th>Text</th>
-                            
-                            <!-- <th>Multiple Solutions</th>. -->
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                            <td data-id="1">1</td>
-                            <td data-field="Page" data-id="1" data-original = "empty"></td>
-                            <td data-field="Number" data-id="1" data-original = "empty">empty</td>
-                            <td data-field="ResourceID" data-id="1" data-original = "empty">empty</td>
-                            <!-- <td data-field="date_last_solved" data-id="1" contenteditable="true" data-original = "empty">empty</td> -->
-                             <td>
-                                <div 
-                                contenteditable="true"
-                                class="editable"
-                                data-field="date_last_solved"
-                                data-id="${exercise.ID}"
-                                data-original="${solvedDates}"
-                                >${solvedDates}</div>
-                                <input 
-                                type="date"
-                                id="inputDateSolved"
-                                class="datePicker"
-                                data-id="${exercise.ID}"
-                                data-target="date_last_solved"
-                                style="margin-top: 4px;"
-                                />
-                            </td>
-                            <!-- <td data-field="for_revision" data-id="1" contenteditable="true" data-original = "empty">empty</td> -->
-                             <td>
-                                <div 
-                                contenteditable="true"
-                                class="editable"
-                                data-field="for_revision"
-                                data-id="${exercise.ID}"
-                                data-original="${solvedDates}"
-                                >${}</div>
-                                <input 
-                                type="date"
-                                id = "inputRevision"
-                                class="datePicker"
-                                data-id="${exercise.ID}"
-                                data-target="for_revision"
-                                style="margin-top: 4px;"
-                                />
-                            </td>
-                            <td data-field="comments"
-                                id="commentsID"
-                                data-id="${exercise.ID}"
-                                contenteditable="true"
-                                data-original='empty'>
-                                empty
-                            </td>
-                            <td data-field="solutions_MR"
-                                id="has_solution"
-                                data-id="${exercise.ID}"
-                                contenteditable="true"
-                                data-original='empty'>
-                                empty
-                            </td>
-                            <td data-field="hasText"
-                                id="hasTextID"
-                                data-id="${exercise.ID}"
-                                contenteditable="true"
-                                data-original='empty'>
-                                empty<br><input type="file"
-                                            class="uploadInput_MR"
-                                            data-id="${exercise.ID}"
-                                            data-type="assignmentCondition"
-                                            style="margin-top: 4px;" 
-                                            placeholder=""/>
-                            </td>
-                            <!-- <td data-field="multiple_solutions" data-id="1" contenteditable="true">1</td> -->
-                            </tr>
+      uploadSection.style.display =
+        showManage ? 'none' : 'block';
 
-                        </tbody>
-                        </table>
-                        <button id="saveAllBtn">Save Changes</button>
+      manageSection.style.display =
+        showManage ? 'block' : 'none';
 
-                        <div id="managePreviewWrap" style="
-                            margin-top:20px;
-                            display:flex;
-                            flex-direction:column;
-                            gap:20px;
-                        ">                        
-                        <div style="flex:1 1 600px;">
-                            <h3>Условие</h3>
-                            <div id="previewTextBox"
-                                style="height:600px;border:1px solid #ccc;border-radius:10px;overflow:hidden;background:white">
-                            </div>
-                        </div>
+      buttons.forEach(btn => {
+        btn.classList.toggle(
+          'active',
+          btn.dataset.mode === mode
+        );
+      });
+    }
 
-                        <div style="flex:1 1 600px;">
-                            <h3>Решение</h3>
-                            <div id="previewSolutionBox"
-                                style="height:600px;border:1px solid #ccc;border-radius:10px;overflow:hidden;background:white">
-                            </div>
-                        </div>
-                        </div>
+    buttons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        setView(btn.dataset.mode);
+      });
+    });
 
-                                    
-            </div>
-            </div>
+    setView('upload');
+    const frame = document.getElementById('manageRecordsFrame');
 
-
-            
-        </div>
-    </div>
-   
+if (frame) {
+  frame.addEventListener('load', () => {
+    try {
+      frame.style.height = 'calc(100vh - 88px)';
+    } catch (_) {}
+  });
+}
+  });
+</script>
     <script src="exe_solutions.js"></script>
     <script>
   window.YSN_KEY = 'exe_solutions';
