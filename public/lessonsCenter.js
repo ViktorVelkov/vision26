@@ -224,6 +224,31 @@ async function persistOrderFor(wrap){
   // Helper: fill form from a Lessons row (shared by all loaders)
   function fillFormFromRow(row){
     if (refWrap) refWrap.innerHTML = '';
+
+// Изчистваме файловата информация от предишния урок
+if (lessonFileUpload) lessonFileUpload.value = '';
+if (methodicalFileUpload) methodicalFileUpload.value = '';
+
+if (lessonFileUploadStatus) {
+  lessonFileUploadStatus.textContent = '';
+}
+
+if (methodicalFileUploadStatus) {
+  methodicalFileUploadStatus.textContent = '';
+}
+
+refreshStoredFileUi(
+  '',
+  lessonStoredFilePath,
+  lessonStoredFileOpenBtn
+);
+
+refreshStoredFileUi(
+  '',
+  methodicalStoredFilePath,
+  methodicalStoredFileOpenBtn
+);
+
     currentLessonId = row.lesson_id || currentLessonId;
     // Полета
     setFieldValue(row.lesson_id, 'lessonId', 'lesson_id');
@@ -1266,6 +1291,18 @@ function clearForm(){
   if (methodicalFileUploadStatus) {
     methodicalFileUploadStatus.textContent = '';
   }
+
+  refreshStoredFileUi(
+  '',
+  lessonStoredFilePath,
+  lessonStoredFileOpenBtn
+);
+
+refreshStoredFileUi(
+  '',
+  methodicalStoredFilePath,
+  methodicalStoredFileOpenBtn
+);
   setModeEditing(null);
 }
 
