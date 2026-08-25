@@ -3633,6 +3633,7 @@ app.post('/lessons', async (req, res) => {
     description: typeof body.description === 'string' ? body.description.trim() : null,
     url: typeof body.url === 'string' ? body.url.trim() : null,
     filepath: typeof body.filepath === 'string' ? body.filepath.trim() : null,
+    methodical_filepath:typeof body.methodical_filepath === 'string'? body.methodical_filepath.trim(): null,
     class: Number.isInteger(body.class) ? body.class : (typeof body.class === 'string' && body.class.trim()!=='' ? parseInt(body.class,10) : null)
   };
   const cols = [];
@@ -3816,6 +3817,7 @@ app.get('/lessons/search-basic', requireAuth, async (req, res) => {
            description2,
            url,
            filepath,
+           methodical_filepath,
            class,
            division,
            tripplet_id,
@@ -3879,6 +3881,7 @@ app.get('/lessons/:id', requireAuth, async (req, res) => {
               description2,
               url,
               filepath,
+              methodical_filepath,
               class,
               division,
               tripplet_id,
@@ -3965,6 +3968,7 @@ app.patch('/lessons/:id', async (req, res) => {
   addTextField('description');
   addTextField('url');
   addTextField('filepath');
+  addTextField('methodical_filepath');
   addIntField('class');
   addTextField('division');
 

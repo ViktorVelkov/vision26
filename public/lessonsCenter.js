@@ -21,6 +21,31 @@
   let originalExerciseIds = [];
   const lastActions = new Map(); // lesson_id -> 'new' | 'updated'
   const badge = document.getElementById('editModeBadge');
+  
+  
+  const lessonFileUpload =
+  document.getElementById('lessonFileUpload');
+
+const lessonFileUploadBtn =
+  document.getElementById('lessonFileUploadBtn');
+
+const lessonFileUploadStatus =
+  document.getElementById('lessonFileUploadStatus');
+
+const methodicalFileUpload =
+  document.getElementById('methodicalFileUpload');
+
+const methodicalFileUploadBtn =
+  document.getElementById('methodicalFileUploadBtn');
+
+const methodicalFileUploadStatus =
+  document.getElementById('methodicalFileUploadStatus');
+
+const methodicalFilepathInput =
+  document.getElementById('methodical_filepath');
+  const filepathInput =
+  document.getElementById('filepath');
+  
   function setModeEditing(id){
     currentLessonId = id;
     if (badge){
@@ -157,6 +182,7 @@ async function persistOrderFor(wrap){
     setFieldValue(row.description2 || '', 'description2');
     setFieldValue(row.url || '', 'url');
     setFieldValue(row.filepath || '', 'filepath');
+    setFieldValue(row.methodical_filepath || '', 'methodical_filepath');
     setFieldValue(row.tripplet_id || '', 'tripplet_id');
     setFieldValue(row.source_token != null ? row.source_token : '', 'source_token');
     setFieldValue(row.section_token != null ? row.section_token : '', 'section_token');
@@ -320,6 +346,98 @@ async function loadScriptedLists(lessonId){
 function truncateText(s, n){
   const t = String(s ?? '');
   return t.length <= n ? t : t.slice(0, n - 1) + '…';
+}
+
+async function uploadLessonR2File(kind, file, statusEl, buttonEl) {
+  if (!file) {
+    if (statusEl) statusEl.textContent = 'Избери файл.';
+    return null;
+  }
+
+  const fd = new FormData();
+
+  fd.append('lessonFile', file);
+  fd.append('kind', kind);
+
+  if (statusEl) {
+    statusEl.textContent = 'Качване...';
+  }
+
+  if (buttonEl) {
+    buttonEl.disabled = true;
+  }
+
+  try {
+    const r = await fetch('/lessons/upload-file', {
+      method: 'POST',
+      body: fd
+    });
+
+    const data = await r.json().catch(() => ({}));
+
+    if (!r.ok) {
+      throw new Error(data.error || 'Upload failed');
+    }
+
+    if (statusEl) {
+      statusEl.textContent =
+        `Качено: ${data.path || data.key || ''}`;
+    }
+
+    return data.path || null;
+
+  } catch (e) {
+    console.error('lesson R2 upload failed', e);
+
+    if (statusEl) {
+      statusEl.textContent = 'Грешка при качване.';
+    }
+
+    return null;
+
+  } finally {
+    if (buttonEl) {
+      buttonEl.disabled = false;
+    }
+  }
+}
+
+if (lessonFileUploadBtn && lessonFileUpload) {
+  lessonFileUploadBtn.addEventListener('click', async () => {
+    const file =
+      lessonFileUpload.files &&
+      lessonFileUpload.files[0];
+
+    const path = await uploadLessonR2File(
+      'lesson',
+      file,
+      lessonFileUploadStatus,
+      lessonFileUploadBtn
+    );
+
+    if (path && filepathInput) {
+      filepathInput.value = path;
+    }
+  });
+}
+
+if (methodicalFileUploadBtn && methodicalFileUpload) {
+  methodicalFileUploadBtn.addEventListener('click', async () => {
+    const file =
+      methodicalFileUpload.files &&
+      methodicalFileUpload.files[0];
+
+    const path = await uploadLessonR2File(
+      'methodical',
+      file,
+      methodicalFileUploadStatus,
+      methodicalFileUploadBtn
+    );
+
+    if (path && methodicalFilepathInput) {
+      methodicalFilepathInput.value = path;
+    }
+  });
 }
 
 async function fetchSnippetRefs(ids){
@@ -1044,6 +1162,7 @@ function clearForm(){
     'url',
     'filepath',
     'tripplet_id',
+    'methodical_filepath',
     'source_token',
     'section_token',
     'lesson_token'
@@ -1064,7 +1183,16 @@ function clearForm(){
   if (completionsUl) completionsUl.innerHTML = '';
   if (lessonsTbody) lessonsTbody.innerHTML = '';
   if (refWrap) refWrap.innerHTML = '';
+  if (lessonFileUpload) lessonFileUpload.value = '';
+  if (methodicalFileUpload) methodicalFileUpload.value = '';
 
+  if (lessonFileUploadStatus) {
+    lessonFileUploadStatus.textContent = '';
+  }
+
+  if (methodicalFileUploadStatus) {
+    methodicalFileUploadStatus.textContent = '';
+  }
   setModeEditing(null);
 }
 
@@ -1113,7 +1241,8 @@ function clearForm(){
         section_token: parseOptionalInt(fieldValue('section_token')),
         lesson_token: parseOptionalInt(fieldValue('lesson_token')),
         theorem_ids: collectList(thWrap, false),
-        exercises_ids: collectList(exWrap, false)
+        exercises_ids: collectList(exWrap, false),
+        methodical_filepath: fieldValue('methodical_filepath') || null,
       };
 
     const btn = $('#submitBtn');

@@ -264,6 +264,44 @@
   width: 100%;
 }
 
+.lessonUploadsGrid {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  width: 100%;
+  margin-top: 10px;
+}
+
+.lessonUploadCard {
+  min-width: 0;
+}
+
+.lessonUploadCard > label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.lessonUploadControls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.lessonUploadControls input[type="file"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.lessonUploadStatus {
+  min-height: 18px;
+  margin-top: 6px;
+  color: #64748b;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
  </style>
 </head>
 <body>
@@ -375,9 +413,42 @@
             <label for="url">URL</label>
             <input id="url" type="url" placeholder="https://..." />
           </div>
+          <div class="lessonUploadsGrid">
+          <div class="lessonUploadCard">
+            <label for="lessonFileUpload">Файл към урока</label>
+
+            <div class="lessonUploadControls">
+              <input id="lessonFileUpload" type="file" />
+              <button id="lessonFileUploadBtn" type="button" class="btn btn-small">
+                Качи файл
+              </button>
+            </div>
+
+            <div id="lessonFileUploadStatus" class="lessonUploadStatus"></div>
+          </div>
+
+          <div class="lessonUploadCard">
+            <label for="methodicalFileUpload">Методическа разработка</label>
+
+            <div class="lessonUploadControls">
+              <input id="methodicalFileUpload" type="file" />
+              <button id="methodicalFileUploadBtn" type="button" class="btn btn-small">
+                Качи файл
+              </button>
+            </div>
+
+    <div id="methodicalFileUploadStatus" class="lessonUploadStatus"></div>
+
+    <input
+      id="methodical_filepath"
+      name="methodical_filepath"
+      type="hidden"
+    />
+  </div>
+</div>
           <div>
             <label for="filepath">Файл (път)</label>
-            <input id="filepath" type="text" placeholder="/Users/.../file.pdf" />
+            <input id="filepath" name="filepath" type="hidden" placeholder="/Users/.../file.pdf" />
           </div>
         </div>
       </fieldset>
