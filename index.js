@@ -3676,7 +3676,88 @@ function sameIntArray(a, b) {
   });
 }
 
+// POST /lessons/upload-file
+// kind=lesson      -> r2://lessons/...
+// kind=methodical  -> r2://metodicheskiRazrabotki/...
+app.post(
+  '/lessons/upload-file',
+  requireAuth,
+  upload.single('lessonFile'),
+  async (req, res) => {
 
+    if (!req.file) {
+      return res.status(400).json({
+        error: 'No file uploaded'
+      });
+    }
+
+    const kind = String(req.body.kind || '').trim();
+
+    const folder =
+      kind === 'methodical'
+        ? 'metodicheskiRazrabotki'
+        : 'lessons';
+
+    const originalName =
+      String(req.file.originalname || 'file');
+
+    const originalExt =
+      path.extname(originalName);
+
+    const originalBase =
+      path.basename(originalName, originalExt);
+
+    const safeBase =
+      originalBase
+        .replace(/\s+/g, '_')
+        .replace(/[^a-zA-Z0-9А-Яа-я._-]/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_+|_+$/g, '') || 'file';
+
+    const safeExt =
+      originalExt
+        .replace(/[^a-zA-Z0-9.]/g, '')
+        .toLowerCase();
+
+    const objectKey =
+      `${folder}/${Date.now()}-${crypto.randomUUID()}-${safeBase}${safeExt}`;
+
+    const storedLocation =
+      `r2://${objectKey}`;
+
+    try {
+      await r2.send(
+        new PutObjectCommand({
+          Bucket: process.env.R2_BUCKET,
+          Key: objectKey,
+          Body: req.file.buffer,
+          ContentType:
+            req.file.mimetype || 'application/octet-stream'
+        })
+      );
+
+      return res.json({
+        ok: true,
+        kind:
+          kind === 'methodical'
+            ? 'methodical'
+            : 'lesson',
+        key: objectKey,
+        path: storedLocation
+      });
+
+    } catch (e) {
+      console.error(
+        'POST /lessons/upload-file failed:',
+        e
+      );
+
+      return res.status(500).json({
+        error: 'R2 upload failed'
+      });
+    }
+  }
+);
 
 app.get('/lessons/by-search', async (req, res) => {
   const qRaw = (req.query.q || '').trim();
