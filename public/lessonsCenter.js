@@ -249,8 +249,11 @@ refreshStoredFileUi(
   methodicalStoredFileOpenBtn
 );
 
-    currentLessonId = row.lesson_id || currentLessonId;
+    currentLessonId = row.lesson_id || null;
     // Полета
+        // Нулираме старите файлови пътища преди да приложим новия урок
+    setFieldValue('', 'filepath');
+    setFieldValue('', 'methodical_filepath');
     setFieldValue(row.lesson_id, 'lessonId', 'lesson_id');
     setFieldValue(row.name || '', 'name');
     setFieldValue(row.class != null ? row.class : '', 'lessonClass', 'class');
@@ -1466,9 +1469,14 @@ try {
       const found = await r1.json();
       if (!found || !found.lesson_id) return;
 
-      // 2) Зареди ПЪЛНИЯ урок от snippet-ref (вкл. description2)
-      const r2 = await fetch(`/snippet-ref?id=${encodeURIComponent(found.lesson_id)}`);
-      if (!r2.ok) { console.warn('Failed to load full lesson', found.lesson_id); return; }
+      // 2) Зареди ПЪЛНИЯ урок директно от Lessons
+      const r2 = await fetch(`/lessons/${encodeURIComponent(found.lesson_id)}`);
+
+      if (!r2.ok) {
+        console.warn('Failed to load full lesson', found.lesson_id);
+        return;
+      }
+
       const full = await r2.json();
 
       setModeEditing(full.lesson_id || null);
