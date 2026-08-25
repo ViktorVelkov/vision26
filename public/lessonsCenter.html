@@ -301,7 +301,21 @@
   font-size: 13px;
   overflow-wrap: anywhere;
 }
+.lessonStoredFileRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  min-width: 0;
+}
 
+.lessonStoredFileRow span {
+  flex: 1;
+  min-width: 0;
+  color: #475569;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
  </style>
 </head>
 <body>
@@ -425,6 +439,12 @@
             </div>
 
             <div id="lessonFileUploadStatus" class="lessonUploadStatus"></div>
+            <div class="lessonStoredFileRow">
+            <span id="lessonStoredFilePath"></span>
+            <button id="lessonStoredFileOpenBtn" type="button" class="btn btn-small" hidden>
+              Отвори
+            </button>
+          </div>
           </div>
 
           <div class="lessonUploadCard">
@@ -438,7 +458,12 @@
             </div>
 
     <div id="methodicalFileUploadStatus" class="lessonUploadStatus"></div>
-
+    <div class="lessonStoredFileRow">
+      <span id="methodicalStoredFilePath"></span>
+      <button id="methodicalStoredFileOpenBtn" type="button" class="btn btn-small" hidden>
+        Отвори
+      </button>
+    </div>
     <input
       id="methodical_filepath"
       name="methodical_filepath"

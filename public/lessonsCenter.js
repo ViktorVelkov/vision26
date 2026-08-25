@@ -46,6 +46,58 @@ const methodicalFilepathInput =
   const filepathInput =
   document.getElementById('filepath');
   
+const lessonStoredFilePath =
+  document.getElementById('lessonStoredFilePath');
+
+const lessonStoredFileOpenBtn =
+  document.getElementById('lessonStoredFileOpenBtn');
+
+const methodicalStoredFilePath =
+  document.getElementById('methodicalStoredFilePath');
+
+const methodicalStoredFileOpenBtn =
+  document.getElementById('methodicalStoredFileOpenBtn');
+
+
+function refreshStoredFileUi(pathValue, pathEl, openBtn) {
+  const value = String(pathValue || '').trim();
+
+  if (pathEl) {
+    pathEl.textContent = value || 'Няма качен файл';
+  }
+
+  if (openBtn) {
+    openBtn.hidden = !value;
+    openBtn.dataset.filePath = value;
+  }
+}
+
+function openStoredLessonFile(buttonEl) {
+  const filePath =
+    buttonEl && buttonEl.dataset
+      ? String(buttonEl.dataset.filePath || '').trim()
+      : '';
+
+  if (!filePath) return;
+
+  const url =
+    `/file-preview?path=${encodeURIComponent(filePath)}`;
+
+  window.open(url, '_blank', 'noopener');
+}
+
+if (lessonStoredFileOpenBtn) {
+  lessonStoredFileOpenBtn.addEventListener('click', () => {
+    openStoredLessonFile(lessonStoredFileOpenBtn);
+  });
+}
+
+if (methodicalStoredFileOpenBtn) {
+  methodicalStoredFileOpenBtn.addEventListener('click', () => {
+    openStoredLessonFile(methodicalStoredFileOpenBtn);
+  });
+}
+
   function setModeEditing(id){
     currentLessonId = id;
     if (badge){
@@ -183,6 +235,17 @@ async function persistOrderFor(wrap){
     setFieldValue(row.url || '', 'url');
     setFieldValue(row.filepath || '', 'filepath');
     setFieldValue(row.methodical_filepath || '', 'methodical_filepath');
+   refreshStoredFileUi(
+  row.filepath,
+  lessonStoredFilePath,
+  lessonStoredFileOpenBtn
+);
+
+refreshStoredFileUi(
+  row.methodical_filepath,
+  methodicalStoredFilePath,
+  methodicalStoredFileOpenBtn
+);
     setFieldValue(row.tripplet_id || '', 'tripplet_id');
     setFieldValue(row.source_token != null ? row.source_token : '', 'source_token');
     setFieldValue(row.section_token != null ? row.section_token : '', 'section_token');
@@ -417,6 +480,11 @@ if (lessonFileUploadBtn && lessonFileUpload) {
 
     if (path && filepathInput) {
       filepathInput.value = path;
+      refreshStoredFileUi(
+  path,
+  lessonStoredFilePath,
+  lessonStoredFileOpenBtn
+);
     }
   });
 }
@@ -436,6 +504,11 @@ if (methodicalFileUploadBtn && methodicalFileUpload) {
 
     if (path && methodicalFilepathInput) {
       methodicalFilepathInput.value = path;
+      refreshStoredFileUi(
+  path,
+  methodicalStoredFilePath,
+  methodicalStoredFileOpenBtn
+);
     }
   });
 }
