@@ -3679,24 +3679,120 @@ function sameIntArray(a, b) {
 // POST /lessons/upload-file
 // kind=lesson      -> r2://lessons/...
 // kind=methodical  -> r2://metodicheskiRazrabotki/...
+// app.post(
+//   '/lessons/upload-file',
+//   requireAuth,
+//   upload.single('lessonFile'),
+//   async (req, res) => {
+
+//     if (!req.file) {
+//       return res.status(400).json({
+//         error: 'No file uploaded'
+//       });
+//     }
+
+//     const kind = String(req.body.kind || '').trim();
+
+//     const folder =
+//       kind === 'methodical'
+//         ? 'metodicheskiRazrabotki'
+//         : 'lessons';
+
+//     const originalName =
+//       String(req.file.originalname || 'file');
+
+//     const originalExt =
+//       path.extname(originalName);
+
+//     const originalBase =
+//       path.basename(originalName, originalExt);
+
+//     const safeBase =
+//       originalBase
+//         .replace(/\s+/g, '_')
+//         .replace(/[^a-zA-Z0-9А-Яа-я._-]/g, '_')
+//         .replace(/_+/g, '_')
+//         .replace(/^_+|_+$/g, '') || 'file';
+
+//     const safeExt =
+//       originalExt
+//         .replace(/[^a-zA-Z0-9.]/g, '')
+//         .toLowerCase();
+
+//     const objectKey =
+//       `${folder}/${Date.now()}-${crypto.randomUUID()}-${safeBase}${safeExt}`;
+
+//     const storedLocation =
+//       `r2://${objectKey}`;
+
+//     try {
+//       await r2.send(
+//         new PutObjectCommand({
+//           Bucket: process.env.R2_BUCKET,
+//           Key: objectKey,
+//           Body: req.file.buffer,
+//           ContentType:
+//             req.file.mimetype || 'application/octet-stream'
+//         })
+//       );
+
+//       return res.json({
+//         ok: true,
+//         kind:
+//           kind === 'methodical'
+//             ? 'methodical'
+//             : 'lesson',
+//         key: objectKey,
+//         path: storedLocation
+//       });
+
+//     } catch (e) {
+//       console.error(
+//         'POST /lessons/upload-file failed:',
+//         e
+//       );
+
+//       return res.status(500).json({
+//         error: 'R2 upload failed'
+//       });
+//     }
+//   }
+// );
+
 app.post(
   '/lessons/upload-file',
   requireAuth,
   upload.single('lessonFile'),
   async (req, res) => {
-
     if (!req.file) {
       return res.status(400).json({
         error: 'No file uploaded'
       });
     }
 
+    const lessonId = parseInt(req.body.lesson_id, 10);
+
+    if (!Number.isInteger(lessonId)) {
+      return res.status(400).json({
+        error: 'Invalid or missing lesson_id'
+      });
+    }
+
     const kind = String(req.body.kind || '').trim();
 
-    const folder =
-      kind === 'methodical'
-        ? 'metodicheskiRazrabotki'
-        : 'lessons';
+    const isMethodical = kind === 'methodical';
+
+    const folder = isMethodical
+      ? 'metodicheskiRazrabotki'
+      : 'lessons';
+
+    const currentColumn = isMethodical
+      ? 'methodical_filepath'
+      : 'filepath';
+
+    const historyKind = isMethodical
+      ? 'methodical'
+      : 'lesson';
 
     const originalName =
       String(req.file.originalname || 'file');
@@ -3726,6 +3822,7 @@ app.post(
       `r2://${objectKey}`;
 
     try {
+      // 1. Качваме новия файл в R2
       await r2.send(
         new PutObjectCommand({
           Bucket: process.env.R2_BUCKET,
@@ -3736,14 +3833,65 @@ app.post(
         })
       );
 
+      // 2. Вземаме текущия файл на урока
+      const currentResult = await pool.query(
+        `SELECT "${currentColumn}" AS current_filepath
+           FROM "Lessons"
+          WHERE lesson_id = $1
+          LIMIT 1`,
+        [lessonId]
+      );
+
+      if (!currentResult.rowCount) {
+        return res.status(404).json({
+          error: 'Lesson not found'
+        });
+      }
+
+      const previousPath =
+        currentResult.rows[0].current_filepath || null;
+
+      // 3. Ако има стар файл, записваме го в history
+      if (
+        previousPath &&
+        previousPath !== storedLocation
+      ) {
+        const previousFilename =
+          String(previousPath).split('/').pop() || null;
+
+        await pool.query(
+          `INSERT INTO lesson_file_history
+             (lesson_id, file_kind, filename, filepath)
+           VALUES ($1, $2, $3, $4)`,
+          [
+            lessonId,
+            historyKind,
+            previousFilename,
+            previousPath
+          ]
+        );
+      }
+
+      // 4. Новият файл става текущият
+      await pool.query(
+        `UPDATE "Lessons"
+            SET "${currentColumn}" = $1,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE lesson_id = $2`,
+        [
+          storedLocation,
+          lessonId
+        ]
+      );
+
       return res.json({
         ok: true,
-        kind:
-          kind === 'methodical'
-            ? 'methodical'
-            : 'lesson',
+        lesson_id: lessonId,
+        kind: historyKind,
         key: objectKey,
-        path: storedLocation
+        path: storedLocation,
+        replaced: !!previousPath,
+        previous_path: previousPath
       });
 
     } catch (e) {
@@ -3753,11 +3901,12 @@ app.post(
       );
 
       return res.status(500).json({
-        error: 'R2 upload failed'
+        error: 'R2/DB upload update failed'
       });
     }
   }
 );
+
 
 app.get('/lessons/by-search', async (req, res) => {
   const qRaw = (req.query.q || '').trim();

@@ -708,6 +708,27 @@ async function uploadLessonR2File(kind, file, statusEl, buttonEl) {
 
   fd.append('lessonFile', file);
   fd.append('kind', kind);
+const lessonIdForUpload = parseInt(
+
+  document.getElementById('lessonId')?.value,
+
+  10
+
+);
+
+if (!Number.isInteger(lessonIdForUpload)) {
+
+  if (statusEl) {
+
+    statusEl.textContent = 'Първо зареди съществуващ урок.';
+
+  }
+
+  return null;
+
+}
+
+fd.append('lesson_id', String(lessonIdForUpload));
 
   if (statusEl) {
     statusEl.textContent = 'Качване...';
