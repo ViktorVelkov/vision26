@@ -59,6 +59,265 @@ const methodicalStoredFileOpenBtn =
   document.getElementById('methodicalStoredFileOpenBtn');
 
 
+  const currentLessonsTab =
+  document.getElementById('currentLessonsTab');
+
+const oldLessonsTab =
+  document.getElementById('oldLessonsTab');
+
+const currentLessonsPanel =
+  document.getElementById('currentLessonsPanel');
+
+const oldLessonsPanel =
+  document.getElementById('oldLessonsPanel');
+
+const oldSearchModeTabs =
+  Array.from(document.querySelectorAll('.oldSearchModeTab'));
+
+const oldLessonSearch =
+  document.getElementById('oldLessonSearch');
+
+const oldLessonSearchBtn =
+  document.getElementById('oldLessonSearchBtn');
+
+const oldLessonResults =
+  document.getElementById('oldLessonResults');
+
+const oldLessonFileHistoryBody =
+  document.getElementById('oldLessonFileHistoryBody');
+
+let oldLessonSearchMode = 'id';
+
+
+function setLessonPageTab(mode) {
+  const current = mode !== 'old';
+
+  if (currentLessonsPanel) {
+    currentLessonsPanel.hidden = !current;
+  }
+
+  if (oldLessonsPanel) {
+    oldLessonsPanel.hidden = current;
+  }
+
+  if (currentLessonsTab) {
+    currentLessonsTab.classList.toggle('active', current);
+  }
+
+  if (oldLessonsTab) {
+    oldLessonsTab.classList.toggle('active', !current);
+  }
+}
+
+function setOldLessonSearchMode(mode) {
+  oldLessonSearchMode =
+    ['id', 'name'].includes(mode)
+      ? mode
+      : 'id';
+
+  oldSearchModeTabs.forEach(tab => {
+    tab.classList.toggle(
+      'active',
+      tab.dataset.oldSearchMode === oldLessonSearchMode
+    );
+  });
+
+  if (!oldLessonSearch) return;
+
+  if (oldLessonSearchMode === 'id') {
+    oldLessonSearch.type = 'number';
+    oldLessonSearch.placeholder = 'напр. 4';
+  } else {
+    oldLessonSearch.type = 'text';
+    oldLessonSearch.placeholder = 'напр. Вектори';
+  }
+
+  if (oldLessonResults) {
+    oldLessonResults.innerHTML = '';
+  }
+
+  if (oldLessonFileHistoryBody) {
+    oldLessonFileHistoryBody.innerHTML = '';
+  }
+}
+
+async function searchOldLessons() {
+  if (!oldLessonSearch) return;
+
+  const q =
+    String(oldLessonSearch.value || '').trim();
+
+  if (!q) return;
+
+  try {
+    const params = new URLSearchParams({
+      mode: oldLessonSearchMode,
+      q
+    });
+
+    const r = await fetch(
+      `/lessons/search-basic?${params.toString()}`
+    );
+
+    if (!r.ok) return;
+
+    const data = await r.json();
+
+    renderOldLessonRows(
+      Array.isArray(data.lessons)
+        ? data.lessons
+        : []
+    );
+
+  } catch (e) {
+    console.error('searchOldLessons failed', e);
+  }
+}
+
+function renderOldLessonRows(rows) {
+  if (!oldLessonResults) return;
+
+  oldLessonResults.innerHTML = '';
+
+  rows.forEach(row => {
+    const tr = document.createElement('tr');
+
+    tr.innerHTML =
+      `<td>${escapeHtml(row.lesson_id ?? '')}</td>` +
+      `<td>${escapeHtml(row.tripplet_id || '')}</td>` +
+      `<td>${escapeHtml(row.description || row.name || '')}</td>` +
+      `<td>${escapeHtml(row.class ?? '')}</td>` +
+      `<td>
+        <button
+          type="button"
+          class="btn btn-small btn-load-old-files"
+          data-lesson-id="${escapeHtml(row.lesson_id ?? '')}">
+          Зареди
+        </button>
+      </td>`;
+
+    oldLessonResults.appendChild(tr);
+  });
+
+  oldLessonResults
+    .querySelectorAll('.btn-load-old-files')
+    .forEach(btn => {
+      btn.addEventListener('click', () => {
+        const lessonId =
+          parseInt(btn.dataset.lessonId, 10);
+
+        if (Number.isInteger(lessonId)) {
+          loadOldLessonFileHistory(lessonId);
+        }
+      });
+    });
+}
+
+async function loadOldLessonFileHistory(lessonId) {
+  if (!oldLessonFileHistoryBody) return;
+
+  oldLessonFileHistoryBody.innerHTML = '';
+
+  try {
+    const r = await fetch(
+      `/lessons/${encodeURIComponent(lessonId)}/file-history`
+    );
+
+    if (!r.ok) return;
+
+    const rows = await r.json();
+
+    (Array.isArray(rows) ? rows : [])
+      .forEach(row => {
+        const tr =
+          document.createElement('tr');
+
+        const typeLabel =
+          row.file_kind === 'methodical'
+            ? 'Методическа разработка'
+            : 'Файл към урока';
+
+        tr.innerHTML =
+          `<td>${escapeHtml(typeLabel)}</td>` +
+          `<td>${escapeHtml(row.filename || '')}</td>` +
+          `<td>${escapeHtml(row.filepath || '')}</td>` +
+          `<td>${escapeHtml(row.created_at || '')}</td>` +
+          `<td>
+            <button
+              type="button"
+              class="btn btn-small btn-open-old-file"
+              data-file-path="${escapeHtml(row.filepath || '')}">
+              Отвори
+            </button>
+          </td>`;
+
+        oldLessonFileHistoryBody.appendChild(tr);
+      });
+
+    oldLessonFileHistoryBody
+      .querySelectorAll('.btn-open-old-file')
+      .forEach(btn => {
+        btn.addEventListener('click', () => {
+          const filePath =
+            String(btn.dataset.filePath || '').trim();
+
+          if (!filePath) return;
+
+          window.open(
+            `/file-preview?path=${encodeURIComponent(filePath)}`,
+            '_blank',
+            'noopener'
+          );
+        });
+      });
+
+  } catch (e) {
+    console.error(
+      'loadOldLessonFileHistory failed',
+      e
+    );
+  }
+}
+
+if (currentLessonsTab) {
+  currentLessonsTab.addEventListener(
+    'click',
+    () => setLessonPageTab('current')
+  );
+}
+
+if (oldLessonsTab) {
+  oldLessonsTab.addEventListener(
+    'click',
+    () => setLessonPageTab('old')
+  );
+}
+
+oldSearchModeTabs.forEach(tab => {
+  tab.addEventListener('click', () => {
+    setOldLessonSearchMode(
+      tab.dataset.oldSearchMode
+    );
+  });
+});
+
+if (oldLessonSearchBtn) {
+  oldLessonSearchBtn.addEventListener(
+    'click',
+    searchOldLessons
+  );
+}
+
+if (oldLessonSearch) {
+  oldLessonSearch.addEventListener(
+    'input',
+    debounce(searchOldLessons, 250)
+  );
+}
+
+setLessonPageTab('current');
+setOldLessonSearchMode('id');
+
 function refreshStoredFileUi(pathValue, pathEl, openBtn) {
   const value = String(pathValue || '').trim();
 

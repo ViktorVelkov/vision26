@@ -3947,6 +3947,46 @@ app.get('/lessons/search-basic', requireAuth, async (req, res) => {
     return res.status(500).json({ error: 'DB error' });
   }
 });
+
+
+app.get('/lessons/:id/file-history', requireAuth, async (req, res) => {
+  const lessonId = parseInt(req.params.id, 10);
+
+  if (!Number.isInteger(lessonId)) {
+    return res.status(400).json({
+      error: 'Invalid lesson id'
+    });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         id,
+         lesson_id,
+         file_kind,
+         filename,
+         filepath,
+         created_at
+       FROM lesson_file_history
+       WHERE lesson_id = $1
+       ORDER BY created_at DESC, id DESC`,
+      [lessonId]
+    );
+
+    return res.json(rows);
+
+  } catch (e) {
+    console.error(
+      'GET /lessons/:id/file-history failed:',
+      e
+    );
+
+    return res.status(500).json({
+      error: 'DB error'
+    });
+  }
+});
+
 app.get('/lessons/:id', requireAuth, async (req, res) => {
   const lessonId = parseInt(req.params.id, 10);
 
@@ -3998,7 +4038,19 @@ app.patch('/lessons/:id', async (req, res) => {
   const body = req.body || {};
   const sets = [];
   const params = [];
+  const current = await pool.query(
+    `SELECT filepath, methodical_filepath
+      FROM "Lessons"
+      WHERE lesson_id = $1
+      LIMIT 1`,
+    [id]
+  );
 
+  const currentFilepath =
+    current.rows[0] ? current.rows[0].filepath : null;
+
+  const currentMethodicalFilepath =
+    current.rows[0] ? current.rows[0].methodical_filepath : null;
   const has = (key) => Object.prototype.hasOwnProperty.call(body, key);
 
   const addTextField = (key) => {
@@ -4040,6 +4092,40 @@ app.patch('/lessons/:id', async (req, res) => {
     sets.push(`"${key}" = $${params.length}`);
   };
 
+  if (
+  Object.prototype.hasOwnProperty.call(body, 'filepath') &&
+  typeof body.filepath === 'string' &&
+  body.filepath.trim() &&
+  currentFilepath &&
+  body.filepath.trim() !== currentFilepath
+) {
+  const filename = currentFilepath.split('/').pop();
+
+  await pool.query(
+    `INSERT INTO lesson_file_history
+       (lesson_id, file_kind, filename, filepath)
+     VALUES ($1, 'lesson', $2, $3)`,
+    [id, filename, currentFilepath]
+  );
+}
+
+if (
+  Object.prototype.hasOwnProperty.call(body, 'methodical_filepath') &&
+  typeof body.methodical_filepath === 'string' &&
+  body.methodical_filepath.trim() &&
+  currentMethodicalFilepath &&
+  body.methodical_filepath.trim() !== currentMethodicalFilepath
+) {
+  const filename =
+    currentMethodicalFilepath.split('/').pop();
+
+  await pool.query(
+    `INSERT INTO lesson_file_history
+       (lesson_id, file_kind, filename, filepath)
+     VALUES ($1, 'methodical', $2, $3)`,
+    [id, filename, currentMethodicalFilepath]
+  );
+}
   addTextField('name');
   addTextField('description2');
   addIntField('source_token');

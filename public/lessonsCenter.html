@@ -316,10 +316,74 @@
   font-size: 13px;
   overflow-wrap: anywhere;
 }
+
+.lessonPageTabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 16px;
+  border: 1px solid #dbe4f0;
+  border-radius: 999px;
+  background: #fff;
+}
+
+.lessonPageTab {
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  padding: 8px 14px;
+  cursor: pointer;
+  color: #64748b;
+  font-weight: 700;
+}
+
+.lessonPageTab.active {
+  background: #dbeafe;
+  color: #1e3a8a;
+}
+
+#oldLessonsPanel[hidden],
+#currentLessonsPanel[hidden] {
+  display: none !important;
+}
+
+.oldSearchModeTab {
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  padding: 6px 10px;
+  cursor: pointer;
+  color: #64748b;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.oldSearchModeTab.active {
+  background: #dbeafe;
+  color: #1e3a8a;
+}
  </style>
 </head>
 <body>
   <div class="wrap">
+    <div class="lessonPageTabs">
+  <button
+    id="currentLessonsTab"
+    class="lessonPageTab active"
+    type="button"
+    data-page-tab="current">
+    Текущи
+  </button>
+
+  <button
+    id="oldLessonsTab"
+    class="lessonPageTab"
+    type="button"
+    data-page-tab="old">
+    Стари
+  </button>
+</div>
+<div id="currentLessonsPanel">
     <h1>Добавяне на урок</h1>
 
     <fieldset style="margin-top:10px;">
@@ -583,6 +647,88 @@
       <tbody></tbody>
     </table>
   </div>
+</div>
+
+<div id="oldLessonsPanel" hidden>
+
+  <h1>Стари файлове към уроци</h1>
+
+  <fieldset>
+    <legend>Търсене на урок</legend>
+
+    <div class="searchModeTabs">
+      <button
+        class="oldSearchModeTab active"
+        type="button"
+        data-old-search-mode="id">
+        ID
+      </button>
+
+      <button
+        class="oldSearchModeTab"
+        type="button"
+        data-old-search-mode="name">
+        Име на урока
+      </button>
+    </div>
+
+    <div class="row" style="margin-top:12px;">
+      <div>
+        <input
+          id="oldLessonSearch"
+          type="number"
+          placeholder="напр. 4"
+        />
+      </div>
+
+      <div>
+        <button
+          id="oldLessonSearchBtn"
+          class="btn"
+          type="button">
+          Търси
+        </button>
+      </div>
+    </div>
+
+    <div style="margin-top:12px; overflow:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Триплет</th>
+            <th>Тема</th>
+            <th>Клас</th>
+            <th></th>
+          </tr>
+        </thead>
+
+        <tbody id="oldLessonResults"></tbody>
+      </table>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>История на файловете</legend>
+
+    <div style="overflow:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>Тип</th>
+            <th>Име</th>
+            <th>Път</th>
+            <th>Дата</th>
+            <th></th>
+          </tr>
+        </thead>
+
+        <tbody id="oldLessonFileHistoryBody"></tbody>
+      </table>
+    </div>
+  </fieldset>
+
+</div>
 
   <script src="./lessonsCenter.js"></script>
   <!-- Sticky Notes for Lessons Center (right side by default) -->
