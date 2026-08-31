@@ -46,10 +46,9 @@ document.getElementById("fileClear2").addEventListener("click", async() => {
     document.getElementById("file2").value = "";
 })
 
-//
-document.getElementById("clear_MR").addEventListener("click", async() => {
+document.getElementById("clear_MR")?.addEventListener("click", async() => {
     resetManageForm();
-    document.getElementById("searchBtnA").click();
+    document.getElementById("searchBtnA")?.click();
 });
 
 // For uploadBtnB - 
@@ -505,7 +504,7 @@ async function populateManageResourcesDropdown() {
   }
 }
 
-document.getElementById("searchBtnA").addEventListener("click", async () => {
+document.getElementById("searchBtnA")?.addEventListener("click", async () => {
   let url = "";
 
   // ===== MODE: SEARCH BY ID =====
@@ -621,7 +620,7 @@ document.getElementById("searchBtnA").addEventListener("click", async () => {
   }
 });
 
-document.getElementById("saveAllBtn").addEventListener("click", async () => {
+document.getElementById("saveAllBtn")?.addEventListener("click", async () => {
     
     const editableCells = document.querySelectorAll("td[contenteditable='true'], input.datePicker,input.uploadInput_MR");
     for (const cell of editableCells) {
