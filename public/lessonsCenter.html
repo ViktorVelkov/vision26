@@ -6,80 +6,209 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Уроци — добавяне</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
-    body { 
-      font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif; 
-      padding: 24px; 
-      background: #f2f2f2; /* light gray */
+   :root{
+      --ink:#1B3A5C;
+      --ink-soft:#5C7189;
+      --ink-faint:#9AA8B5;
+      --chalk:#F7F2E7;
+      --paper:#FFFFFF;
+      --indigo:#8B85F5;
+      --indigo-dark:#6259D1;
+      --indigo-soft:#EFEDFC;
+      --amber:#D9B168;
+      --amber-soft:#FAF2E0;
+      --green:#6FC7A4;
+      --green-soft:#EBF7F1;
+      --red:#E2828F;
+      --red-soft:#FCEEF0;
+      --border:#EAE2D2;
+      --border-soft:#F1EBDE;
+      --radius-lg:18px;
+      --radius-md:13px;
+      --radius-sm:8px;
+      --shadow-sm:0 1px 2px rgba(27,58,92,0.045);
+      --shadow-md:0 8px 22px -8px rgba(27,58,92,0.10);
+      --shadow-lg:0 22px 48px -14px rgba(27,58,92,0.16);
+      --font-display:'Plus Jakarta Sans', sans-serif;
+      --font-body:'Inter', sans-serif;
+      --font-mono:'JetBrains Mono', monospace;
+      --border-section: color-mix(in srgb, var(--border) 40%, var(--ink-faint));
+    }
+    *, *::before, *::after{
+      box-sizing: border-box;
+    }
+    :focus-visible{
+      outline: 2.5px solid var(--indigo-dark);
+      outline-offset: 2px;
+      border-radius: 6px;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif;
+      padding: 24px;
+      background: var(--chalk);
     }
     h1 { text-align: center; }
     .wrap { max-width: 900px; margin: 0 auto; }
-    fieldset { border: 1px solid #ddd; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
-    legend { padding: 0 8px; color: #333; }
+    fieldset, details { border: 1px solid var(--border-section); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+    legend { padding: 0 8px; color: var(--ink-soft); }
+
+    summary {
+      padding: 0 8px;
+      color: var(--ink-soft);
+      font-weight: 600;
+      cursor: pointer;
+      user-select: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    summary::-webkit-details-marker { display: none; }
+    summary::marker { content: ''; }
+    summary::after {
+      content: '';
+      width: 7px;
+      height: 7px;
+      flex-shrink: 0;
+      border-right: 1.5px solid var(--ink-faint);
+      border-bottom: 1.5px solid var(--ink-faint);
+      transform: rotate(-45deg);
+      transition: transform .15s ease;
+    }
+    details[open] > summary::after {
+      transform: rotate(45deg);
+    }
+    details[open] > summary {
+      margin-bottom: 12px;
+    }
     label { display: block; margin: 8px 0 4px; font-weight: 600; }
-    input[type="text"], input[type="url"], input[type="number"], textarea { width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 8px; }
+    input[type="text"], input[type="url"], input[type="number"], textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; transition: border-color .15s ease, box-shadow .15s ease; }
+    input[type="text"]:focus, input[type="url"]:focus, input[type="number"]:focus, textarea:focus { outline: none; border-color: var(--indigo); box-shadow: 0 0 0 3px var(--indigo-soft); }
     textarea { min-height: 90px; }
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
-    .btn { display: inline-block; padding: 8px 14px; border-radius: 8px; border: 1px solid #c3d2e5; background: #e9f1ff; cursor: pointer; font-weight: 600; }
+    .btn { display: inline-block; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--indigo); background: var(--indigo-soft); cursor: pointer; font-weight: 600; }
     .btn:disabled { opacity: .6; cursor: not-allowed; }
-    .btn-plain { background: #fff; }
+    .btn-plain { background: var(--paper); }
     .list { margin-top: 8px; }
     .list .item { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
     .list .item input { flex: 1; }
-    .item .rem { border: 1px solid #999; background: #fff; width: 32px; height: 32px; border-radius: 6px; }
+    .item .rem { border: 1px solid var(--ink-faint); background: var(--paper); width: 32px; height: 32px; border-radius: 6px; }
 
-    /* Drag & drop styling */
     .list .item { cursor: grab; }
     .list .item:active { cursor: grabbing; }
-    .list .item.dragging { opacity: 0.6; outline: 2px dashed #9ca3af; background: #f8fafc; }
-    .list .item.placeholder { height: 36px; border: 2px dashed #cbd5e1; border-radius: 6px; margin-bottom: 6px; }
-    /* Drag rows for exercises table */
-    #ex_table_body tr.row-item { cursor: grab; }
-    #ex_table_body tr.row-item:active { cursor: grabbing; }
-    #ex_table_body tr.row-item.dragging { opacity: 0.6; outline: 2px dashed #9ca3af; background: #f8fafc; }
-    .success { border-left: 4px solid #18a957; padding: 8px 12px; background: #eaf9f0; border-radius: 8px; }
-    .error { border-left: 4px solid #c62828; padding: 8px 12px; background: #fde8e8; border-radius: 8px; }
+    .list .item.dragging { opacity: 0.6; outline: 2px dashed var(--ink-faint); background: var(--chalk); }
+    .list .item.placeholder { height: 36px; border: 2px dashed var(--border); border-radius: 6px; margin-bottom: 6px; }
+    #th_table_body tr.row-item, #ex_table_body tr.row-item { cursor: grab; }
+    #th_table_body tr.row-item:active, #ex_table_body tr.row-item:active { cursor: grabbing; }
+    #th_table_body tr.row-item.dragging, #ex_table_body tr.row-item.dragging { opacity: 0.6; outline: 2px dashed var(--ink-faint); background: var(--chalk); }
+    
+    .success, .error {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border-radius: var(--radius-md);
+      font-size: 13.5px;
+      font-weight: 500;
+      color: white;
+      box-shadow: var(--shadow-sm);
+      animation: msgFadeIn .2s ease;
+    }
+    .success { background: color-mix(in srgb, var(--green) 45%, var(--ink)); }
+    .error { background: color-mix(in srgb, var(--red) 45%, var(--ink)); }
+    @keyframes msgFadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
     table { width: 100%; border-collapse: collapse; margin-top: 24px; }
-    th, td { border-bottom: 1px solid #eee; padding: 8px 10px; text-align: left; }
-    th { background: #fafafa; }
+    th, td { border-bottom: 1px solid var(--border-soft); padding: 8px 10px; text-align: left; }
+    th { background: var(--chalk); }
 
-    /* Small button variant */
     .btn-small { padding: 4px 10px; font-size: 12px; border-radius: 6px; }
 
-    /* Flash highlight for autofilled fields */
     @keyframes flashFill {
-      0%   { background-color: #e6f9ed; }
-      70%  { background-color: #f2fcf6; }
+      0%   { background-color: var(--green-soft); }
+      70%  { background-color: var(--green-soft); }
       100% { background-color: transparent; }
     }
     .flash-fill {
       animation: flashFill 900ms ease-out 1;
     }
 
-    /* Badge for edit/new mode */
-    .mode-badge { font-size: 12px; padding: 4px 8px; border-radius: 999px; border: 1px solid #cbd5e1; background:#f8fafc; color:#0f172a; display:inline-block; }
-    .mode-badge.edit { background:#fff7ed; border-color:#fdba74; color:#9a3412; }
+    .mode-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 5px 12px 5px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--chalk);
+      color: var(--ink-soft);
+    }
+    .mode-badge::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--ink-faint);
+      flex-shrink: 0;
+    }
+    .mode-badge.edit {
+      background: var(--amber-soft);
+      border-color: var(--amber);
+      color: color-mix(in srgb, var(--amber) 55%, var(--ink));
+    }
+    .mode-badge.edit::before {
+      background: var(--amber);
+      box-shadow: 0 0 0 3px var(--amber-soft);
+    }
 
-    /* Bottom table: one-line rows with horizontal scroll in cells */
     #recentTable { table-layout: fixed; }
     #recentTable th, #recentTable td { white-space: nowrap; overflow-x: auto; overflow-y: hidden; }
-    #recentTable th { position: sticky; top: 0; z-index: 1; }
-    /* Narrower, fixed widths via colgroup */
+    #recentTable th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: var(--ink-faint);
+    }
+    #recentTable tbody tr {
+      transition: background .12s ease;
+    }
+    #recentTable tbody tr:hover {
+      background: var(--chalk);
+    }
+    #recentTable td:nth-child(1),
+    #recentTable td:nth-child(6) {
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+    }
+
     #recentTable col.id    { width: 70px; }
     #recentTable col.stat  { width: 110px; }
     #recentTable col.trip  { width: 160px; }
     #recentTable col.desc  { width: 320px; }
     #recentTable col.cls   { width: 80px; }
     #recentTable col.upd   { width: 140px; }
-    /* Status tags */
-    .status-tag { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; border:1px solid #cbd5e1; background:#f8fafc; color:#0f172a; }
-    .status-tag.new { background:#e6f9ed; border-color:#86efac; color:#166534; }
-    .status-tag.updated { background:#eef2ff; border-color:#93c5fd; color:#1e3a8a; }
+
+    .status-tag { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; border:1px solid var(--border); background:var(--chalk); color:var(--ink); }
+    .status-tag.new { background:var(--green-soft); border-color:var(--green); color:color-mix(in srgb, var(--green) 45%, var(--ink)); }
+    .status-tag.updated { background:var(--indigo-soft); border-color:var(--indigo); color:var(--indigo-dark); }
 
     .subListsGrid {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: 1fr;
       gap: 24px;
       align-items: start;
       width: 100%;
@@ -91,6 +220,63 @@
 
     .subListPanel table {
       width: 100%;
+    }
+
+    .subListTableWrap {
+      border: 1px solid var(--border-section);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      margin-top: 6px;
+    }
+    .subListTableWrap table {
+      margin-top: 0;
+    }
+    #th_table th, #ex_table th {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: var(--ink-faint);
+      background: var(--chalk);
+      border-bottom: 1px solid var(--border-soft);
+    }
+    #th_table_body tr, #ex_table_body tr {
+      transition: background .12s ease;
+    }
+    #th_table_body tr:hover, #ex_table_body tr:hover {
+      background: var(--chalk);
+    }
+    #th_table_body td:first-child, #ex_table_body td.eid {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--ink);
+    }
+    #th_table_body td:nth-child(2) input,
+    #th_table_body td:nth-child(3) input,
+    #ex_table_body td.dur input,
+    #ex_table_body td.diff input {
+      text-align: center;
+    }
+    
+    .rem {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+      background: var(--paper);
+      color: var(--ink-faint);
+      font-size: 15px;
+      line-height: 1;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: background .15s ease, color .15s ease, border-color .15s ease;
+    }
+    .rem:hover {
+      background: var(--red-soft);
+      border-color: var(--red);
+      color: var(--red);
     }
 
     .subListControls {
@@ -110,11 +296,6 @@
       }
     }
 
-    .fullWidthSection {
-      width: calc(100vw - 48px);
-      margin-left: calc(-50vw + 450px + 24px);
-    }
-
     /* панел за качества-теореми-задачи. край */
     .row {
       gap: 42px;
@@ -124,11 +305,6 @@
       grid-template-columns: 1fr 1fr;
       gap: 0 28px;
       width: 100%;
-    }
-
-    .rowClassLesson {
-      display: flex;
-      justify-content: space-between;
     }
 
     .lessonClassRow > div {
@@ -201,21 +377,15 @@
       z-index: 2;
     }
 
-    .searchModeLabel {
-      margin: 0 0 8px;
-      color: #64748b;
-      font-weight: 600;
-    }
-
    .searchModeTabs {
   display: inline-grid;
   grid-template-columns: repeat(3, max-content);
   gap: 4px;
   width: auto;
   padding: 4px;
-  border: 1px solid #dbe4f0;
+  border: 1px solid var(--border);
   border-radius: 999px;
-  background: #fff;
+  background: var(--paper);
 }
 
 .searchModeTab {
@@ -224,7 +394,7 @@
   background: transparent;
   padding: 6px 10px;
   cursor: pointer;
-  color: #64748b;
+  color: var(--ink-soft);
   font-weight: 700;
   font-size: 13px;
   line-height: 1.2;
@@ -232,12 +402,69 @@
   position: relative;
   z-index: 2;
   pointer-events: auto;
+  transition: background .15s ease, color .15s ease, box-shadow .15s ease;
+}
+
+.searchModeTab:hover:not(.active) {
+  color: var(--ink);
 }
 
     .searchModeTab.active {
-      background: #dbeafe;
-      color: #1e3a8a;
-      box-shadow: inset 0 0 0 1px #bfdbfe, 0 1px 4px rgba(30, 64, 175, 0.18);
+      background: var(--indigo-soft);
+      color: var(--indigo-dark);
+      box-shadow: inset 0 0 0 1px var(--indigo), 0 1px 4px color-mix(in srgb, var(--indigo-dark) 18%, transparent);
+    }
+
+    .fieldGroup {
+      background: var(--chalk);
+      border: 1px solid var(--border-section);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      margin: 14px 0;
+    }
+   
+    .fieldGroupTitle {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--ink-faint);
+      margin: 0 0 12px;
+      cursor: pointer;
+      user-select: none;
+    }
+    details[open] > .fieldGroupTitle {
+      margin: 0 0 12px;
+    }
+    .fieldGroupTitle::before {
+      content: "";
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: var(--indigo);
+      flex-shrink: 0;
+    }
+    .fieldGroupTitle::after {
+      content: '';
+      width: 6px;
+      height: 6px;
+      flex-shrink: 0;
+      margin-left: auto;
+      border-right: 1.5px solid var(--ink-faint);
+      border-bottom: 1.5px solid var(--ink-faint);
+      transform: rotate(-45deg);
+      transition: transform .15s ease;
+    }
+    details[open] > .fieldGroupTitle::after {
+      transform: rotate(45deg);
+    }
+    
+    .tokenGroup input {
+      font-family: var(--font-mono);
+      font-size: 13px;
     }
 #snippetResults {
   display: block;
@@ -253,15 +480,42 @@
   width: 100%;
 }
 
+
 #snippetLessonsWrap {
   max-height: 360px !important;
   width: 100%;
-  box-sizing: border-box;
+  overflow-y: auto;
+  border: 1px solid var(--border-section);
+  border-radius: var(--radius-md);
+  padding: 6px;
 }
 
 #snippetLessonsWrap table {
   margin-top: 0;
   width: 100%;
+}
+
+#snippetLessonsWrap th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+#snippetLessons tr {
+  transition: background .12s ease;
+}
+#snippetLessons tr:hover {
+  background: var(--chalk);
+}
+#snippetLessons td:nth-child(1),
+#snippetLessons td:nth-child(2) {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
 }
 
 .lessonUploadsGrid {
@@ -273,13 +527,18 @@
   margin-top: 10px;
 }
 
+
 .lessonUploadCard {
   min-width: 0;
+  background: var(--chalk);
+  border: 1px solid var(--border-section);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
 }
 
 .lessonUploadCard > label {
   display: block;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
   font-weight: 600;
 }
 
@@ -292,13 +551,16 @@
 .lessonUploadControls input[type="file"] {
   flex: 1;
   min-width: 0;
+  font-size: 12.5px;
+  color: var(--ink-soft);
 }
 
 .lessonUploadStatus {
   min-height: 18px;
   margin-top: 6px;
-  color: #64748b;
-  font-size: 13px;
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  font-family: var(--font-mono);
   overflow-wrap: anywhere;
 }
 .lessonStoredFileRow {
@@ -312,8 +574,9 @@
 .lessonStoredFileRow span {
   flex: 1;
   min-width: 0;
-  color: #475569;
-  font-size: 13px;
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  font-family: var(--font-mono);
   overflow-wrap: anywhere;
 }
 
@@ -322,9 +585,9 @@
   gap: 4px;
   padding: 4px;
   margin-bottom: 16px;
-  border: 1px solid #dbe4f0;
+  border: 1px solid var(--border);
   border-radius: 999px;
-  background: #fff;
+  background: var(--paper);
 }
 
 .lessonPageTab {
@@ -333,13 +596,18 @@
   background: transparent;
   padding: 8px 14px;
   cursor: pointer;
-  color: #64748b;
+  color: var(--ink-soft);
   font-weight: 700;
+  transition: background .15s ease, color .15s ease;
+}
+
+.lessonPageTab:hover:not(.active) {
+  color: var(--ink);
 }
 
 .lessonPageTab.active {
-  background: #dbeafe;
-  color: #1e3a8a;
+  background: var(--indigo-soft);
+  color: var(--indigo-dark);
 }
 
 #oldLessonsPanel[hidden],
@@ -353,14 +621,30 @@
   background: transparent;
   padding: 6px 10px;
   cursor: pointer;
-  color: #64748b;
+  color: var(--ink-soft);
   font-weight: 700;
   font-size: 13px;
 }
 
 .oldSearchModeTab.active {
-  background: #dbeafe;
-  color: #1e3a8a;
+  background: var(--indigo-soft);
+  color: var(--indigo-dark);
+}
+
+
+@media (max-width: 768px) {
+  .row,
+  .row3,
+  .lessonClassRow {
+    grid-template-columns: 1fr;
+  }
+  .lessonUploadsGrid {
+    grid-template-columns: 1fr;
+  }
+  
+  .subListTableWrap {
+    overflow-x: auto;
+  }
 }
  </style>
 </head>
@@ -386,8 +670,8 @@
 <div id="currentLessonsPanel">
     <h1>Добавяне на урок</h1>
 
-    <fieldset style="margin-top:10px;">
-      <legend>Търсене на урок</legend>
+    <details open style="margin-top:10px;">
+      <summary>Търсене на урок</summary>
 
       <div class="searchModeTabsWrap">
         <div class="searchModeTabs" role="tablist" aria-label="Режим на търсене">
@@ -401,7 +685,7 @@
           <label>&nbsp;</label>
           <div style="display:flex; gap:8px; align-items:center;">
             <button id="snippetSearchBtn" class="btn" type="button">Търси</button>
-            <button id="loadBySearchBtn" class="btn btn-small" type="button">Зареди</button>
+            <button id="loadBySearchBtn" class="btn" type="button">Зареди</button>
           </div>
         </div>
       </div>
@@ -412,7 +696,7 @@
         </div>
         <div>
           <strong></strong>
-          <div id="snippetLessonsWrap" style="max-height:220px; overflow:auto; border:1px solid #eee; border-radius:8px; padding:6px;">
+          <div id="snippetLessonsWrap">
             <table style="width:100%; border-collapse:collapse;">
               <thead>
                 <tr>
@@ -428,10 +712,11 @@
           </div>
         </div>
       </div>
-    </fieldset>
+    </details>
 
     <form id="lessonForm" autocomplete="off">
-      <fieldset>
+      <details>
+        <summary>Основни</summary>
         <div>
           <label for="lessonId">lesson_id</label>
           <input id="lessonId" type="number" placeholder="ID на урока" />
@@ -441,52 +726,64 @@
             <input id="lessonName" type="text" ...>
           </div>
 
-        <legend>Основни</legend>
-      
-        <div class="row">
-        
-          <div class="lessonClassRow">
-          <div>
-            <label>Клас</label>
-            <input id="lessonClass" type="number" placeholder="напр. 9" />
+        <details open class="fieldGroup">
+          <summary class="fieldGroupTitle">Разположение</summary>
+          <div class="row">
+
+            <div class="lessonClassRow">
+            <div>
+              <label>Клас</label>
+              <input id="lessonClass" type="number" placeholder="напр. 9" />
+            </div>
+
+            <div>
+              <label>Паралелка</label>
+              <input id="lessonDivision" type="text" placeholder="напр. А" />
+            </div>
           </div>
 
-          <div>
-            <label>Паралелка</label>
-            <input id="lessonDivision" type="text" placeholder="напр. А" />
           </div>
-        </div>
-          
-        </div>
-        <div class="row3">
+        </details>
+        <details class="fieldGroup tokenGroup">
+          <summary class="fieldGroupTitle">Токени</summary>
+          <div class="row3">
+            <div>
+              <label for="source_token">source_token</label>
+              <input id="source_token" type="number" placeholder="напр. 27001" />
+            </div>
+            <div>
+              <label for="section_token">section_token</label>
+              <input id="section_token" type="number" placeholder="напр. 12" />
+            </div>
+            <div>
+              <label for="lesson_token">lesson_token</label>
+              <input id="lesson_token" type="number" placeholder="напр. 3" />
+            </div>
+          </div>
+          <div class="row">
+            <div>
+              <label for="tripplet_id">Триплет (текст)</label>
+              <input id="tripplet_id" type="text" placeholder="напр. 027001001 или 027.001.001" />
+            </div>
+            <div>
+            </div>
+
+          </div>
+        </details>
+        <details class="fieldGroup">
+          <summary class="fieldGroupTitle">Тема</summary>
           <div>
-            <label for="source_token">source_token</label>
-            <input id="source_token" type="number" placeholder="напр. 27001" />
+            <label for="description">Тема</label>
+            <textarea id="description" placeholder="Кратко описание на урока"></textarea>
           </div>
           <div>
-            <label for="section_token">section_token</label>
-            <input id="section_token" type="number" placeholder="напр. 12" />
+            <label for="description2">Описание</label>
+            <textarea id="description2" placeholder="Допълнително описание / бележки към урока"></textarea>
           </div>
-          <div>
-            <label for="lesson_token">lesson_token</label>
-            <input id="lesson_token" type="number" placeholder="напр. 3" />
-          </div>
-        </div>
-        <div class="row">
-          <div>
-            <label for="tripplet_id">Триплет (текст)</label>
-            <input id="tripplet_id" type="text" placeholder="напр. 027001001 или 027.001.001" />
-          </div>
-          <div>
-            <!-- empty column for alignment / future use -->
-          </div>
-        
-        </div>
-        <label for="description">Тема</label>
-        <textarea id="description" placeholder="Кратко описание на урока"></textarea>
-        <label for="description2">Описание</label>
-        <textarea id="description2" placeholder="Допълнително описание / бележки към урока"></textarea>
-        <div class="row">
+        </details>
+        <details class="fieldGroup">
+          <summary class="fieldGroupTitle">Ресурс</summary>
+          <div class="row">
           <div>
             <label for="url">URL</label>
             <input id="url" type="url" placeholder="https://..." />
@@ -540,17 +837,19 @@
             <input id="filepath" name="filepath" type="hidden" placeholder="/Users/.../file.pdf" />
           </div>
         </div>
-      </fieldset>
+        </details>
+      </details>
 
-<fieldset class="fullWidthSection">
-  <legend>Подсписъци</legend>
+<details>
+  <summary>Подсписъци</summary>
 
   <div class="subListsGrid">
 
    
 
-    <div class="subListPanel">
-      <label>Теореми</label>
+    <details open class="subListPanel fieldGroup">
+      <summary class="fieldGroupTitle">Теореми</summary>
+      <div class="subListTableWrap">
       <table id="th_table" style="width:100%; border-collapse:collapse; margin-top:6px;">
         <thead>
           <tr>
@@ -562,15 +861,17 @@
         </thead>
         <tbody id="th_table_body"></tbody>
       </table>
+      </div>
 
       <div class="subListControls">
         <input id="th_add_id" type="number" min="1" placeholder="въведи ID" />
         <button type="button" class="btn btn-plain" id="addTheorem">+ Добави</button>
       </div>
-    </div>
+    </details>
 
-    <div class="subListPanel">
-      <label>Упражнения</label>
+    <details class="subListPanel fieldGroup">
+      <summary class="fieldGroupTitle">Упражнения</summary>
+      <div class="subListTableWrap">
       <table id="ex_table" style="width:100%; border-collapse:collapse; margin-top:6px;">
         <thead>
           <tr>
@@ -582,12 +883,13 @@
         </thead>
         <tbody id="ex_table_body"></tbody>
       </table>
+      </div>
 
       <div class="subListControls">
         <input id="ex_add_id" type="number" min="1" placeholder="въведи ID" />
         <button type="button" class="btn btn-plain" id="addEx">+ Добави</button>
       </div>
-    </div>
+    </details>
 
   </div>
 
@@ -609,7 +911,7 @@
       </table>
     </div>
   </details>
-</fieldset>
+</details>
 
       <div style="display:flex; justify-content:space-between; align-items:center; margin:8px 0 6px;">
         <span id="editModeBadge" class="mode-badge">Режим: нов запис</span>
@@ -625,6 +927,7 @@
     <div id="msg" style="margin-top:16px;"></div>
 
     <h2>Последно добавени</h2>
+    <div class="subListTableWrap">
     <table id="recentTable">
       <colgroup>
         <col class="id" />
@@ -646,6 +949,7 @@
       </thead>
       <tbody></tbody>
     </table>
+    </div>
   </div>
 </div>
 
@@ -653,8 +957,8 @@
 
   <h1>Стари файлове към уроци</h1>
 
-  <fieldset>
-    <legend>Търсене на урок</legend>
+  <details open>
+    <summary>Търсене на урок</summary>
 
     <div class="searchModeTabs">
       <button
@@ -706,10 +1010,10 @@
         <tbody id="oldLessonResults"></tbody>
       </table>
     </div>
-  </fieldset>
+  </details>
 
-  <fieldset>
-    <legend>История на файловете</legend>
+  <details>
+    <summary>История на файловете</summary>
 
     <div style="overflow:auto;">
       <table>
@@ -726,7 +1030,7 @@
         <tbody id="oldLessonFileHistoryBody"></tbody>
       </table>
     </div>
-  </fieldset>
+  </details>
 
 </div>
 
