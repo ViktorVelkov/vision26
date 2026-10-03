@@ -771,13 +771,20 @@ app.get('/theorem-ref', async (req, res) => {
   if (!ids.length) return res.json([]);
 
   try {
-    const { rows } = await pool.query(
-      `SELECT "ID", t_name, t_definition
-         FROM public."Theorems"
-        WHERE "ID" = ANY($1::bigint[])
-        ORDER BY "ID" ASC`,
-      [ids]
-    );
+const { rows } = await pool.query(
+  `SELECT
+     "ID",
+     t_name,
+     t_definition,
+     COALESCE("keyWords", '{}'::text[]) AS "keyWords",
+     COALESCE("relatedTopics", '{}'::text[]) AS "relatedTopics",
+     COALESCE("lessons_in_tripplets", '{}'::text[]) AS "lessons_in_tripplets",
+     COALESCE("associatedSnippets", '{}'::integer[]) AS "associatedSnippets"
+   FROM public."Theorems"
+   WHERE "ID" = ANY($1::bigint[])
+   ORDER BY "ID" ASC`,
+  [ids]
+);
 
     res.json(rows);
   } catch (e) {
@@ -3977,6 +3984,373 @@ app.get('/lessons/search-by-snippet', async (req, res) => {
   } catch (err) {
     console.error('search-by-snippet (by source/tripplet) failed:', err);
     res.status(500).json({ error: 'DB error' });
+  }
+});
+
+
+// === THEOREMS API ===
+
+function theoremTextArray(value) {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map(v => String(v).trim())
+    .filter(Boolean);
+}
+
+function theoremIntArray(value) {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map(v => parseInt(v, 10))
+    .filter(Number.isInteger);
+}
+
+
+// GET /theorems/search?id=...&name=...&definition=...
+app.get('/theorems/search', async (req, res) => {
+  const idRaw = String(req.query.id || '').trim();
+  const nameRaw = String(req.query.name || '').trim();
+  const definitionRaw = String(req.query.definition || '').trim();
+
+  const params = [];
+  const where = [];
+
+  if (idRaw) {
+    const id = parseInt(idRaw, 10);
+
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({
+        error: 'Invalid theorem id'
+      });
+    }
+
+    params.push(id);
+    where.push(`"ID" = $${params.length}`);
+  }
+
+  if (nameRaw) {
+    params.push(nameRaw);
+
+    where.push(`
+      COALESCE(t_name, '')
+      ILIKE '%' || $${params.length} || '%'
+    `);
+  }
+
+  if (definitionRaw) {
+    params.push(definitionRaw);
+
+    where.push(`
+      COALESCE(t_definition, '')
+      ILIKE '%' || $${params.length} || '%'
+    `);
+  }
+
+  try {
+    const sql = `
+      SELECT
+        "ID",
+        t_name,
+        t_definition,
+        COALESCE("keyWords", '{}'::text[]) AS "keyWords",
+        COALESCE("relatedTopics", '{}'::text[]) AS "relatedTopics",
+        COALESCE("lessons_in_tripplets", '{}'::text[]) AS "lessons_in_tripplets",
+        COALESCE("associatedSnippets", '{}'::integer[]) AS "associatedSnippets"
+      FROM public."Theorems"
+      ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+      ORDER BY "ID" DESC
+      LIMIT 100
+    `;
+
+    const { rows } = await pool.query(sql, params);
+
+    return res.json(rows);
+
+  } catch (e) {
+    console.error(
+      'GET /theorems/search failed:',
+      e
+    );
+
+    return res.status(500).json({
+      error: 'DB error'
+    });
+  }
+});
+
+
+// POST /theorems
+app.post('/theorems', async (req, res) => {
+  const body = req.body || {};
+
+  const tName =
+    typeof body.t_name === 'string'
+      ? body.t_name.trim()
+      : '';
+
+  const tDefinition =
+    typeof body.t_definition === 'string'
+      ? body.t_definition.trim()
+      : '';
+
+  const keyWords =
+    theoremTextArray(body.keyWords);
+
+  const relatedTopics =
+    theoremTextArray(body.relatedTopics);
+
+  const lessonsInTripplets =
+    theoremTextArray(body.lessons_in_tripplets);
+
+  const associatedSnippets =
+    theoremIntArray(body.associatedSnippets);
+
+  if (!tName && !tDefinition) {
+    return res.status(400).json({
+      error: 'Missing theorem data'
+    });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `
+      INSERT INTO public."Theorems"
+      (
+        t_name,
+        t_definition,
+        "keyWords",
+        "relatedTopics",
+        "lessons_in_tripplets",
+        "associatedSnippets"
+      )
+      VALUES (
+        $1,
+        $2,
+        $3::text[],
+        $4::text[],
+        $5::text[],
+        $6::integer[]
+      )
+      RETURNING
+        "ID",
+        t_name,
+        t_definition,
+        "keyWords",
+        "relatedTopics",
+        "lessons_in_tripplets",
+        "associatedSnippets"
+      `,
+      [
+        tName || null,
+        tDefinition || null,
+        keyWords,
+        relatedTopics,
+        lessonsInTripplets,
+        associatedSnippets
+      ]
+    );
+
+    return res
+      .status(201)
+      .json(rows[0]);
+
+  } catch (e) {
+    console.error(
+      'POST /theorems failed:',
+      e
+    );
+
+    return res.status(500).json({
+      error: 'DB error'
+    });
+  }
+});
+
+
+// PATCH /theorems/:id
+app.patch('/theorems/:id', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+
+  if (!Number.isInteger(id)) {
+    return res.status(400).json({
+      error: 'Invalid theorem id'
+    });
+  }
+
+  const body = req.body || {};
+  const sets = [];
+  const params = [];
+
+  const has = key =>
+    Object.prototype.hasOwnProperty.call(body, key);
+
+
+  if (has('t_name')) {
+    const value =
+      typeof body.t_name === 'string'
+        ? body.t_name.trim()
+        : null;
+
+    params.push(value || null);
+
+    sets.push(`
+      t_name = $${params.length}
+    `);
+  }
+
+
+  if (has('t_definition')) {
+    const value =
+      typeof body.t_definition === 'string'
+        ? body.t_definition.trim()
+        : null;
+
+    params.push(value || null);
+
+    sets.push(`
+      t_definition = $${params.length}
+    `);
+  }
+
+
+  if (has('keyWords')) {
+    params.push(
+      theoremTextArray(body.keyWords)
+    );
+
+    sets.push(`
+      "keyWords" = $${params.length}::text[]
+    `);
+  }
+
+
+  if (has('relatedTopics')) {
+    params.push(
+      theoremTextArray(body.relatedTopics)
+    );
+
+    sets.push(`
+      "relatedTopics" = $${params.length}::text[]
+    `);
+  }
+
+
+  if (has('lessons_in_tripplets')) {
+    params.push(
+      theoremTextArray(
+        body.lessons_in_tripplets
+      )
+    );
+
+    sets.push(`
+      "lessons_in_tripplets" =
+      $${params.length}::text[]
+    `);
+  }
+
+
+  if (has('associatedSnippets')) {
+    params.push(
+      theoremIntArray(
+        body.associatedSnippets
+      )
+    );
+
+    sets.push(`
+      "associatedSnippets" =
+      $${params.length}::integer[]
+    `);
+  }
+
+
+  if (!sets.length) {
+    return res.status(400).json({
+      error: 'No fields provided'
+    });
+  }
+
+  try {
+    params.push(id);
+
+    const { rows } = await pool.query(
+      `
+      UPDATE public."Theorems"
+      SET ${sets.join(', ')}
+      WHERE "ID" = $${params.length}
+      RETURNING
+        "ID",
+        t_name,
+        t_definition,
+        "keyWords",
+        "relatedTopics",
+        "lessons_in_tripplets",
+        "associatedSnippets"
+      `,
+      params
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({
+        error: 'Theorem not found'
+      });
+    }
+
+    return res.json(rows[0]);
+
+  } catch (e) {
+    console.error(
+      'PATCH /theorems/:id failed:',
+      e
+    );
+
+    return res.status(500).json({
+      error: 'DB error'
+    });
+  }
+});
+
+
+// DELETE /theorems/:id
+app.delete('/theorems/:id', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+
+  if (!Number.isInteger(id)) {
+    return res.status(400).json({
+      error: 'Invalid theorem id'
+    });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `
+      DELETE FROM public."Theorems"
+      WHERE "ID" = $1
+      RETURNING "ID"
+      `,
+      [id]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({
+        error: 'Theorem not found'
+      });
+    }
+
+    return res.json({
+      ok: true,
+      deletedId: rows[0].ID
+    });
+
+  } catch (e) {
+    console.error(
+      'DELETE /theorems/:id failed:',
+      e
+    );
+
+    return res.status(500).json({
+      error: 'DB error'
+    });
   }
 });
 
