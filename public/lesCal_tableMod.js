@@ -247,6 +247,45 @@ tbody.addEventListener('click', function(e){
       return;
     }
 
+    // Merge with previous and shift subsequent lessons backward.
+if (btn.classList && btn.classList.contains('btn-merge-prev-shift')) {
+  if (statusEl) statusEl.textContent = 'Processing…';
+
+  persistWeekAndScroll();
+
+  apiFetch(
+    '/lessons-calendar/generatedyearplan/' +
+    encodeURIComponent(id) +
+    '/merge-back-and-shift',
+    {}
+  )
+    .then(async function(res) {
+      const data = await res.json().catch(function() {
+        return {};
+      });
+
+      if (!res.ok) {
+        throw new Error(data.error || ('HTTP ' + res.status));
+      }
+
+      return data;
+    })
+    .then(function() {
+      return refreshAfterChange(window.currentWeek);
+    })
+    .then(function() {
+      if (statusEl) statusEl.textContent = 'Готово';
+    })
+    .catch(function(err) {
+      console.error(err);
+      alert('Операцията не можа да се изпълни: ' + err.message);
+
+      if (statusEl) statusEl.textContent = 'Грешка';
+    });
+
+  return;
+}
+
     // merge-next-keep
     if (btn.classList && btn.classList.contains('btn-merge-next')){
       if (statusEl) statusEl.textContent = 'Processing…';

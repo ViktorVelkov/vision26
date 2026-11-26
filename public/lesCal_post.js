@@ -366,8 +366,223 @@ async function getNextDistributionTopic(client, subject, topicsMap) {
     }finally{ client.release(); }
   });
 
+// Merge current into previous, shift subsequent lessons backward,
+// and append the next unused distribution topic.
+app.post(
+  '/lessons-calendar/generatedyearplan/:id/merge-back-and-shift',
+  async (req, res) => {
+    const id = Number(req.params.id);
+
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ error: 'Invalid id' });
+    }
+
+    const client = await pool.connect();
+
+    try {
+      const { buildTopicsMapFromCurrentSchedule } =
+        require('./schedule/generator/raz_parser');
+
+      const parsed = await buildTopicsMapFromCurrentSchedule({
+        baseUrl: 'http://localhost:3001'
+      });
+
+      await client.query('BEGIN');
+
+      const curRes = await client.query(
+        `SELECT id, subject
+         FROM "generatedyearplan"
+         WHERE id = $1`,
+        [id]
+      );
+
+      if (!curRes.rowCount) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Row not found' });
+      }
+
+      const subject = curRes.rows[0].subject;
+
+      const { rows } = await client.query(
+        `SELECT id, subject, unit, unitetype, sectioninfo,
+                notes, "lessonCode", "indexInFile"
+         FROM "generatedyearplan"
+         WHERE subject = $1
+         ORDER BY id ASC
+         FOR UPDATE`,
+        [subject]
+      );
+
+      const idx = rows.findIndex(r => Number(r.id) === id);
+
+      if (idx <= 0) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'No previous slot available for merging'
+        });
+      }
+
+      if (
+        !String(rows[idx].unit ?? '').trim() ||
+        !String(rows[idx - 1].unit ?? '').trim()
+      ) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'Both current and previous lessons must contain a topic'
+        });
+      }
+
+      const { classId, division } =
+        parseClassDivisionFromSubject(subject);
+
+      const key = `${classId} ${division}`;
+      const topics = parsed.obj && parsed.obj[key];
+
+      if (
+        !Number.isInteger(classId) ||
+        !division ||
+        !Array.isArray(topics)
+      ) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'Distribution not available for ' + subject
+        });
+      }
+
+      const progressRes = await client.query(
+        `SELECT class, division, file, next_index
+         FROM distributionprogress
+         WHERE class = $1 AND division = $2
+         FOR UPDATE`,
+        [classId, division]
+      );
+
+      if (progressRes.rows.length !== 1) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'Expected exactly one progress row for ' + subject
+        });
+      }
+
+      const progress = progressRes.rows[0];
+      const nextIndex = Number(progress.next_index);
+
+      if (
+        !Number.isInteger(nextIndex) ||
+        nextIndex < 0 ||
+        nextIndex >= topics.length
+      ) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'No next unused topic in distribution'
+        });
+      }
+
+      // Merge the current lesson into the previous slot.
+      const merged = mergePayloads(
+        payloadFromRow(rows[idx - 1]),
+        payloadFromRow(rows[idx])
+      );
+
+      await client.query(
+        `UPDATE "generatedyearplan"
+         SET unit = $1,
+             unitetype = $2,
+             sectioninfo = $3,
+             notes = $4,
+             "lessonCode" = $5,
+             "indexInFile" = NULL
+         WHERE id = $6`,
+        [
+          merged.unit,
+          merged.unitetype,
+          merged.sectioninfo,
+          merged.notes,
+          merged.lessonCode,
+          rows[idx - 1].id
+        ]
+      );
+
+      // Pull all subsequent lessons backward, including empty slots.
+      for (let j = idx; j < rows.length - 1; j++) {
+        const src = rows[j + 1];
+
+        await client.query(
+          `UPDATE "generatedyearplan"
+           SET unit = $1,
+               unitetype = $2,
+               sectioninfo = $3,
+               notes = $4,
+               "lessonCode" = $5,
+               "indexInFile" = $6
+           WHERE id = $7`,
+          [
+            src.unit ?? '',
+            src.unitetype ?? '',
+            src.sectioninfo ?? '',
+            src.notes ?? '',
+            src.lessonCode ?? '',
+            src.indexInFile ?? null,
+            rows[j].id
+          ]
+        );
+      }
+
+      // Fill the final slot with the next unused topic.
+      const tail = rows[rows.length - 1];
+
+      await client.query(
+        `UPDATE "generatedyearplan"
+         SET unit = $1,
+             unitetype = '',
+             sectioninfo = '',
+             notes = '',
+             "lessonCode" = '',
+             "indexInFile" = $2
+         WHERE id = $3`,
+        [String(topics[nextIndex]), nextIndex, tail.id]
+      );
+
+      // Advance distribution progress exactly once.
+      const updated = await client.query(
+        `UPDATE distributionprogress
+         SET next_index = next_index + 1
+         WHERE class = $1
+           AND division = $2
+           AND file IS NOT DISTINCT FROM $3
+           AND next_index = $4`,
+        [classId, division, progress.file, nextIndex]
+      );
+
+      if (updated.rowCount !== 1) {
+        throw new Error('Distribution progress update conflict');
+      }
+
+      await client.query('COMMIT');
+
+      return res.json({
+        ok: true,
+        mergedInto: rows[idx - 1].id,
+        shiftedFrom: id,
+        filled: tail.id,
+        next_index: nextIndex + 1
+      });
+
+    } catch (e) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (_) {}
+
+      console.error('merge-back-and-shift failed:', e);
+      return res.status(500).json({ error: 'DB error' });
+
+    } finally {
+      client.release();
+    }
+  }
+);
+
   // 4) SHIFT-BACK-SEQUENCE  (btn-move-left "⟵")
- // 4) SHIFT-BACK-SEQUENCE
 // Pull subsequent lesson contents into the clicked empty slot.
 
 app.post(
