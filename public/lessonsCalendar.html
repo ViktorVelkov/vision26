@@ -518,10 +518,11 @@ function calculateLocalWeekNumber(dateValue){
         tdAct.style.whiteSpace = 'nowrap';
         tdAct.style.userSelect = 'none';
        tdAct.innerHTML = `
-        <button type="button" class="btn-move-left"   title="Измести всички назад, ако предишния слот е празен">⟵</button>
+        <button type="button" class="btn-move-left"   title="Измести всички назад с една позиция">⟵</button>
         <button type="button" class="btn-move-right"  title="Измести урока напред (без промяна на датите)">⟶</button>
         <button type="button" class="btn-merge-prev"  title="Слей с предишния (две теми в една клетка)">⟵м</button>
         <button type="button" class="btn-merge-next"  title="Слей със следващия (две теми в една клетка)">⟶м</button>
+        <button type="button" class="btn-merge-prev-shift" title="Слей с предишния и изтегли всички следващи уроци назад">⟵мм</button>
         <button type="button" class="btn-delete"      title="Delete row">🗑️</button>
       `;
        
