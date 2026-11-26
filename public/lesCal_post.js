@@ -137,6 +137,56 @@ module.exports = function initLessonsCalendarActions(app, pool) {
     }
   }
 
+async function getNextDistributionTopic(client, subject, topicsMap) {
+  const { classId, division } =
+    parseClassDivisionFromSubject(subject);
+
+  if (!Number.isInteger(classId) || !division) {
+    throw new Error('Invalid subject: ' + subject);
+  }
+
+  const key = `${classId} ${division}`;
+  const topics = topicsMap[key];
+
+  if (!Array.isArray(topics)) {
+    throw new Error('No distribution found for ' + key);
+  }
+
+  const result = await client.query(
+    `SELECT class, division, file, next_index
+     FROM distributionprogress
+     WHERE class = $1
+       AND division = $2
+     FOR UPDATE`,
+    [classId, division]
+  );
+
+  if (result.rows.length !== 1) {
+    throw new Error(
+      'Expected exactly one distribution progress row for ' + key
+    );
+  }
+
+  const progress = result.rows[0];
+  const nextIndex = Number(progress.next_index);
+
+  if (
+    !Number.isInteger(nextIndex) ||
+    nextIndex < 0 ||
+    nextIndex >= topics.length
+  ) {
+    throw new Error('No unused topics remaining for ' + key);
+  }
+
+  return {
+    classId,
+    division,
+    file: progress.file,
+    nextIndex,
+    topic: topics[nextIndex]
+  };
+}
+
   // --- endpoints used by the extra action buttons ---
 
   // 1) PUSH-NEXT  (btn-move-right)
@@ -317,68 +367,171 @@ module.exports = function initLessonsCalendarActions(app, pool) {
   });
 
   // 4) SHIFT-BACK-SEQUENCE  (btn-move-left "⟵")
-  // "<-": pull the whole chain one step back INCLUDING the current row.
-  // Effect: prev := current, current := next, next := next+1, ..., last := empty.
-  // Guard: operation allowed only if the immediate previous slot is empty.
-  app.post('/lessons-calendar/generatedyearplan/:id/shift-back-sequence', async (req,res)=>{
-    const id = parseInt(req.params.id, 10);
+ // 4) SHIFT-BACK-SEQUENCE
+// Pull subsequent lesson contents into the clicked empty slot.
+
+app.post(
+  '/lessons-calendar/generatedyearplan/:id/shift-back-sequence',
+  async (req, res) => {
+
+    const id = Number(req.params.id);
+
     logServer('shift-back-sequence:start', { id });
-    if (!Number.isInteger(id)) return res.status(400).json({ error:'Invalid id' });
+
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({
+        error: 'Invalid id'
+      });
+    }
+
     const client = await pool.connect();
-    try{
+
+    try {
+      const { buildTopicsMapFromCurrentSchedule } =
+        require('./schedule/generator/raz_parser');
+
+      const parsed = await buildTopicsMapFromCurrentSchedule({
+        baseUrl: 'http://localhost:3001'
+      });
+
+      const topicsMap = parsed.obj;
+
       await client.query('BEGIN');
 
-      const curRes = await client.query(`SELECT id, subject, class, division FROM "generatedyearplan" WHERE id = $1`, [id]);
-      if (!curRes.rows.length){ await client.query('ROLLBACK'); return res.status(404).json({ error:'Row not found' }); }
-      const subject = curRes.rows[0].subject;
+      // 1. Find selected row.
+      const curRes = await client.query(
+        `SELECT id, subject
+         FROM "generatedyearplan"
+         WHERE id = $1`,
+        [id]
+      );
 
-      const curRow = curRes.rows[0];
-
-      // Load all rows for this subject, ordered by id ASC
-      const rows = await loadSubjectRows(client, subject);
-      const idx = rows.findIndex(r=>r.id === id);
-      if (idx < 0){ await client.query('ROLLBACK'); return res.status(404).json({ error:'Index not found' }); }
-      if (idx === 0){ await client.query('ROLLBACK'); return res.status(400).json({ error:'No previous slot' }); }
-
-      // Guard: previous slot must be empty (only `unit` is considered)
-      const prevPayload = payloadFromRow(rows[idx-1]);
-      const prevUnitEmpty = ((prevPayload.unit || '').trim().length === 0);
-      if (!prevUnitEmpty){
+      if (!curRes.rows.length) {
         await client.query('ROLLBACK');
-        return res.status(409).json({
-          error: 'Previous slot is not empty (unit not empty)',
-          reason: 'prev-not-empty',
-          prevRowId: rows[idx-1].id,
-          prevPreview: prevPayload
+
+        return res.status(404).json({
+          error: 'Row not found'
         });
       }
 
-      // 1) prev := current
-      const curPayload = payloadFromRow(rows[idx]);
-      await writePayload(client, rows[idx-1].id, curPayload);
+      const subject = curRes.rows[0].subject;
 
-      // 2) For k = idx .. last-1: row[k] := row[k+1]
-      for (let k = idx; k < rows.length - 1; k++){
-        const src = payloadFromRow(rows[k+1]);
-        await writePayload(client, rows[k].id, src);
+      // 2. Load the chronological sequence.
+      const rows = await loadSubjectRows(client, subject);
+
+      const idx = rows.findIndex(
+        row => Number(row.id) === id
+      );
+
+      if (idx < 0) {
+        await client.query('ROLLBACK');
+
+        return res.status(404).json({
+          error: 'Row not found in sequence'
+        });
       }
 
-      // 3) Clear tail (last row)
-      const lastId = rows[rows.length - 1].id;
-      await writePayload(client, lastId, { unit:'', unitetype:'', sectioninfo:'', notes:'', lessonCode:'' });
+      // 3. The clicked slot must be empty.
+      const currentPayload = payloadFromRow(rows[idx]);
 
-      await updateNextIndexForSubject(client, subject);
+      if (String(currentPayload.unit || '').trim() !== '') {
+        await client.query('ROLLBACK');
+
+        return res.status(409).json({
+          error: 'Current slot is not empty',
+          reason: 'current-not-empty'
+        });
+      }
+
+      // 4. Obtain the next unused distribution topic.
+      const next = await getNextDistributionTopic(
+        client,
+        subject,
+        topicsMap
+      );
+
+      // 5. Shift all subsequent payloads one position backward.
+      // Empty slots are included.
+      const payloads = rows.map(payloadFromRow);
+
+      for (let i = idx; i < rows.length - 1; i++) {
+        await writePayload(
+          client,
+          rows[i].id,
+          payloads[i + 1]
+        );
+      }
+
+      // 6. Fill the final slot with the next unused topic.
+      const lastRow = rows[rows.length - 1];
+
+      await writePayload(client, lastRow.id, {
+        unit: String(next.topic),
+        unitetype: '',
+        sectioninfo: '',
+        notes: '',
+        lessonCode: '',
+        indexInFile: next.nextIndex
+      });
+
+      // 7. Advance next_index exactly once.
+      const updated = await client.query(
+        `UPDATE distributionprogress
+         SET next_index = next_index + 1
+         WHERE class = $1
+           AND division = $2
+           AND file IS NOT DISTINCT FROM $3
+           AND next_index = $4`,
+        [
+          next.classId,
+          next.division,
+          next.file,
+          next.nextIndex
+        ]
+      );
+
+      if (updated.rowCount !== 1) {
+        throw new Error('Distribution progress update failed');
+      }
 
       await client.query('COMMIT');
-      logServer('shift-back-sequence:done', { movedPrev: rows[idx-1].id, tailCleared: lastId });
-      return res.json({ ok:true, movedPrev: rows[idx-1].id, tailCleared: lastId });
-    }catch(e){
-      await client.query('ROLLBACK');
-      logServer('shift-back-sequence:error', { id, error: e && e.message ? e.message : String(e) });
+
+      logServer('shift-back-sequence:done', {
+        id,
+        subject,
+        filled: lastRow.id,
+        next_index: next.nextIndex + 1
+      });
+
+      return res.json({
+        ok: true,
+        subject,
+        shiftedFrom: id,
+        filled: lastRow.id,
+        next_index: next.nextIndex + 1
+      });
+
+    } catch (e) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (_) {}
+
+      logServer('shift-back-sequence:error', {
+        id,
+        error: e.message
+      });
+
       console.error('shift-back-sequence failed:', e);
-      return res.status(500).json({ error:'DB error' });
-    }finally{ client.release(); }
-  });
+
+      return res.status(500).json({
+        error: 'DB error'
+      });
+
+    } finally {
+      client.release();
+    }
+  }
+);
 
   // Export for internal use (testability, future use)
   module.exports.groupBySubject = groupBySubject;
