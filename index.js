@@ -2324,19 +2324,24 @@ app.patch('/lessons-calendar/generatedyearplan/:id', async (req, res) => {
 
 // === NEW: Backward sequence operations for Lessons Calendar ===
 // Helper to load ordered rows for same subject
-async function loadSubjectRows(client, subject, classId, division) {
+async function loadSubjectRows(client, subject) {
   const { rows } = await client.query(
-    `SELECT id, unit, unitetype, sectioninfo, notes,
-            "lessonCode", "indexInFile", subject, class, division
-       FROM "generatedyearplan"
-      WHERE subject IS NOT DISTINCT FROM $1
-        AND class IS NOT DISTINCT FROM $2
-        AND division IS NOT DISTINCT FROM $3
-      ORDER BY date ASC NULLS LAST,
-               start_time ASC NULLS LAST,
-               id ASC
-      FOR UPDATE`,
-    [subject, classId, division]
+    `SELECT
+       id,
+       subject,
+       unit,
+       unitetype,
+       sectioninfo,
+       notes,
+       "lessonCode",
+       "indexInFile",
+       date,
+       start_time
+     FROM "generatedyearplan"
+     WHERE subject = $1
+     ORDER BY date ASC, start_time ASC, id ASC
+     FOR UPDATE`,
+    [subject]
   );
 
   return rows;
@@ -2345,6 +2350,7 @@ async function loadSubjectRows(client, subject, classId, division) {
 function isEmptyPayload(p){
   return !((p.unit||'').trim() || (p.unitetype||'').trim() || (p.sectioninfo||'').trim() || (p.notes||'').trim() || (p.lessonCode||'').trim());
 }
+
 function payloadFromRow(r) {
   return {
     unit: r.unit ?? '',
@@ -2359,13 +2365,14 @@ function payloadFromRow(r) {
 async function writePayload(client, id, p) {
   await client.query(
     `UPDATE "generatedyearplan"
-        SET unit = $1,
-            unitetype = $2,
-            sectioninfo = $3,
-            notes = $4,
-            "lessonCode" = $5,
-            "indexInFile" = $6
-      WHERE id = $7`,
+     SET
+       unit = $1,
+       unitetype = $2,
+       sectioninfo = $3,
+       notes = $4,
+       "lessonCode" = $5,
+       "indexInFile" = $6
+     WHERE id = $7`,
     [
       p.unit ?? '',
       p.unitetype ?? '',
@@ -2432,11 +2439,11 @@ app.post('/lessons-calendar/generatedyearplan/:id/shift-back-sequence', async (r
     await client.query('BEGIN');
 
     const curRes = await client.query(
-      `SELECT id, subject, class, division
-         FROM "generatedyearplan"
-        WHERE id = $1`,
-      [id]
-    );
+  `SELECT id, subject
+   FROM "generatedyearplan"
+   WHERE id = $1`,
+  [id]
+);
 
     if (!curRes.rows.length) {
       await client.query('ROLLBACK');
