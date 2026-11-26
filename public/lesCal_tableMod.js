@@ -161,28 +161,48 @@ tbody.addEventListener('click', function(e){
     console.debug('[lesCal UI] action click', { target: btn.className || btn.textContent, id: id });
 
     // shift-back (btn-move-left)
-    if (btn.classList && btn.classList.contains('btn-move-left')){
-      if (statusEl) statusEl.textContent = 'Processing…';
-      persistWeekAndScroll();
-      apiFetch('/lessons-calendar/generatedyearplan/' + encodeURIComponent(id) + '/shift-back-sequence', {})
-        .then(function(res){
-          if (res.status === 409) return res.json().then(function(data){
-            // backend returns { error: 'Previous slot is not empty', reason: 'prev-not-empty', prevRowId, prevPreview }
-            var msg = 'Предишният слот не е празен. Операцията не може да бъде извършена.';
-            if (data && data.prevPreview) msg += '\n\nПредишен: ' + (data.prevPreview.unit || '(без тема)');
-            alert(msg);
-            if (statusEl) statusEl.textContent = 'Отказано';
-            throw new Error('conflict');
-          }); else return res;
-        })
-        .then(function(res){ if (!res || !res.ok) throw new Error('shift-back failed'); return res.json(); })
-        .then(function(data){
-          console.log('[lesCal UI] shift-back ok (prev := current, rest shifted)', { id: id, data: data });
-          return refreshAfterChange(window.currentWeek);
-        }).then(function(){ if (statusEl) statusEl.textContent = 'Готово'; })
-        .catch(function(err){ if (String(err.message) !== 'conflict') { console.error(err); alert('Операцията не можа да се изпълни.'); if (statusEl) statusEl.textContent = 'Грешка'; } });
-      return;
-    }
+    if (btn.classList && btn.classList.contains('btn-move-left')) {
+  if (statusEl) statusEl.textContent = 'Processing…';
+
+  persistWeekAndScroll();
+
+  apiFetch(
+    '/lessons-calendar/generatedyearplan/' +
+    encodeURIComponent(id) +
+    '/shift-back-sequence',
+    {}
+  )
+    .then(async function(res) {
+      const data = await res.json().catch(function() {
+        return {};
+      });
+
+      if (!res.ok) {
+        throw new Error(data.error || ('HTTP ' + res.status));
+      }
+
+      return data;
+    })
+    .then(function(data) {
+      console.log('[lesCal UI] shift-back ok', {
+        id: id,
+        data: data
+      });
+
+      return refreshAfterChange(window.currentWeek);
+    })
+    .then(function() {
+      if (statusEl) statusEl.textContent = 'Готово';
+    })
+    .catch(function(err) {
+      console.error(err);
+      alert('Операцията не можа да се изпълни: ' + err.message);
+
+      if (statusEl) statusEl.textContent = 'Грешка';
+    });
+
+  return;
+}
 
     // push-next
     if (btn.classList && btn.classList.contains('btn-move-right')){
