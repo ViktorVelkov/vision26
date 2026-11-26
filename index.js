@@ -2324,40 +2324,59 @@ app.patch('/lessons-calendar/generatedyearplan/:id', async (req, res) => {
 
 // === NEW: Backward sequence operations for Lessons Calendar ===
 // Helper to load ordered rows for same subject
-async function loadSubjectRows(client, subject){
+async function loadSubjectRows(client, subject, classId, division) {
   const { rows } = await client.query(
-    `SELECT id, unit, unitetype, sectioninfo, notes, "lessonCode", subject
+    `SELECT id, unit, unitetype, sectioninfo, notes,
+            "lessonCode", "indexInFile", subject, class, division
        FROM "generatedyearplan"
-      WHERE subject = $1
-      ORDER BY id ASC`,
-    [subject]
+      WHERE subject IS NOT DISTINCT FROM $1
+        AND class IS NOT DISTINCT FROM $2
+        AND division IS NOT DISTINCT FROM $3
+      ORDER BY date ASC NULLS LAST,
+               start_time ASC NULLS LAST,
+               id ASC
+      FOR UPDATE`,
+    [subject, classId, division]
   );
+
   return rows;
 }
 
 function isEmptyPayload(p){
   return !((p.unit||'').trim() || (p.unitetype||'').trim() || (p.sectioninfo||'').trim() || (p.notes||'').trim() || (p.lessonCode||'').trim());
 }
-
-function payloadFromRow(r){
+function payloadFromRow(r) {
   return {
-    unit: (r.unit||'').trim(),
-    unitetype: (r.unitetype||'').trim(),
-    sectioninfo: (r.sectioninfo||'').trim(),
-    notes: (r.notes||'').trim(),
-    lessonCode: (r.lessonCode||'').trim()
+    unit: r.unit ?? '',
+    unitetype: r.unitetype ?? '',
+    sectioninfo: r.sectioninfo ?? '',
+    notes: r.notes ?? '',
+    lessonCode: r.lessonCode ?? '',
+    indexInFile: r.indexInFile ?? null
   };
 }
 
-async function writePayload(client, id, p){
+async function writePayload(client, id, p) {
   await client.query(
     `UPDATE "generatedyearplan"
-        SET unit = $1, unitetype = $2, sectioninfo = $3, notes = $4, "lessonCode" = $5
-      WHERE id = $6`,
-    [p.unit||'', p.unitetype||'', p.sectioninfo||'', p.notes||'', p.lessonCode||'', id]
+        SET unit = $1,
+            unitetype = $2,
+            sectioninfo = $3,
+            notes = $4,
+            "lessonCode" = $5,
+            "indexInFile" = $6
+      WHERE id = $7`,
+    [
+      p.unit ?? '',
+      p.unitetype ?? '',
+      p.sectioninfo ?? '',
+      p.notes ?? '',
+      p.lessonCode ?? '',
+      p.indexInFile ?? null,
+      id
+    ]
   );
 }
-
 
 async function updateNextIndexForClass(client, { classId, division }) {
   const { rows } = await client.query(`
@@ -2391,56 +2410,170 @@ async function updateNextIndexForClass(client, { classId, division }) {
 // "<-": shift the whole chain one step back towards earlier rows.
 // Effect: for subject group, for all rows up to current index, each row takes the content of the next row (j := j+1);
 // current row becomes empty at the end. No dates are changed.
-app.post('/lessons-calendar/generatedyearplan/:id/shift-back-sequence', async (req,res)=>{
-  const id = parseInt(req.params.id, 10);
-  if (!Number.isInteger(id)) return res.status(400).json({ error:'Invalid id' });
+app.post('/lessons-calendar/generatedyearplan/:id/shift-back-sequence', async (req, res) => {
+  const id = Number(req.params.id);
+
+  if (!Number.isInteger(id)) {
+    return res.status(400).json({ error: 'Invalid id' });
+  }
+
   const client = await pool.connect();
-  try{
+
+  try {
+    const { buildTopicsMapFromCurrentSchedule } =
+      require('./public/schedule/generator/raz_parser');
+
+    const result = await buildTopicsMapFromCurrentSchedule({
+      baseUrl: 'http://localhost:3001'
+    });
+
+    const topicsMap = result.obj;
+
     await client.query('BEGIN');
-    const curRes = await client.query(`SELECT id, subject, class, division FROM "generatedyearplan" WHERE id = $1`, [id]);
-    if (!curRes.rows.length){ await client.query('ROLLBACK'); return res.status(404).json({ error:'Row not found' }); }
-    const subject = curRes.rows[0].subject;
-    const rows = await loadSubjectRows(client, subject);
-    const idx = rows.findIndex(r=>r.id === id);
-    if (idx < 0){ await client.query('ROLLBACK'); return res.status(404).json({ error:'Index not found' }); }
 
-    // Guard: allow only if the immediate previous slot is empty (no lesson content)
-    if (idx > 0) {
-      const prevPayload = payloadFromRow(rows[idx-1]);
-      if (!isEmptyPayload(prevPayload)) {
-        await client.query('ROLLBACK');
-        return res.status(409).json({
-          error: 'Previous slot is not empty',
-          reason: 'prev-not-empty',
-          prevRowId: rows[idx-1].id,
-          prevPreview: prevPayload
-        });
-      }
+    const curRes = await client.query(
+      `SELECT id, subject, class, division
+         FROM "generatedyearplan"
+        WHERE id = $1`,
+      [id]
+    );
+
+    if (!curRes.rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Row not found' });
     }
 
-    // Backward shift: j from idx-1 down to 0, row[j] := row[j+1]
-    for (let j = idx-1; j >= 0; j--) {
-      const src = payloadFromRow(rows[j+1]);
-      await writePayload(client, rows[j].id, src);
-    }
-    // clear current row
-    await writePayload(client, rows[idx].id, { unit:'', unitetype:'', sectioninfo:'', notes:'', lessonCode:'' });
+    const cur = curRes.rows[0];
 
-    // Sync distributionprogress.next_index based on the max sectioninfo index for this class/division
-    const curRow = curRes.rows[0];
-    const classId = (curRow && curRow.class != null) ? parseInt(curRow.class, 10) : null;
-    const division = (curRow && curRow.division != null) ? String(curRow.division) : null;
-    if (Number.isInteger(classId) && division) {
-      await updateNextIndexForClass(client, { classId, division });
+    const rows = await loadSubjectRows(
+      client,
+      cur.subject,
+      cur.class,
+      cur.division
+    );
+
+    const idx = rows.findIndex(row => Number(row.id) === id);
+
+    if (idx < 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Row not in sequence' });
+    }
+
+    if (!isEmptyPayload(payloadFromRow(rows[idx]))) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'Current slot is not empty',
+        reason: 'current-not-empty'
+      });
+    }
+
+    const key =
+      String(cur.class).trim() +
+      (String(cur.division ?? '').trim()
+        ? ' ' + String(cur.division).trim()
+        : '');
+
+    const topics = topicsMap && topicsMap[key];
+
+    if (!Array.isArray(topics)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'Distribution topics unavailable for ' + key
+      });
+    }
+
+    const progressResult = await client.query(
+      `SELECT class, division, file, next_index
+         FROM distributionprogress
+        WHERE class = $1
+          AND division IS NOT DISTINCT FROM $2
+        FOR UPDATE`,
+      [cur.class, cur.division]
+    );
+
+    if (progressResult.rows.length !== 1) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'Expected exactly one distribution progress record for ' + key
+      });
+    }
+
+    const progress = progressResult.rows[0];
+    const nextIndex = Number(progress.next_index);
+
+    if (
+      !Number.isInteger(nextIndex) ||
+      nextIndex < 0 ||
+      nextIndex >= topics.length
+    ) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'No next unused topic in distribution',
+        next_index: progress.next_index
+      });
+    }
+
+    // Преместване на всички следващи позиции с една назад.
+    // Празните позиции също участват.
+    for (let j = idx; j < rows.length - 1; j++) {
+      await writePayload(
+        client,
+        rows[j].id,
+        payloadFromRow(rows[j + 1])
+      );
+    }
+
+    // Попълване на последния слот.
+    await writePayload(client, rows[rows.length - 1].id, {
+      unit: String(topics[nextIndex] ?? ''),
+      unitetype: '',
+      sectioninfo: '',
+      notes: '',
+      lessonCode: '',
+      indexInFile: nextIndex
+    });
+
+    // Увеличаване на индекса точно веднъж.
+    const update = await client.query(
+      `UPDATE distributionprogress
+          SET next_index = next_index + 1
+        WHERE class = $1
+          AND division IS NOT DISTINCT FROM $2
+          AND file IS NOT DISTINCT FROM $3
+          AND next_index = $4`,
+      [
+        progress.class,
+        progress.division,
+        progress.file,
+        nextIndex
+      ]
+    );
+
+    if (update.rowCount !== 1) {
+      throw new Error('Distribution progress update conflict');
     }
 
     await client.query('COMMIT');
-    return res.json({ ok:true, shiftedUntil: rows[0]?.id || null, cleared: rows[idx].id });
-  }catch(e){
-    await client.query('ROLLBACK');
+
+    return res.json({
+      ok: true,
+      shiftedFrom: id,
+      filled: rows[rows.length - 1].id,
+      next_index: nextIndex + 1
+    });
+
+  } catch (e) {
+    try {
+      await client.query('ROLLBACK');
+    } catch (_) {}
+
     console.error('shift-back-sequence failed:', e);
-    return res.status(500).json({ error:'DB error' });
-  }finally{ client.release(); }
+
+    return res.status(500).json({ error: 'DB error' });
+
+  } finally {
+    client.release();
+  }
 });
 
 app.use('/lessons-calendar', require('./routes/lessonsCalendar'));
