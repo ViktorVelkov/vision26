@@ -415,13 +415,10 @@ app.post(
 
       const idx = rows.findIndex(r => Number(r.id) === id);
 
-      if (
-        !String(rows[idx].unit ?? '').trim() ||
-        !String(rows[idx - 1].unit ?? '').trim()
-      ) {
+      if (idx <= 0) {
         await client.query('ROLLBACK');
         return res.status(409).json({
-          error: 'Both current and previous lessons must contain a topic'
+          error: 'No previous slot available for merging'
         });
       }
 
