@@ -415,13 +415,6 @@ app.post(
 
       const idx = rows.findIndex(r => Number(r.id) === id);
 
-      if (idx <= 0) {
-        await client.query('ROLLBACK');
-        return res.status(409).json({
-          error: 'No previous slot available for merging'
-        });
-      }
-
       if (
         !String(rows[idx].unit ?? '').trim() ||
         !String(rows[idx - 1].unit ?? '').trim()
